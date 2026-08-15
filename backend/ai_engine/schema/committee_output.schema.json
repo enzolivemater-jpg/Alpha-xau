@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alpha-xau.internal/schema/committee_output.schema.json",
+  "title": "ALPHA-XAU Committee Analysis Output",
+  "description": "Contrat exact retourné au frontend par backend/ai_engine/committee_orchestrator.ts. Les sept clés racine imposées par la spécification sont requises. `meta` est un ajout optionnel destiné à l'auditabilité (SPEC §87) : le frontend peut l'ignorer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "market_regime",
+    "overall_bias",
+    "confidence",
+    "scenarios",
+    "drivers",
+    "risks",
+    "invalidations"
+  ],
+  "properties": {
+    "market_regime": {
+      "description": "Régime de marché identifié. SPEC §18.",
+      "type": "string",
+      "enum": [
+        "risk_on",
+        "risk_off",
+        "reflation",
+        "stagflation",
+        "disinflation",
+        "crisis",
+        "range_bound",
+        "trend_bull",
+        "trend_bear"
+      ]
+    },
+    "overall_bias": {
+      "description": "Biais directionnel produit par le Portfolio Manager sous contrainte du Risk Committee. FAIT AUTORITÉ : aucun consommateur ne doit le recalculer à partir des scénarios (P1-6). Un overall_bias 'neutral' avec un H1 'bullish' est cohérent et doit être affiché tel quel.",
+      "type": "string",
+      "enum": [
+        "bullish",
+        "bearish",
+        "neutral"
+      ]
+    },
+    "confidence": {
+      "description": "Confiance globale 0-100. Plafonnée par confidence_cap du Risk Committee, appliqué côté serveur.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "scenarios": {
+      "description": "Les quatre horizons SPEC §37. Tous obligatoires. La somme des probabilités vaut exactement 100.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "H1",
+        "H2",
+        "H3",
+        "H4"
+      ],
+      "properties": {
+        "H1": {
+          "$ref": "#/$defs/scenario",
+          "description": "Intraday, 1 à 6 heures."
+        },
+        "H2": {
+          "$ref": "#/$defs/scenario",
+          "description": "24 heures."
+        },
+        "H3": {
+          "$ref": "#/$defs/scenario",
+          "description": "Hebdomadaire."
+        },
+        "H4": {
+          "$ref": "#/$defs/scenario",
+          "description": "Structurel, mensuel."
+        }
+      }
+    },
+    "drivers": {
+      "description": "Facteurs dominants, ordonnés du plus fort au plus faible.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "risks": {
+      "description": "Ce qui peut invalider la lecture dominante.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "invalidations": {
+      "description": "Conditions annulant l'analyse, avec niveau chiffré.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "meta": {
+      "description": "Métadonnées d'audit. Absentes du contrat minimal, requises pour rattacher une analyse à sa version de modèle (SPEC §87, §97).",
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "model_version",
+        "execution_status",
+        "risk_verdict",
+        "confidence_cap",
+        "spot_reference",
+        "generated_at"
+      ],
+      "properties": {
+        "analysis_id": {
+          "description": "UUID de la ligne ai_analyses. null si la persistance a échoué.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "model_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_status": {
+          "description": "NO_VALID_SETUP dès qu'une condition de SPEC §39 manque.",
+          "type": "string",
+          "enum": [
+            "VALID_SETUP",
+            "NO_VALID_SETUP"
+          ]
+        },
+        "risk_verdict": {
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "APPROVED_WITH_CONDITIONS",
+            "REJECTED",
+            "DATA_INSUFFICIENT",
+            "CONFLICT"
+          ],
+          "description": "Verdict du Risk Committee. DATA_INSUFFICIENT et CONFLICT sont des causes DISTINCTES de REJECTED : elles ne doivent jamais y être repliées, sous peine de rendre la calibration aveugle."
+        },
+        "confidence_cap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "spot_reference": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "data_quality_issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "validation_errors": {
+          "description": "Motifs déterministes de bascule en NO_VALID_SETUP. Vide si VALID_SETUP.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "agents": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "model",
+              "latency_ms"
+            ],
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "latency_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "total_latency_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rejection_reasons": {
+          "description": "Motifs du blocage. Obligatoirement non vide si risk_verdict vaut REJECTED, DATA_INSUFFICIENT ou CONFLICT.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "RÈGLE ABSOLUE : aucun scénario ne peut exister sans justification, probabilité et invalidation numérique. Les trois sont requis par le schéma, pas seulement par le prompt.",
+      "required": [
+        "direction",
+        "probability",
+        "target",
+        "invalidation",
+        "activation_condition",
+        "confidence",
+        "reasoning"
+      ],
+      "properties": {
+        "direction": {
+          "type": "string",
+          "enum": [
+            "bullish",
+            "bearish",
+            "neutral"
+          ]
+        },
+        "probability": {
+          "description": "Entier 0-100. La somme des quatre horizons vaut exactement 100.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "target": {
+          "description": "Prix cible. bullish => target > invalidation. bearish => target < invalidation.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "invalidation": {
+          "description": "NIVEAU D'INVALIDATION MATHÉMATIQUE. Doit être un prix strictement positif. Ni null, ni 0, ni une chaîne de caractères.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "activation_condition": {
+          "description": "CONDITION D'ACTIVATION. Déclencheur observable indiquant QUAND le scénario devient actif. Une cible et une invalidation disent où va le scénario et où il meurt ; elles ne disent pas quand il commence. Minimum 15 caractères, aligné sur le CHECK SQL chk_ai_scenarios_activation_substantive.",
+          "type": "string",
+          "minLength": 15
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "reasoning": {
+          "description": "Justification substantielle. Minimum 20 caractères, aligné sur la validation serveur.",
+          "type": "string",
+          "minLength": 20
+        }
+      }
+    }
+  }
+}

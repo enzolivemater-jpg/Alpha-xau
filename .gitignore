@@ -1,0 +1,37 @@
+# =============================================================================
+#  ALPHA-XAU — .gitignore
+#
+#  Première barrière contre la fuite de secrets. Le garde du workflow Pages
+#  n'inspecte que frontend/ : ce fichier protège tout le reste du dépôt.
+# =============================================================================
+
+# --- SECRETS — ne doivent JAMAIS être versionnés ----------------------------
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+
+# --- Cloudflare / Wrangler --------------------------------------------------
+.wrangler/
+wrangler.toml.bak
+
+# --- Node -------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+.npm/
+
+# --- Sorties de build et artefacts de test ----------------------------------
+dist/
+build/
+*.tsbuildinfo
+coverage/
+
+# --- Système ----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

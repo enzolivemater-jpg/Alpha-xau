@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="terminal">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="ALPHA-XAU Institutional Terminal — intelligence macro et analyse quantitative XAUUSD.">
+<title>ALPHA-XAU TERMINAL</title>
+
+<!--
+  ============================================================================
+  ALPHA-XAU INSTITUTIONAL TERMINAL
+  frontend/index.html
+
+  Déploiement : GitHub Pages. Aucun build, aucun framework, aucune dépendance
+  externe. HTML5 + CSS3 + JavaScript ES6 uniquement.
+
+  SÉCURITÉ (MASTER SPEC §60, §69) :
+  Cette page est publique. Elle ne doit contenir AUCUNE clé privée.
+  La seule clé admise ci-dessous est la clé `anon` Supabase, qui est conçue
+  pour être publique : elle n'ouvre que ce que les policies RLS autorisent
+  (lecture du marché, des news et des analyses ; aucune écriture).
+  La clé service_role ne doit JAMAIS apparaître ici.
+  ============================================================================
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<script>
+  /*
+   * Configuration d'exécution. Remplacer par les valeurs du projet Supabase.
+   * Laisser SUPABASE_URL vide fait démarrer le terminal en MODE DÉMO :
+   * il s'affiche avec des données de démonstration clairement signalées,
+   * ce qui permet de valider le déploiement GitHub Pages avant que le
+   * backend ne soit en ligne.
+   */
+  window.ALPHA_XAU_CONFIG = {
+    SUPABASE_URL: '',            // ex. 'https://xxxxxxxx.supabase.co'
+    SUPABASE_ANON_KEY: '',       // clé publique anon — jamais la service_role
+    POLL_INTERVAL_MS: 5000,      // repli si le WebSocket est indisponible
+    ANALYSIS_INTERVAL_MS: 60000, // l'analyse IA change lentement
+    STALE_THRESHOLD_S: 60,       // au-delà, la donnée est marquée STALE
+  };
+</script>
+
+<!-- ======================= BARRE DE STATUT ============================== -->
+<header class="topbar">
+  <div class="topbar__identity">
+    <span class="topbar__mark">ALPHA-XAU</span>
+    <span class="topbar__sub">INSTITUTIONAL TERMINAL</span>
+  </div>
+
+  <div class="topbar__status" role="status" aria-live="polite">
+    <span class="conn" id="conn-indicator" data-state="connecting">
+      <i class="conn__dot" aria-hidden="true"></i>
+      <span class="conn__label" id="conn-label">CONNEXION…</span>
+    </span>
+    <span class="topbar__divider" aria-hidden="true"></span>
+    <span class="topbar__field">
+      <span class="topbar__key">FLUX</span>
+      <span class="topbar__val" id="transport-mode">—</span>
+    </span>
+    <span class="topbar__divider" aria-hidden="true"></span>
+    <span class="topbar__field">
+      <span class="topbar__key">UTC</span>
+      <span class="topbar__val num" id="clock-utc">--:--:--</span>
+    </span>
+    <span class="topbar__divider" aria-hidden="true"></span>
+    <span class="topbar__field">
+      <span class="topbar__key">SESSION</span>
+      <span class="topbar__val" id="session-label">—</span>
+    </span>
+  </div>
+</header>
+
+<!-- Bandeau d'incident. Masqué tant qu'aucune erreur n'est active. -->
+<div class="banner" id="error-banner" role="alert" hidden>
+  <span class="banner__tag">INCIDENT</span>
+  <span class="banner__msg" id="error-message"></span>
+  <button class="banner__action" type="button" id="error-retry">Réessayer</button>
+</div>
+
+<main class="grid">
+
+  <!-- ============== PANNEAU 1 — COMMAND CENTER ========================= -->
+  <section class="panel panel--command" aria-labelledby="p1-title">
+    <div class="panel__head">
+      <h2 class="panel__title" id="p1-title">COMMAND CENTER</h2>
+      <span class="panel__meta" id="command-updated">—</span>
+    </div>
+
+    <div class="panel__body command">
+
+      <div class="quote">
+        <div class="quote__row">
+          <span class="quote__symbol">XAUUSD</span>
+          <span class="badge" id="price-freshness" data-state="unknown">—</span>
+        </div>
+        <div class="quote__price num" id="spot-price" aria-live="polite">----.--</div>
+        <div class="quote__row quote__row--tight">
+          <span class="quote__change num" id="spot-change">—</span>
+          <span class="quote__spread">
+            <span class="k">BID</span><span class="num" id="spot-bid">—</span>
+            <span class="k">ASK</span><span class="num" id="spot-ask">—</span>
+            <span class="k">SPR</span><span class="num" id="spot-spread">—</span>
+          </span>
+        </div>
+      </div>
+
+      <dl class="readout">
+        <div class="readout__item">
+          <dt>BIAIS IA</dt>
+          <dd class="readout__value" id="ai-bias" data-dir="neutral">—</dd>
+        </div>
+
+        <div class="readout__item">
+          <dt>CONVICTION</dt>
+          <dd class="readout__value">
+            <span class="num" id="conviction-value">—</span>
+            <span class="conviction__grade" id="conviction-grade">—</span>
+            <!--
+              La jauge encode la classification SPEC §34 :
+              85-100 forte / 65-84 moyenne / 40-64 faible / <40 no trade.
+            -->
+            <span class="gauge" role="img" aria-label="Niveau de conviction">
+              <span class="gauge__fill" id="conviction-bar" style="width:0%"></span>
+            </span>
+          </dd>
+        </div>
+
+        <div class="readout__item">
+          <dt>RÉGIME MARCHÉ</dt>
+          <dd class="readout__value" id="market-regime">—</dd>
+        </div>
+
+        <div class="readout__item">
+          <dt>STATUT EXÉCUTION</dt>
+          <dd class="readout__value" id="execution-status" data-status="unknown">—</dd>
+        </div>
+      </dl>
+
+      <div class="drivers">
+        <span class="drivers__label">DRIVERS DOMINANTS</span>
+        <ol class="drivers__list" id="drivers-list">
+          <li class="drivers__empty">En attente d'analyse.</li>
+        </ol>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============== PANNEAU 2 — MACRO DRIVER MATRIX ==================== -->
+  <section class="panel panel--macro" aria-labelledby="p2-title">
+    <div class="panel__head">
+      <h2 class="panel__title" id="p2-title">MACRO DRIVER MATRIX</h2>
+      <span class="panel__meta">IMPACT OR</span>
+    </div>
+
+    <div class="panel__body">
+      <table class="matrix">
+        <caption class="sr-only">Drivers macroéconomiques et leur impact directionnel sur l'or</caption>
+        <thead>
+          <tr>
+            <th scope="col">DRIVER</th>
+            <th scope="col" class="ta-r">VALEUR</th>
+            <th scope="col" class="ta-r">VAR</th>
+            <th scope="col" class="ta-c">DIR</th>
+            <th scope="col">IMPACT OR</th>
+          </tr>
+        </thead>
+        <!--
+          Les lignes sont statiques : ces cinq drivers sont le modèle de
+          valorisation de l'or, pas une liste variable. Seules les valeurs
+          sont mises à jour, ce qui évite de reconstruire le DOM à chaque tick.
+        -->
+        <tbody id="macro-rows">
+          <tr data-driver="dxy">
+            <th scope="row">DXY<span class="hint">Dollar Index</span></th>
+            <td class="ta-r num" data-field="value">—</td>
+            <td class="ta-r num" data-field="change">—</td>
+            <td class="ta-c" data-field="dir">—</td>
+            <td data-field="impact">—</td>
+          </tr>
+          <tr data-driver="us10y">
+            <th scope="row">US10Y<span class="hint">Rendement nominal</span></th>
+            <td class="ta-r num" data-field="value">—</td>
+            <td class="ta-r num" data-field="change">—</td>
+            <td class="ta-c" data-field="dir">—</td>
+            <td data-field="impact">—</td>
+          </tr>
+          <tr data-driver="real_yield" class="matrix__row--primary">
+            <th scope="row">REAL YIELD<span class="hint">Driver dominant</span></th>
+            <td class="ta-r num" data-field="value">—</td>
+            <td class="ta-r num" data-field="change">—</td>
+            <td class="ta-c" data-field="dir">—</td>
+            <td data-field="impact">—</td>
+          </tr>
+          <tr data-driver="vix">
+            <th scope="row">VIX<span class="hint">Volatilité implicite</span></th>
+            <td class="ta-r num" data-field="value">—</td>
+            <td class="ta-r num" data-field="change">—</td>
+            <td class="ta-c" data-field="dir">—</td>
+            <td data-field="impact">—</td>
+          </tr>
+          <tr data-driver="wti">
+            <th scope="row">WTI<span class="hint">Pétrole brut</span></th>
+            <td class="ta-r num" data-field="value">—</td>
+            <td class="ta-r num" data-field="change">—</td>
+            <td class="ta-c" data-field="dir">—</td>
+            <td data-field="impact">—</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p class="matrix__note">
+        Real Yield en hausse pèse sur l'or : le coût d'opportunité de détention
+        d'un actif sans rendement augmente.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============== PANNEAU 3 — NEWS INTELLIGENCE STREAM =============== -->
+  <section class="panel panel--news" aria-labelledby="p3-title">
+    <div class="panel__head">
+      <h2 class="panel__title" id="p3-title">NEWS INTELLIGENCE STREAM</h2>
+      <span class="panel__meta">
+        <span class="num" id="news-count">0</span> ÉVÉNEMENTS
+      </span>
+    </div>
+
+    <div class="panel__body panel__body--scroll">
+      <ul class="stream" id="news-stream" aria-live="polite" aria-relevant="additions">
+        <li class="stream__empty">Aucun événement sur la fenêtre courante.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============== PANNEAU 4 — SCENARIO TREE ========================== -->
+  <section class="panel panel--scenarios" aria-labelledby="p4-title">
+    <div class="panel__head">
+      <h2 class="panel__title" id="p4-title">SCENARIO TREE</h2>
+      <span class="panel__meta" id="scenario-meta">—</span>
+    </div>
+
+    <div class="panel__body">
+      <!--
+        Bandeau NO VALID SETUP (SPEC §39). Il ne s'agit pas d'une erreur :
+        c'est un résultat d'analyse légitime et fréquent. Il doit occuper
+        l'espace du panneau pour ne pas être confondu avec un signal exploitable.
+      -->
+      <div class="nosetup" id="no-setup" hidden>
+        <span class="nosetup__title" id="no-setup-title">NO VALID SETUP</span>
+        <span class="nosetup__body" id="no-setup-reason"></span>
+      </div>
+
+      <div class="tree" id="scenario-tree">
+        <div class="tree__empty">En attente de la synthèse du comité.</div>
+      </div>
+
+      <div class="invalidations">
+        <span class="invalidations__label">INVALIDATIONS</span>
+        <ul class="invalidations__list" id="invalidations-list">
+          <li class="invalidations__empty">—</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footbar">
+  <span class="footbar__item">MODÈLE <span id="model-version">—</span></span>
+  <span class="footbar__item">VERDICT RISQUE <span id="risk-verdict">—</span></span>
+  <span class="footbar__item">ANALYSE <span id="analysis-time">—</span></span>
+  <span class="footbar__item footbar__item--right" id="demo-flag" hidden>MODE DÉMO — DONNÉES DE DÉMONSTRATION</span>
+</footer>
+
+<template id="tpl-news-item">
+  <li class="stream__item">
+    <div class="stream__lead">
+      <span class="chip" data-field="classification">—</span>
+      <span class="stream__score num" data-field="score">—</span>
+      <time class="stream__time num" data-field="time">—</time>
+    </div>
+    <p class="stream__title" data-field="title"></p>
+    <div class="stream__foot">
+      <span data-field="region"></span>
+      <span data-field="category"></span>
+      <span class="stream__impact" data-field="impact"></span>
+    </div>
+  </li>
+</template>
+
+<template id="tpl-scenario">
+  <article class="scen">
+    <div class="scen__head">
+      <span class="scen__horizon" data-field="horizon">—</span>
+      <span class="scen__window" data-field="window">—</span>
+      <span class="scen__dir" data-field="direction">—</span>
+    </div>
+
+    <div class="scen__prob">
+      <span class="scen__prob-value num" data-field="probability">—</span>
+      <span class="scen__prob-bar">
+        <span class="scen__prob-fill" data-field="bar"></span>
+      </span>
+    </div>
+
+    <dl class="scen__levels">
+      <div>
+        <dt>TARGET</dt>
+        <dd class="num" data-field="target">—</dd>
+      </div>
+      <div>
+        <!--
+          Le hard stop est le niveau d'invalidation. La spécification interdit
+          tout scénario sans ce niveau chiffré : il est donc affiché au même
+          rang que la cible, jamais relégué.
+        -->
+        <dt>HARD STOP</dt>
+        <dd class="num scen__stop" data-field="invalidation">—</dd>
+      </div>
+      <div>
+        <dt>R:R</dt>
+        <dd class="num" data-field="rr">—</dd>
+      </div>
+      <div>
+        <dt>CONF</dt>
+        <dd class="num" data-field="confidence">—</dd>
+      </div>
+    </dl>
+
+    <div class="scen__activation">
+      <!-- P1-4 : QUAND le scénario devient actif. Une cible et une
+           invalidation disent où il va et où il meurt, jamais quand il
+           commence à exister. -->
+      <span class="scen__activation-label">ACTIVATION</span>
+      <span class="scen__activation-text" data-field="activation"></span>
+    </div>
+
+    <p class="scen__reason" data-field="reasoning"></p>
+  </article>
+</template>
+
+<script src="js/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,922 @@
+/* ===========================================================================
+   ALPHA-XAU INSTITUTIONAL TERMINAL
+   frontend/css/style.css
+
+   Direction : Bloomberg Terminal / Refinitiv Eikon.
+   Densité maximale, zéro décoration. Chaque pixel doit porter de
+   l'information ou de la séparation, jamais de l'ornement.
+
+   Règles tenues dans toute la feuille :
+   - la couleur est SÉMANTIQUE (haussier / baissier / alerte), jamais
+     esthétique. Aucun dégradé, aucune ombre portée d'ambiance ;
+   - les chiffres sont en chasse fixe tabulaire : une valeur qui change ne
+     doit pas déplacer celles d'à côté. C'est la différence entre un terminal
+     et un tableau de bord ;
+   - rayon de bordure 0 partout : un terminal est une grille, pas des cartes.
+   =========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. TOKENS
+   -------------------------------------------------------------------------- */
+:root {
+  /* Fonds — imposés par le brief */
+  --bg:            #121212;
+  --panel:         #1e1e1e;
+  --panel-head:    #242424;
+  --panel-alt:     #1a1a1a;
+
+  /* Lignes : une seule graduation de séparateurs, sinon la grille bruite */
+  --rule:          #2e2e2e;
+  --rule-strong:   #3d3d3d;
+
+  /* Texte : trois niveaux, pas plus */
+  --text:          #e4e4e4;
+  --text-dim:      #8b8b8b;
+  --text-faint:    #5f5f5f;
+
+  /* Sémantique directionnelle */
+  --up:            #26a269;
+  --up-bg:         rgba(38, 162, 105, 0.14);
+  --down:          #e0464b;
+  --down-bg:       rgba(224, 70, 75, 0.14);
+  --flat:          #9a9a9a;
+
+  /* Sévérité */
+  --critical:      #ff5c57;
+  --major:         #e8a33d;
+  --info:          #4a9edb;
+
+  /* Accent unique du terminal : l'ambre des consoles financières.
+     Réservé aux libellés de structure et aux valeurs clés. */
+  --accent:        #d8a13a;
+
+  /* Typographie */
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Échelle — resserrée : un terminal se lit à 11-13px */
+  --fs-micro:  10px;
+  --fs-xs:     11px;
+  --fs-sm:     12px;
+  --fs-md:     13px;
+  --fs-lg:     16px;
+  --fs-quote:  40px;
+
+  --sp-1: 3px;
+  --sp-2: 6px;
+  --sp-3: 10px;
+  --sp-4: 14px;
+  --sp-5: 20px;
+
+  --topbar-h: 34px;
+  --footbar-h: 24px;
+}
+
+/* --------------------------------------------------------------------------
+   2. BASE
+   -------------------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Toute valeur numérique. tabular-nums empêche le texte de danser au tick. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+  letter-spacing: -0.01em;
+}
+
+.ta-r { text-align: right; }
+.ta-c { text-align: center; }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --------------------------------------------------------------------------
+   3. BARRE DE STATUT
+   -------------------------------------------------------------------------- */
+.topbar {
+  flex: 0 0 var(--topbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-3);
+  background: var(--panel-head);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.topbar__identity {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.topbar__mark {
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+
+.topbar__sub {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.16em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.topbar__status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-xs);
+}
+
+.topbar__divider {
+  width: 1px;
+  height: 12px;
+  background: var(--rule);
+}
+
+.topbar__field { display: flex; align-items: baseline; gap: var(--sp-2); }
+.topbar__key   { font-size: var(--fs-micro); letter-spacing: 0.1em; color: var(--text-faint); }
+.topbar__val   { color: var(--text-dim); }
+
+.conn { display: flex; align-items: center; gap: var(--sp-2); }
+
+.conn__dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex: none;
+}
+
+.conn__label {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+}
+
+.conn[data-state='live']         .conn__dot { background: var(--up); animation: pulse 2s ease-in-out infinite; }
+.conn[data-state='live']         .conn__label { color: var(--up); }
+.conn[data-state='polling']      .conn__dot { background: var(--major); }
+.conn[data-state='polling']      .conn__label { color: var(--major); }
+.conn[data-state='connecting']   .conn__dot { background: var(--info); animation: pulse 1s ease-in-out infinite; }
+.conn[data-state='connecting']   .conn__label { color: var(--info); }
+.conn[data-state='offline']      .conn__dot { background: var(--down); }
+.conn[data-state='offline']      .conn__label { color: var(--down); }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* --------------------------------------------------------------------------
+   4. BANDEAU D'INCIDENT
+   -------------------------------------------------------------------------- */
+.banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--down-bg);
+  border-bottom: 1px solid var(--down);
+  font-size: var(--fs-xs);
+}
+
+.banner[hidden] { display: none; }
+
+.banner__tag {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--down);
+}
+
+.banner__msg { flex: 1; color: var(--text); min-width: 0; }
+
+.banner__action {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--rule-strong);
+  padding: 2px var(--sp-2);
+  cursor: pointer;
+}
+
+.banner__action:hover { border-color: var(--accent); color: var(--accent); }
+
+/* --------------------------------------------------------------------------
+   5. GRILLE
+   -------------------------------------------------------------------------- */
+.grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(300px, 1.15fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1px;
+  background: var(--rule);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel {
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.panel__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--panel-head);
+  border-bottom: 1px solid var(--rule);
+}
+
+.panel__title {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+
+.panel__meta {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.panel__body {
+  flex: 1;
+  padding: var(--sp-3);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel__body--scroll { overflow-y: auto; padding: 0; }
+
+/* Ascenseurs discrets : présents, jamais visuellement dominants. */
+.panel__body--scroll::-webkit-scrollbar { width: 8px; }
+.panel__body--scroll::-webkit-scrollbar-track { background: var(--panel); }
+.panel__body--scroll::-webkit-scrollbar-thumb { background: var(--rule-strong); }
+.panel__body--scroll::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+.panel__body--scroll { scrollbar-width: thin; scrollbar-color: var(--rule-strong) var(--panel); }
+
+/* --------------------------------------------------------------------------
+   6. PANNEAU 1 — COMMAND CENTER
+   -------------------------------------------------------------------------- */
+.command {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  overflow-y: auto;
+}
+
+.quote { border-bottom: 1px solid var(--rule); padding-bottom: var(--sp-3); }
+
+.quote__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.quote__row--tight { margin-top: var(--sp-1); flex-wrap: wrap; }
+
+.quote__symbol {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.quote__price {
+  font-size: var(--fs-quote);
+  font-weight: 600;
+  line-height: 1.05;
+  margin: var(--sp-1) 0;
+  color: var(--text);
+  transition: color 120ms linear;
+}
+
+/* Flash directionnel au tick. Court et sobre : il signale, il ne célèbre pas. */
+.quote__price.tick-up   { color: var(--up); }
+.quote__price.tick-down { color: var(--down); }
+
+.quote__change { font-size: var(--fs-md); font-weight: 500; color: var(--flat); }
+.quote__change[data-dir='up']   { color: var(--up); }
+.quote__change[data-dir='down'] { color: var(--down); }
+
+.quote__spread {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.quote__spread .k {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  margin-left: var(--sp-2);
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--rule-strong);
+  color: var(--text-faint);
+}
+
+.badge[data-state='live']    { color: var(--up);    border-color: var(--up); }
+.badge[data-state='stale']   { color: var(--major); border-color: var(--major); }
+.badge[data-state='offline'] { color: var(--down);  border-color: var(--down); }
+
+.readout { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.readout__item {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--panel-alt);
+}
+
+.readout__item dt {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+
+.readout__value {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.readout__value[data-dir='bullish'] { color: var(--up); }
+.readout__value[data-dir='bearish'] { color: var(--down); }
+.readout__value[data-dir='neutral'] { color: var(--flat); }
+
+.readout__value[data-status='VALID_SETUP']    { color: var(--up); }
+.readout__value[data-status='NO_VALID_SETUP'] { color: var(--major); }
+
+.conviction__grade { font-size: var(--fs-micro); letter-spacing: 0.08em; color: var(--text-dim); }
+
+.gauge {
+  flex: 1 1 80px;
+  height: 4px;
+  min-width: 60px;
+  background: var(--panel-alt);
+  border: 1px solid var(--rule);
+  display: block;
+}
+
+.gauge__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 200ms ease-out;
+}
+
+.drivers { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.drivers__label {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+
+.drivers__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: driver;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* Le rang est porteur de sens ici : les drivers sont ordonnés par force. */
+.drivers__list li {
+  counter-increment: driver;
+  font-size: var(--fs-xs);
+  color: var(--text);
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.drivers__list li:not(.drivers__empty)::before {
+  content: counter(driver);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  color: var(--accent);
+  flex: none;
+  min-width: 12px;
+}
+
+.drivers__empty { color: var(--text-faint); }
+
+/* --------------------------------------------------------------------------
+   7. PANNEAU 2 — MACRO DRIVER MATRIX
+   -------------------------------------------------------------------------- */
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+}
+
+.matrix thead th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  padding: 0 var(--sp-2) var(--sp-2);
+  border-bottom: 1px solid var(--rule-strong);
+  white-space: nowrap;
+}
+
+.matrix thead th.ta-r { text-align: right; }
+.matrix thead th.ta-c { text-align: center; }
+
+.matrix tbody th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text);
+  padding: var(--sp-2);
+  white-space: nowrap;
+}
+
+.matrix tbody td {
+  padding: var(--sp-2);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--panel-alt);
+  white-space: nowrap;
+}
+
+.matrix tbody tr:hover td,
+.matrix tbody tr:hover th { background: var(--panel-alt); }
+
+/* Le rendement réel est le driver dominant du modèle : il est marqué. */
+.matrix__row--primary th { color: var(--accent); }
+
+.hint {
+  display: block;
+  font-family: var(--sans);
+  font-size: var(--fs-micro);
+  font-weight: 400;
+  color: var(--text-faint);
+  letter-spacing: 0;
+}
+
+.matrix td[data-field='dir'][data-dir='up']   { color: var(--up); }
+.matrix td[data-field='dir'][data-dir='down'] { color: var(--down); }
+.matrix td[data-field='change'][data-dir='up']   { color: var(--up); }
+.matrix td[data-field='change'][data-dir='down'] { color: var(--down); }
+
+.matrix td[data-field='impact'][data-impact='bullish'] { color: var(--up); }
+.matrix td[data-field='impact'][data-impact='bearish'] { color: var(--down); }
+.matrix td[data-field='impact'][data-impact='neutral'] { color: var(--flat); }
+
+.matrix__note {
+  margin: var(--sp-3) 0 0;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--panel-alt);
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* --------------------------------------------------------------------------
+   8. PANNEAU 3 — NEWS INTELLIGENCE STREAM
+   -------------------------------------------------------------------------- */
+.stream { margin: 0; padding: 0; list-style: none; }
+
+.stream__item {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--panel-alt);
+  border-left: 2px solid transparent;
+}
+
+.stream__item:hover { background: var(--panel-alt); }
+
+/* La barre gauche encode la classification : lisible en vision périphérique. */
+.stream__item[data-class='critical'] { border-left-color: var(--critical); }
+.stream__item[data-class='major']    { border-left-color: var(--major); }
+.stream__item[data-class='noise']    { border-left-color: var(--rule-strong); }
+
+.stream__item--new { animation: flash-in 900ms ease-out; }
+
+@keyframes flash-in {
+  from { background: rgba(216, 161, 58, 0.16); }
+  to   { background: transparent; }
+}
+
+.stream__lead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 0 var(--sp-2);
+  border: 1px solid currentColor;
+  color: var(--text-faint);
+}
+
+.chip[data-class='critical'] { color: var(--critical); }
+.chip[data-class='major']    { color: var(--major); }
+.chip[data-class='noise']    { color: var(--text-faint); }
+
+.stream__score { font-size: var(--fs-xs); font-weight: 600; color: var(--text); }
+.stream__time  { margin-left: auto; font-size: var(--fs-micro); color: var(--text-faint); }
+
+.stream__title {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.stream__foot {
+  display: flex;
+  gap: var(--sp-3);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  flex-wrap: wrap;
+}
+
+.stream__impact[data-dir='bullish'] { color: var(--up); }
+.stream__impact[data-dir='bearish'] { color: var(--down); }
+
+.stream__empty {
+  padding: var(--sp-5) var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   9. PANNEAU 4 — SCENARIO TREE
+   -------------------------------------------------------------------------- */
+.panel--scenarios .panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  overflow-y: auto;
+}
+
+.nosetup {
+  padding: var(--sp-3);
+  background: rgba(232, 163, 61, 0.1);
+  border: 1px solid var(--major);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.nosetup[hidden] { display: none; }
+
+.nosetup__title {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--major);
+}
+
+.nosetup__body { font-size: var(--fs-xs); line-height: 1.5; color: var(--text-dim); }
+
+.tree { display: flex; flex-direction: column; gap: 1px; background: var(--rule); }
+
+.tree__empty {
+  padding: var(--sp-5) var(--sp-3);
+  background: var(--panel);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.scen { background: var(--panel); padding: var(--sp-2) var(--sp-3); }
+
+.scen__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.scen__horizon {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+
+.scen__window {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.scen__dir {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  padding: 0 var(--sp-2);
+  border: 1px solid currentColor;
+  color: var(--flat);
+}
+
+.scen__dir[data-dir='bullish'] { color: var(--up); }
+.scen__dir[data-dir='bearish'] { color: var(--down); }
+
+.scen__prob {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.scen__prob-value {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text);
+  min-width: 46px;
+}
+
+.scen__prob-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--panel-alt);
+  border: 1px solid var(--rule);
+  display: block;
+}
+
+.scen__prob-fill {
+  display: block;
+  height: 100%;
+  background: var(--flat);
+  transition: width 250ms ease-out;
+}
+
+.scen__prob-fill[data-dir='bullish'] { background: var(--up); }
+.scen__prob-fill[data-dir='bearish'] { background: var(--down); }
+
+.scen__levels {
+  margin: 0 0 var(--sp-2);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-2);
+}
+
+.scen__levels dt {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.scen__levels dd {
+  margin: 1px 0 0;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Le hard stop est la donnée de survie : il est le seul niveau coloré. */
+.scen__stop { color: var(--down); }
+
+/* Condition d'activation : au même rang visuel que le hard stop, car elle
+   est la troisième borne obligatoire du scénario. */
+.scen[data-tradable='false'] { opacity: 0.62; }
+.scen[data-tradable='false'] .scen__activation-label,
+.scen[data-tradable='false'] .scen__activation-text { color: var(--major); }
+.scen[data-tradable='false'] .scen__prob-fill { background: var(--text-faint); }
+
+.scen__activation {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  margin-bottom: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--panel-alt);
+}
+
+.scen__activation-label {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  flex: none;
+}
+
+.scen__activation-text {
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.footbar__item span[data-verdict='REJECTED'],
+.footbar__item span[data-verdict='DATA_INSUFFICIENT'],
+.footbar__item span[data-verdict='CONFLICT'] { color: var(--critical); }
+.footbar__item span[data-verdict='APPROVED_WITH_CONDITIONS'] { color: var(--major); }
+.footbar__item span[data-verdict='APPROVED'] { color: var(--up); }
+
+.readout__value[data-status='NO_DATA'],
+.readout__value[data-status='unknown'] { color: var(--text-faint); }
+
+.scen__reason {
+  margin: 0;
+  padding-top: var(--sp-2);
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.invalidations { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.invalidations__label {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+
+.invalidations__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.invalidations__list li {
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+  color: var(--text-dim);
+  padding-left: var(--sp-3);
+  position: relative;
+}
+
+.invalidations__list li:not(.invalidations__empty)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 4px;
+  height: 1px;
+  background: var(--down);
+}
+
+.invalidations__empty { color: var(--text-faint); }
+
+/* --------------------------------------------------------------------------
+   10. PIED
+   -------------------------------------------------------------------------- */
+.footbar {
+  flex: 0 0 var(--footbar-h);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-3);
+  background: var(--panel-head);
+  border-top: 1px solid var(--rule-strong);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  overflow: hidden;
+}
+
+.footbar__item { white-space: nowrap; }
+.footbar__item span { color: var(--text-dim); }
+.footbar__item--right { margin-left: auto; color: var(--major); }
+.footbar__item--right[hidden] { display: none; }
+
+/* --------------------------------------------------------------------------
+   11. RESPONSIVE
+   La grille 2×2 passe en colonne unique. Ordre de priorité mobile
+   (SPEC §84) : prix, biais IA, alertes, news critiques, scénarios.
+   -------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    grid-auto-rows: minmax(min-content, max-content);
+    overflow-y: auto;
+  }
+
+  body { overflow: auto; }
+
+  .panel { min-height: 220px; }
+  .panel__body--scroll { max-height: 340px; overflow-y: auto; }
+
+  .panel--command    { order: 1; }
+  .panel--scenarios  { order: 2; }
+  .panel--news       { order: 3; }
+  .panel--macro      { order: 4; }
+}
+
+@media (max-width: 560px) {
+  :root { --fs-quote: 32px; }
+
+  .topbar { flex-wrap: wrap; height: auto; flex-basis: auto; padding: var(--sp-2) var(--sp-3); }
+  .topbar__sub { display: none; }
+  .topbar__status { gap: var(--sp-2); font-size: var(--fs-micro); }
+
+  .readout__item { grid-template-columns: 82px 1fr; }
+  .scen__levels { grid-template-columns: repeat(2, 1fr); }
+  .footbar { gap: var(--sp-3); }
+}
+
+/* --------------------------------------------------------------------------
+   12. ACCESSIBILITÉ
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --text-dim: #b8b8b8;
+    --text-faint: #969696;
+    --rule: #4a4a4a;
+    --rule-strong: #5c5c5c;
+  }
+}

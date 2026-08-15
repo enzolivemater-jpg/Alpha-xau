@@ -1,0 +1,94 @@
+# =============================================================================
+#  ALPHA-XAU — wrangler.toml
+#  Correctif P0-2 : ordonnancement des trois moteurs.
+#
+#  PLATEFORME RETENUE : Cloudflare Workers.
+#
+#  Justification, tirée du dépôt et non d'une préférence :
+#   1. Les deux moteurs déjà écrits exposent `scheduled(event, env, ctx)` et
+#      utilisent `ctx.waitUntil` — c'est la signature des Cron Triggers
+#      Workers. Vercel n'a pas d'équivalent : ce code y serait inerte.
+#   2. Le market_engine doit tourner toutes les 2 minutes. Les Cron Triggers
+#      Workers acceptent la granularité minute nativement.
+#   3. Un seul script porte les trois cadences : un déploiement, un jeu de
+#      secrets, pas de duplication de configuration.
+#
+#  L'export `POST` compatible Vercel reste présent dans ingest.ts : il n'est
+#  pas déployé ici, et n'est conservé que pour ne pas retirer une capacité
+#  existante. Il n'y a AUCUNE double configuration active.
+# =============================================================================
+
+name = "alpha-xau"
+main = "backend/worker.ts"
+compatibility_date = "2026-08-01"
+# BLOCKER #2 — exposition HTTP du Worker.
+#
+# Cause de la rupture : avec workers_dev = false et aucun bloc [[routes]],
+# le Worker n'avait AUCUNE URL joignable. Les crons se seraient déclenchés,
+# mais /health, /committee et /news étaient inatteignables — donc
+# AI_ENGINE_URL ne pouvait pointer nulle part et tout le chemin
+# event-driven était mort par construction.
+#
+# Solution retenue : le sous-domaine workers.dev, cohérent avec
+# l'architecture existante (un seul Worker, un seul déploiement, aucun
+# DNS à gérer). L'URL obtenue est de la forme :
+#     https://alpha-xau.<sous-domaine>.workers.dev
+# C'est elle qu'il faut poser dans AI_ENGINE_URL, suffixée de /committee.
+#
+# Pour la production, remplacer par un domaine personnalisé en décommentant
+# le bloc [[routes]] ci-dessous ET en repassant workers_dev à false. Les
+# deux mécanismes ne doivent pas rester actifs simultanément.
+workers_dev = true
+
+# [[routes]]
+# pattern = "alpha-xau.exemple.com"
+# custom_domain = true
+
+[observability]
+enabled = true
+
+[triggers]
+# market  : toutes les 2 minutes  (sous le seuil LIVE de 300 s sur XAUUSD)
+# news    : toutes les 15 minutes (fenêtre GDELT de 60 min => recouvrement x4)
+# comité  : toutes les heures     (5 appels LLM par run)
+crons = ["*/2 * * * *", "*/15 * * * *", "0 * * * *"]
+
+[vars]
+# Variables NON SENSIBLES uniquement. Tout le reste passe par
+# `wrangler secret put <NOM>` et n'apparaît jamais dans ce fichier.
+LOG_LEVEL = "info"
+GDELT_TIMESPAN = "60min"
+
+# -----------------------------------------------------------------------------
+# SECRETS À POSER AVANT LE PREMIER DÉPLOIEMENT
+# (aucune valeur n'est stockée dans le dépôt)
+#
+#   wrangler secret put SUPABASE_URL
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   wrangler secret put ANTHROPIC_API_KEY
+#   wrangler secret put INGEST_TOKEN
+#   wrangler secret put COMMITTEE_TOKEN
+#   wrangler secret put FRED_API_KEY
+#   wrangler secret put TWELVE_DATA_KEY     # sans elle, DXY = UNAVAILABLE
+#   wrangler secret put NEWSAPI_KEY         # optionnelle
+#
+# --- SECONDE PASSE, APRÈS LE PREMIER DÉPLOIEMENT -----------------------------
+# AI_ENGINE_URL n'est connue qu'une fois le Worker déployé : c'est sa propre
+# URL. Le staging se fait donc en DEUX passes.
+#
+#   1. wrangler deploy                      -> relever l'URL affichée
+#   2. wrangler secret put AI_ENGINE_URL     # <URL>/committee
+#      wrangler secret put AI_ENGINE_TOKEN   # <== MÊME VALEUR que COMMITTEE_TOKEN
+#   3. wrangler deploy                       -> recharger les secrets
+#
+# COUPLAGE OBLIGATOIRE — AI_ENGINE_TOKEN == COMMITTEE_TOKEN.
+# Le news_engine émet `Authorization: Bearer <AI_ENGINE_TOKEN>` ; le comité
+# compare cet en-tête à COMMITTEE_TOKEN (comparaison à temps constant). Deux
+# valeurs différentes produisent un 401 sur CHAQUE notification, et le chemin
+# event-driven meurt sans que rien d'autre ne casse. Ces deux secrets portent
+# la même valeur, volontairement : ce sont les deux extrémités du même canal.
+#
+# Vérification après la seconde passe :
+#   curl -s -o /dev/null -w '%{http_code}\n' <URL>/health          -> 200
+#   curl -s -o /dev/null -w '%{http_code}\n' -X POST <URL>/committee -> 401
+# -----------------------------------------------------------------------------

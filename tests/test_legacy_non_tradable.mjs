@@ -1,0 +1,28 @@
+import { JSDOM } from '/home/claude/alpha-xau/node_modules/jsdom/lib/api.js';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+const psql=s=>execFileSync('su',['postgres','-c',`/usr/lib/postgresql/16/bin/psql -h /tmp -p 5433 -d alphaxau -tAc ${JSON.stringify(s)}`],{encoding:'utf8'}).trim();
+const html=readFileSync('/home/claude/alpha-xau/frontend/index.html','utf8');
+const js=readFileSync('/home/claude/alpha-xau/frontend/js/dashboard.js','utf8');
+const rows=JSON.parse(psql("SELECT coalesce(json_agg(t),'[]') FROM (SELECT id,symbol,model_version,market_regime,regime_confidence,spot_reference,summary,analysis_ts,valid_until,risk_verdict,execution_status,overall_bias,confidence_cap,data_quality,rejection_reasons,drivers,risks,invalidations,scenarios FROM v_ai_latest) t;"));
+const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,url:'https://x.github.io/'});
+dom.window.fetch=(u)=>Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(String(u).includes('v_ai_latest')?rows:[])});
+dom.window.ALPHA_XAU_CONFIG={SUPABASE_URL:'https://t.supabase.co',SUPABASE_ANON_KEY:'a',POLL_INTERVAL_MS:1e6,ANALYSIS_INTERVAL_MS:1e6,STALE_THRESHOLD_S:60};
+const sc=dom.window.document.createElement('script'); sc.textContent=js; dom.window.document.body.appendChild(sc);
+await new Promise(r=>setTimeout(r,250));
+const d=dom.window.document;
+let p=0,f=0; const t=(n,c,x='')=>{c?(p++,console.log(`  OK  ${n}`)):(f++,console.log(`  FAIL ${n} ${x}`))};
+const scens=[...d.querySelectorAll('#scenario-tree .scen')];
+const byH=Object.fromEntries(scens.map(s=>[s.querySelector('[data-field="horizon"]').textContent,s]));
+t('scenario LEGACY toujours visible (audit preserve)', !!byH.H2);
+t('marque data-tradable=false', byH.H2 && byH.H2.getAttribute('data-tradable')==='false');
+t('direction affichee NON TRADABLE (pas un signal)', byH.H2 && byH.H2.querySelector('[data-field="direction"]').textContent==='NON TRADABLE', byH.H2?.querySelector('[data-field="direction"]').textContent);
+t('le marqueur LEGACY brut n est PAS presente comme condition', byH.H2 && !/LEGACY:/.test(byH.H2.querySelector('[data-field="activation"]').textContent));
+t('mention explicite non tradable', byH.H2 && /NON TRADABLE/.test(byH.H2.querySelector('[data-field="activation"]').textContent));
+t('les scenarios normaux restent tradables', byH.H1 && byH.H1.getAttribute('data-tradable')===null);
+// H1 doit refleter la direction REELLE en base, quelle qu'elle soit.
+const dbDir=psql("SELECT direction FROM ai_scenarios WHERE horizon='H1' AND analysis_id=(SELECT id FROM v_ai_latest);");
+const L={bullish:'HAUSSIER',bearish:'BAISSIER',neutral:'NEUTRE'};
+t(`H1 affiche sa direction base (${dbDir})`, byH.H1 && byH.H1.querySelector('[data-field="direction"]').textContent===L[dbDir], byH.H1?.querySelector('[data-field="direction"]').textContent);
+console.log(`\nRESULT: ${p} passed, ${f} failed`);
+process.exit(f?1:0);

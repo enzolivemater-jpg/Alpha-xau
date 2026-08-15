@@ -1,0 +1,20 @@
+{
+  "name": "alpha-xau-terminal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ALPHA-XAU Institutional Terminal — moteurs serverless et terminal statique.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "jsdom": "^30.0.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.0.0"
+  }
+}
