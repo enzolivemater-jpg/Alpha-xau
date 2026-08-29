@@ -59,23 +59,23 @@
       "properties": {
         "H1": {
           "$ref": "#/$defs/scenario",
-          "description": "Intraday, 1 à 6 heures."
+          "description": "Intraday immédiat, 1-2 heures."
         },
         "H2": {
           "$ref": "#/$defs/scenario",
-          "description": "24 heures."
+          "description": "Intraday étendu, 4 heures."
         },
         "H3": {
           "$ref": "#/$defs/scenario",
-          "description": "Hebdomadaire."
+          "description": "24 heures."
         },
         "H4": {
           "$ref": "#/$defs/scenario",
-          "description": "Structurel, mensuel."
+          "description": "Hebdomadaire, 7 jours."
         },
         "H5": {
           "$ref": "#/$defs/scenario",
-          "description": "Structurel, mensuel."
+          "description": "Structurel, 30 jours."
         }
       }
     },

@@ -111,8 +111,14 @@ const CONFIG = {
   MIN_ACTIVATION_LENGTH: 15,
 
   HORIZONS: ['H1', 'H2', 'H3', 'H4', 'H5'] as const,
+  /** Bornes stockées en DB (colonne INTERVAL). H1 utilise la borne
+   *  supérieure ('2 hours') : PostgreSQL ACCEPTE '1-2 hours'::interval,
+   *  mais l'interprète comme 1 an 2 mois — donc cette valeur est
+   *  sémantiquement incorrecte/ambiguë pour H1 et ne doit pas être
+   *  utilisée. La sémantique utilisateur "1-2h" reste affichée telle
+   *  quelle côté prompts/frontend. */
   HORIZON_WINDOWS: {
-    H1: '1-2 hours',
+    H1: '2 hours',
     H2: '4 hours',
     H3: '24 hours',
     H4: '7 days',
@@ -1053,9 +1059,9 @@ async function loadContext(db: SupabaseClient, env: Env): Promise<{
  * Portée d'un recalcul.
  *
  * La granularité du déclencheur commande la granularité de la sortie :
- *   FULL    cron horaire        -> les quatre horizons sont recalculés
- *   H1_H2   CATALYST CRITICAL   -> seuls H1 et H2 changent, H3/H4 préservés
- *   H3      MAJOR IMPACT        -> seul H3 change, H1/H2/H4 préservés
+ *   FULL    cron horaire        -> les cinq horizons sont recalculés
+ *   H1_H2   CATALYST CRITICAL   -> H1, H2 et H3 changent, H4/H5 préservés
+ *   H3      MAJOR IMPACT        -> seul H4 change, H1/H2/H3/H5 préservés
  */
 export type RecalcScope = 'FULL' | 'H1_H2' | 'H3';
 
@@ -1180,7 +1186,7 @@ export function validateCommitteeEvent(raw: unknown): EventValidation {
  * leur valeur de référence, ceux du périmètre sont remplacés.
  *
  * CONSERVATION DE LA MASSE DE PROBABILITÉ — point le plus délicat.
- * La base impose que les quatre probabilités totalisent 1.00. Un recalcul
+ * La base impose que les cinq probabilités totalisent 1.00. Un recalcul
  * partiel ne peut donc pas redistribuer librement : il doit rendre
  * exactement la masse qu'il a empruntée. Les horizons recalculés se
  * repartagent le budget que la référence leur allouait, et les horizons
@@ -1321,7 +1327,8 @@ function buildNoValidSetup(
 ): CommitteeAnalysis {
   const flat: Scenario = {
     direction: 'neutral',
-    probability: 25,
+    // 5 horizons (H1-H5) à parts égales : 20 * 5 = 100 exactement.
+    probability: 20,
     target: spot,
     invalidation: spot,
     // Aucune activation possible : le dire explicitement plutôt que de
@@ -1664,7 +1671,7 @@ async function runCommitteeLocked(
     + `Spot de référence pour tes calculs : ${market.spot}\n`
     + scopeInstruction
     + 'Produis la synthèse finale au format JSON demandé. '
-    + 'Rappel : somme des quatre probabilités = 100 exactement, '
+    + 'Rappel : somme des cinq probabilités = 100 exactement, '
     + 'et chaque scénario doit porter une invalidation numérique.',
     CONFIG.MAX_TOKENS_COMMITTEE, env, log,
   );

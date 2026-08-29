@@ -365,7 +365,7 @@ SCHÉMA DE SORTIE :
     "H1": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" },
     "H2": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" },
     "H3": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" },
-    "H4": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" }
+    "H4": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" },
     "H5": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" }
   },
   "drivers": ["string — facteurs dominants, du plus fort au plus faible"],

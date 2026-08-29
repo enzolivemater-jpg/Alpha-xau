@@ -83,8 +83,8 @@ CREATE TYPE market_regime_t AS ENUM (
   'crisis', 'range_bound', 'trend_bull', 'trend_bear'
 );
 
--- Horizons d'analyse. H1..H4 = 4 scénarios projetés par run du moteur IA.
-CREATE TYPE horizon_t AS ENUM ('H1', 'H2', 'H3', 'H4');
+-- Horizons d'analyse. H1..H5 = 5 scénarios projetés par run du moteur IA.
+CREATE TYPE horizon_t AS ENUM ('H1', 'H2', 'H3', 'H4', 'H5');
 
 CREATE TYPE alert_type_t AS ENUM (
   'price', 'volatility', 'spread', 'liquidity', 'news', 'macro',
@@ -459,8 +459,8 @@ CREATE TRIGGER trg_news_events_classify
 
 -- ---------------------------------------------------------------------
 -- 6. AI ENGINE — ai_analyses + ai_scenarios
---    Modèle en-tête / détail. Les 4 scénarios H1..H4 sont des LIGNES,
---    pas 24 colonnes plates : requêtable, agrégeable, backtestable.
+--    Modèle en-tête / détail. Les 5 scénarios H1..H5 sont des LIGNES,
+--    pas des colonnes plates : requêtable, agrégeable, backtestable.
 -- ---------------------------------------------------------------------
 CREATE TABLE ai_analyses (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -552,7 +552,7 @@ CREATE TABLE ai_scenarios (
 );
 
 COMMENT ON TABLE ai_scenarios IS
-  'Scénarios H1..H4 d''un run. La somme des probabilités d''un run complet (4 scénarios) doit valoir 1.';
+  'Scénarios H1..H5 d''un run. La somme des probabilités d''un run complet (un scénario par valeur de horizon_t) doit valoir 1.';
 
 CREATE INDEX idx_ai_scenarios_analysis ON ai_scenarios (analysis_id, horizon);
 CREATE INDEX idx_ai_scenarios_direction ON ai_scenarios (direction, probability DESC);
@@ -564,16 +564,29 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_analysis UUID := COALESCE(NEW.analysis_id, OLD.analysis_id);
-  v_count    INTEGER;
-  v_sum      NUMERIC;
+  v_analysis    UUID := COALESCE(NEW.analysis_id, OLD.analysis_id);
+  v_count       INTEGER;
+  v_sum         NUMERIC;
+  v_horizon_ct  INTEGER;
 BEGIN
   SELECT count(*), COALESCE(sum(probability), 0)
     INTO v_count, v_sum
     FROM ai_scenarios WHERE analysis_id = v_analysis;
 
-  -- Un run partiel (en cours d'écriture) n'est pas contraint.
-  IF v_count = 4 AND abs(v_sum - 1) > 0.01 THEN
+  -- Nombre d'horizons attendu par run complet = cardinalité de horizon_t,
+  -- lue dynamiquement plutôt que codée en dur : un ajout futur d'horizon
+  -- (ALTER TYPE ... ADD VALUE) n'exige plus de migration sur ce trigger.
+  SELECT count(*) INTO v_horizon_ct FROM pg_enum WHERE enumtypid = 'horizon_t'::regtype;
+
+  -- Ce trigger déclenche lui-même le contrôle de somme uniquement quand le
+  -- NOMBRE de lignes atteint la cardinalité de horizon_t. La complétude des
+  -- horizons (un exemplaire exact de chacun, pas juste le bon compte) est
+  -- garantie par la combinaison de contraintes du schéma, pas par ce
+  -- trigger : horizon NOT NULL + type horizon_t (ai_scenarios.horizon) +
+  -- UNIQUE (analysis_id, horizon) (uq_ai_scenarios_horizon) + ce nombre de
+  -- lignes = cardinalité(horizon_t). Un run partiel (v_count < v_horizon_ct)
+  -- n'est pas encore contraint par ce trigger.
+  IF v_count = v_horizon_ct AND abs(v_sum - 1) > 0.01 THEN
     RAISE EXCEPTION
       'Distribution invalide pour analysis %: somme des probabilités = % (attendu 1.00 +/- 0.01)',
       v_analysis, v_sum;
