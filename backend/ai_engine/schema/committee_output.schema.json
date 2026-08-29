@@ -46,14 +46,15 @@
       "maximum": 100
     },
     "scenarios": {
-      "description": "Les quatre horizons SPEC §37. Tous obligatoires. La somme des probabilités vaut exactement 100.",
+      "description": "Les cinq horizons SPEC §37. Tous obligatoires. La somme des probabilités vaut exactement 100.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "H1",
         "H2",
         "H3",
-        "H4"
+        "H4",
+        "H5"
       ],
       "properties": {
         "H1": {
@@ -69,6 +70,10 @@
           "description": "Hebdomadaire."
         },
         "H4": {
+          "$ref": "#/$defs/scenario",
+          "description": "Structurel, mensuel."
+        },
+        "H5": {
           "$ref": "#/$defs/scenario",
           "description": "Structurel, mensuel."
         }
@@ -226,7 +231,7 @@
           ]
         },
         "probability": {
-          "description": "Entier 0-100. La somme des quatre horizons vaut exactement 100.",
+          "description": "Entier 0-100. La somme des cinq horizons vaut exactement 100.",
           "type": "integer",
           "minimum": 0,
           "maximum": 100

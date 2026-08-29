@@ -56,6 +56,7 @@ import {
   runCommittee,
   handleRequest as handleCommitteeRequest,
   type Env as CommitteeEnv,
+  type RecalcScope,
 } from './ai_engine/committee_orchestrator.js';
 
 /**
@@ -66,9 +67,9 @@ import {
 export interface WorkerEnv extends MarketEnv, NewsEnv, CommitteeEnv {}
 
 /** Expressions cron déclarées dans wrangler.toml. */
-export const CRON_MARKET = '*/5 * * * *';
-export const CRON_NEWS = '7-59/15 * * * *';
-export const CRON_COMMITTEE = '0 * * * *';
+const CRON_MARKET = '*/5 * * * *';
+const CRON_NEWS = '7-59/15 * * * *';
+const CRON_COMMITTEE = '0 * * * *';
 
 export type JobName = 'market_engine' | 'news_engine' | 'ai_committee';
 
@@ -111,7 +112,9 @@ export async function runJob(job: JobName, env: WorkerEnv): Promise<void> {
       log('info', job, 'SUCCESS');
       return;
     }
-    const analysis = await runCommittee(env);
+    const hourUTC = new Date().getUTCHours();
+    const scope: RecalcScope = hourUTC === 0 ? 'FULL' : 'H1_H2';
+    const analysis = await runCommittee(env, { scope, triggerType: 'cron' });
     log('info', job, 'SUCCESS', { execution_status: analysis.meta.execution_status });
   } catch (err) {
     // Le message est déjà expurgé de tout secret par les moteurs.

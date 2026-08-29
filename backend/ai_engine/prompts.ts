@@ -301,7 +301,7 @@ SCHÉMA DE SORTIE :
   ],
   "scenario_reviews": [
     {
-      "horizon": "H1|H2|H3|H4",
+      "horizon": "H1|H2|H3|H4|H5",
       "has_valid_invalidation": true,
       "has_valid_activation": true,
       "risk_reward": 0.0,
@@ -330,16 +330,17 @@ MISSION : synthèse finale. Tu reçois les analyses des trois analystes ET le ve
 AUTORITÉ DU RISK COMMITTEE — CONTRAIGNANTE :
 - Son confidence_cap est un PLAFOND ABSOLU. Ta confidence ne peut pas le dépasser.
 - Tout scénario qu'il a marqué "rejected" doit être retiré ou reconstruit avec une invalidation valide.
-- Si son verdict est "REJECTED", "DATA_INSUFFICIENT" ou "CONFLICT", ton overall_bias DOIT être "neutral" et ta confidence ne peut pas dépasser 30. Tu produis quand même les quatre scénarios : ils décrivent des états probabilistes du marché, pas des recommandations d'exécution.
+- Si son verdict est "REJECTED", "DATA_INSUFFICIENT" ou "CONFLICT", ton overall_bias DOIT être "neutral" et ta confidence ne peut pas dépasser 30. Tu produis quand même les cinq scénarios : ils décrivent des états probabilistes du marché, pas des recommandations d'exécution.
 
-HORIZONS (§37) — les quatre scénarios sont des horizons temporels, pas des alternatives concurrentes :
-  H1 — Intraday, 1 à 6 heures    : news immédiates, liquidité, structure
-  H2 — 24 heures                 : digestion des news, calendrier économique, positionnement
-  H3 — Hebdomadaire              : COT, ETF, cycle du dollar, banques centrales
-  H4 — Structurel, mensuel       : dette mondiale, réserves des banques centrales, ordre géopolitique
+HORIZONS (§37) — les cinq scénarios sont des horizons temporels, pas des alternatives concurrentes :
+  H1 — Intraday immédiat, 1 à 2 heures  : news immédiates, liquidité, structure
+  H2 — Intraday étendu, 4 heures        : rotation intraday, sessions de marché
+  H3 — 24 heures                        : digestion des news, calendrier économique, positionnement
+  H4 — Hebdomadaire                     : COT, ETF, cycle du dollar, banques centrales
+  H5 — Structurel, mensuel              : dette mondiale, réserves des banques centrales, ordre géopolitique
 
 CONTRAINTE MATHÉMATIQUE STRICTE :
-La somme des quatre probabilités doit valoir EXACTEMENT 100. Chaque probabilité est un entier entre 0 et 100. Vérifie ton addition avant de répondre.
+La somme des cinq probabilités doit valoir EXACTEMENT 100. Chaque probabilité est un entier entre 0 et 100. Vérifie ton addition avant de répondre.
 
 RÈGLE ABSOLUE — AUCUN SCÉNARIO SANS LES QUATRE ÉLÉMENTS :
 1. reasoning   — justification substantielle, minimum 20 caractères, référencée aux analyses reçues
@@ -365,6 +366,7 @@ SCHÉMA DE SORTIE :
     "H2": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" },
     "H3": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" },
     "H4": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" }
+    "H5": { "direction": "bullish|bearish|neutral", "probability": 0, "target": 0.0, "invalidation": 0.0, "activation_condition": "string", "confidence": 0, "reasoning": "string" }
   },
   "drivers": ["string — facteurs dominants, du plus fort au plus faible"],
   "risks": ["string — ce qui peut faire échouer la lecture dominante"],

@@ -1184,7 +1184,11 @@ function scoreSurprise(
   if (lexical > 0) return clamp(lexical);
 
   // 3. Aucune preuve : hypothèse assumée et tracée.
-  const assumed = isScheduledRelease ? 50 : 25;
+  // Défaut relevé 25->40 (2026-08-23) : 43/48 articles monetary_policy/inflation
+  // sur 7j tombaient sous le seuil MAJOR (score moyen 59, macro moyen 83) à cause
+  // de ce plancher. L'absence de chiffre 'actual vs expected' ne signifie pas
+  // absence de pertinence — cf. audit ingestion_runs/news_events 2026-08-23.
+  const assumed = isScheduledRelease ? 50 : 40;
   assumptions.push({
     variable: 'surprise_score',
     reason: isScheduledRelease

@@ -52,12 +52,13 @@
 
   /* Fenêtres des horizons — miroir de CONFIG.HORIZON_WINDOWS du backend. */
   const HORIZON_LABELS = {
-    H1: '1-6H INTRADAY',
-    H2: '24H',
-    H3: 'HEBDOMADAIRE',
-    H4: 'STRUCTUREL',
+    H1: '1-2H INTRADAY',
+    H2: '4H',
+    H3: '24H',
+    H4: 'HEBDOMADAIRE',
+    H5: 'STRUCTUREL',
   };
-  const HORIZONS = ['H1', 'H2', 'H3', 'H4'];
+  const HORIZONS = ['H1', 'H2', 'H3', 'H4', 'H5'];
 
   /* P1-3 : les trois verdicts bloquants restent DISTINCTS à l'affichage.
      Les replier sur « rejeté » masquerait la cause réelle du blocage. */

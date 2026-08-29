@@ -84,7 +84,7 @@ const CONFIG = {
   // des trois analystes sur la base d'un seul cas structurellement
   // différent.
   MAX_TOKENS_GEOPOLITICAL: 5_000,
-  MAX_TOKENS_COMMITTEE: 4_000,
+  MAX_TOKENS_COMMITTEE: 10_000, // relevé 4000->10000 (2026-08-22): troncature confirmée en prod (10 runs, réponse tronquée) + schéma passé de 4 à 5 horizons (+H5)
   /** Température basse : on veut de la reproductibilité, pas de la créativité. */
   TEMPERATURE: 0.2,
 
@@ -110,12 +110,13 @@ const CONFIG = {
   /** Miroir du CHECK SQL chk_ai_scenarios_activation_substantive (>= 15). */
   MIN_ACTIVATION_LENGTH: 15,
 
-  HORIZONS: ['H1', 'H2', 'H3', 'H4'] as const,
+  HORIZONS: ['H1', 'H2', 'H3', 'H4', 'H5'] as const,
   HORIZON_WINDOWS: {
-    H1: '6 hours',
-    H2: '24 hours',
-    H3: '7 days',
-    H4: '30 days',
+    H1: '1-2 hours',
+    H2: '4 hours',
+    H3: '24 hours',
+    H4: '7 days',
+    H5: '30 days',
   } as const,
 } as const;
 
@@ -749,9 +750,13 @@ export function normalizeProbabilities(
   // Somme nulle : distribution impossible à normaliser par proportion.
   // On répartit uniformément plutôt que de diviser par zéro.
   if (total <= 0) {
-    const equal = 25;
+    const base = Math.floor(100 / horizons.length);
+    const remainder = 100 - base * horizons.length;
     return Object.fromEntries(
-      horizons.map((h) => [h, { ...scenarios[h], probability: equal }]),
+      horizons.map((h, i) => [
+        h,
+        { ...scenarios[h], probability: base + (i < remainder ? 1 : 0) },
+      ]),
     ) as Record<Horizon, Scenario>;
   }
 
@@ -1058,9 +1063,9 @@ export type CommitteeEventType = 'RECALC_H1_H2' | 'REEVALUATE_H3';
 
 /** Horizons réellement recalculés selon la portée. */
 export const SCOPE_HORIZONS: Readonly<Record<RecalcScope, readonly Horizon[]>> = {
-  FULL: ['H1', 'H2', 'H3', 'H4'],
-  H1_H2: ['H1', 'H2'],
-  H3: ['H3'],
+  FULL: ['H1', 'H2', 'H3', 'H4', 'H5'],
+  H1_H2: ['H1', 'H2', 'H3'],
+  H3: ['H4'],
 };
 
 /**
@@ -1335,7 +1340,7 @@ function buildNoValidSetup(
     market_regime: 'range_bound',
     overall_bias: 'neutral',
     confidence: 0,
-    scenarios: { H1: flat, H2: flat, H3: flat, H4: flat },
+    scenarios: { H1: flat, H2: flat, H3: flat, H4: flat, H5: flat },
     drivers: [],
     risks: motives,
     invalidations: ['Analyse non émise : aucune invalidation exploitable.'],
