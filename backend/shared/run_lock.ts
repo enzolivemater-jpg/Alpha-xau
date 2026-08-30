@@ -98,6 +98,11 @@ export interface LockRelease {
   readonly rejected?: number;
   readonly persisted?: number;
   readonly duplicates?: number;
+  /** Propres à news_engine (classification §24). Omis par market_engine et
+   *  ai_committee : les colonnes ingestion_runs.critical_count/major_count
+   *  restent alors intouchées par ce PATCH, comme avant leur introduction. */
+  readonly critical?: number;
+  readonly major?: number;
   readonly providers?: Record<string, unknown>;
   readonly errors?: readonly string[];
 }
@@ -112,7 +117,7 @@ export async function releaseLock(
   runRowId: string,
   release: LockRelease,
 ): Promise<void> {
-  await db.request('PATCH', `ingestion_runs?id=eq.${encodeURIComponent(runRowId)}`, {
+  const body: Record<string, unknown> = {
     finished_at: new Date().toISOString(),
     duration_ms: release.durationMs,
     status: release.status,
@@ -122,5 +127,14 @@ export async function releaseLock(
     duplicate_count: release.duplicates ?? 0,
     providers: release.providers ?? {},
     errors: release.errors ?? [],
-  }, { prefer: 'return=minimal' });
+  };
+  // Champs optionnels : n'apparaissent dans le corps PATCH que si le moteur
+  // appelant les fournit, pour ne rien changer au comportement des moteurs
+  // qui ne les utilisent pas (PostgREST ne touche que les clés présentes).
+  if (release.critical !== undefined) body.critical_count = release.critical;
+  if (release.major !== undefined) body.major_count = release.major;
+
+  await db.request('PATCH', `ingestion_runs?id=eq.${encodeURIComponent(runRowId)}`, body, {
+    prefer: 'return=minimal',
+  });
 }

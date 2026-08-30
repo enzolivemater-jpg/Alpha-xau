@@ -41,6 +41,8 @@
  * =============================================================================
  */
 
+import { acquireLock, releaseLock } from './shared/run_lock.js';
+
 /* -------------------------------------------------------------------------- */
 /*  1. ENVIRONNEMENT ET CONFIGURATION                                          */
 /* -------------------------------------------------------------------------- */
@@ -1482,8 +1484,9 @@ class SupabaseClient {
     };
   }
 
-  /** Exécute une requête PostgREST avec timeout et retry sur erreur transitoire. */
-  private async request<T>(
+  /** Exécute une requête PostgREST avec timeout et retry sur erreur transitoire.
+   *  Public : consommé par shared/run_lock.ts (interface LockCapableDb). */
+  async request<T>(
     method: 'GET' | 'POST' | 'PATCH',
     path: string,
     body?: unknown,
@@ -1565,33 +1568,10 @@ class SupabaseClient {
     );
   }
 
-  async createRun(triggerType: string): Promise<string> {
-    const rows = await this.request<Array<{ id: string }>>(
-      'POST',
-      'ingestion_runs?select=id',
-      [{ engine: 'news_engine', trigger_type: triggerType, status: 'running' }],
-      { prefer: 'return=representation' },
-    );
-    const id = rows[0]?.id;
-    if (!id) throw new Error('Création du run d\'ingestion impossible.');
-    return id;
-  }
-
-  async finalizeRun(runId: string, report: IngestReport): Promise<void> {
-    await this.request('PATCH', `ingestion_runs?id=eq.${encodeURIComponent(runId)}`, {
-      finished_at: new Date().toISOString(),
-      duration_ms: report.duration_ms,
-      status: report.status,
-      fetched_count: report.fetched,
-      rejected_count: report.rejected,
-      duplicate_count: report.duplicates,
-      persisted_count: report.persisted,
-      critical_count: report.critical,
-      major_count: report.major,
-      providers: report.providers,
-      errors: report.errors,
-    });
-  }
+  // createRun()/finalizeRun() supprimées : le verrou (acquisition ET
+  // finalisation de la ligne ingestion_runs) passe désormais par
+  // shared/run_lock.ts (acquireLock/releaseLock), seule implémentation de
+  // locking du projet — voir runIngestion() plus bas.
 
   async insertAlerts(rows: readonly Record<string, unknown>[]): Promise<void> {
     if (rows.length === 0) return;
@@ -1959,19 +1939,42 @@ export async function reconcileNotifications(env: Env): Promise<{ swept: number;
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Levée quand un run news_engine est déjà actif (verrou shared/run_lock.ts
+ * non acquis). Cas NOMINAL — un cron qui déborde sur le suivant — pas une
+ * erreur : voir acquireLock().
+ */
+export class NewsEngineBusyError extends Error {
+  readonly status = 'ALREADY_RUNNING' as const;
+  constructor() {
+    super('ALREADY_RUNNING : un run news_engine est déjà en cours d\'exécution.');
+    this.name = 'NewsEngineBusyError';
+  }
+}
+
+/**
  * Pipeline complet :
  *   collecte -> validation source -> déduplication -> nettoyage
  *   -> classification -> scoring -> persistance -> actions.
  *
  * Chaque étape est isolée : l'échec d'un collecteur produit un run `partial`,
  * pas un run `failed`. Un run n'échoue que si la base est inaccessible.
+ *
+ * VERROU (aligné sur ai_committee, correctif P0-CONCURRENCY) : la prise du
+ * verrou précède toute collecte, via l'implémentation partagée
+ * shared/run_lock.ts (mêmes garanties PostgreSQL, même récupération des
+ * verrous abandonnés que market_engine/ai_committee).
  */
 export async function runIngestion(env: Env, triggerType: string): Promise<IngestReport> {
   const startedAt = Date.now();
   const bootLog = new Logger(env.LOG_LEVEL, 'pending');
-
   const db = new SupabaseClient(env, bootLog);
-  const runId = await db.createRun(triggerType);
+
+  const lock = await acquireLock(db, 'news_engine', triggerType);
+  if (!lock.acquired) {
+    bootLog.warn('SKIPPED : un run news_engine est déjà en cours.');
+    throw new NewsEngineBusyError();
+  }
+  const runId = lock.runRowId;
   const log = new Logger(env.LOG_LEVEL, runId);
   log.info('Ingestion démarrée', { trigger: triggerType });
 
@@ -2068,12 +2071,23 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
   }
 
   // Le journal du run est écrit quel que soit l'issue : sans lui, une source
-  // morte resterait invisible (§100 checklist données).
-  try {
-    await db.finalizeRun(runId, report);
-  } catch (err) {
-    log.error('Clôture du run impossible', { reason: errorMessage(err) });
-  }
+  // morte resterait invisible (§100 checklist données). Libération
+  // inconditionnelle du verrou, comme ai_committee : un verrou non relâché
+  // bloquerait le moteur jusqu'à la récupération stale (15 min).
+  await releaseLock(db, runId, {
+    status: report.status,
+    durationMs: report.duration_ms,
+    fetched: report.fetched,
+    rejected: report.rejected,
+    persisted: report.persisted,
+    duplicates: report.duplicates,
+    critical: report.critical,
+    major: report.major,
+    providers: report.providers,
+    errors: report.errors,
+  }).catch((err: unknown) => {
+    log.error('Libération du verrou news_engine en échec', { reason: errorMessage(err) });
+  });
 
   return report;
 }
@@ -2141,6 +2155,11 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     const report = await runIngestion(env, 'manual');
     return jsonResponse(report, report.status === 'failed' ? 500 : 200);
   } catch (err) {
+    if (err instanceof NewsEngineBusyError) {
+      // Même convention que ai_committee : run déjà en cours = livraison
+      // prise en compte, pas une erreur serveur.
+      return jsonResponse({ status: 'ALREADY_RUNNING', errors: [err.message] }, 200);
+    }
     // Le message d'erreur interne n'est jamais renvoyé au client.
     new Logger(env.LOG_LEVEL, 'unhandled').error('Exception non gérée', {
       reason: errorMessage(err),

@@ -50,11 +50,13 @@ import {
   runIngestion as runNewsIngestion,
   reconcileNotifications,
   handleRequest as handleNewsRequest,
+  NewsEngineBusyError,
   type Env as NewsEnv,
 } from './ingest.js';
 import {
   runCommittee,
   handleRequest as handleCommitteeRequest,
+  CommitteeBusyError,
   type Env as CommitteeEnv,
   type RecalcScope,
 } from './ai_engine/committee_orchestrator.js';
@@ -117,8 +119,16 @@ export async function runJob(job: JobName, env: WorkerEnv): Promise<void> {
     const analysis = await runCommittee(env, { scope, triggerType: 'cron' });
     log('info', job, 'SUCCESS', { execution_status: analysis.meta.execution_status });
   } catch (err) {
+    // ALREADY_RUNNING (verrou shared/run_lock.ts déjà tenu) est un état
+    // NOMINAL — un run qui déborde sur le suivant — pas un échec du moteur.
+    const busy = err instanceof NewsEngineBusyError || err instanceof CommitteeBusyError;
     // Le message est déjà expurgé de tout secret par les moteurs.
-    log('error', job, 'FAILED', { reason: err instanceof Error ? err.message : String(err) });
+    const reason = err instanceof Error ? err.message : String(err);
+    if (busy) {
+      log('warn', job, 'SKIPPED', { reason });
+    } else {
+      log('error', job, 'FAILED', { reason });
+    }
   }
 }
 
