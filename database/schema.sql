@@ -328,6 +328,115 @@ FROM generate_series(-2, 6) AS n;
 CREATE TABLE market_ticks_default PARTITION OF market_ticks DEFAULT;
 
 -- ---------------------------------------------------------------------
+-- 4 BIS. OBSERVABILITÉ DE L'INGESTION — ingestion_runs
+--    Correctif fresh-install (NEWS-RAW-002-FIX) : ce contrat existait déjà
+--    en production via les migrations 0002 (table) et 0004 (verrou +
+--    récupération des verrous abandonnés), mais jamais dans ce fichier —
+--    une base vierge ne pouvait donc pas exécuter schema.sql jusqu'au bout
+--    dès qu'une FK vers ingestion_runs existait (news_events.ingest_run_id,
+--    puis news_articles.ingest_run_id). Reproduit ici à l'identique du
+--    contrat live, PAS un second contrat concurrent : toute évolution
+--    future de ce contrat doit rester appliquée aux DEUX fichiers (voir
+--    migrations 0002/0004 pour l'historique détaillé).
+-- ---------------------------------------------------------------------
+CREATE TABLE ingestion_runs (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  engine            TEXT        NOT NULL DEFAULT 'news_engine',
+  trigger_type      TEXT        NOT NULL DEFAULT 'cron'
+                      CHECK (trigger_type IN ('cron', 'manual', 'webhook', 'backfill')),
+  started_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at       TIMESTAMPTZ,
+  duration_ms       INTEGER     CHECK (duration_ms IS NULL OR duration_ms >= 0),
+  status            TEXT        NOT NULL DEFAULT 'running'
+                      CHECK (status IN ('running', 'success', 'partial', 'failed')),
+  fetched_count     INTEGER     NOT NULL DEFAULT 0 CHECK (fetched_count     >= 0),
+  rejected_count    INTEGER     NOT NULL DEFAULT 0 CHECK (rejected_count    >= 0),
+  duplicate_count   INTEGER     NOT NULL DEFAULT 0 CHECK (duplicate_count   >= 0),
+  persisted_count   INTEGER     NOT NULL DEFAULT 0 CHECK (persisted_count   >= 0),
+  critical_count    INTEGER     NOT NULL DEFAULT 0 CHECK (critical_count    >= 0),
+  major_count       INTEGER     NOT NULL DEFAULT 0 CHECK (major_count       >= 0),
+  -- Détail par collecteur : {"gdelt":{"ok":true,"count":112,"retries":1}}
+  providers         JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  errors            JSONB       NOT NULL DEFAULT '[]'::jsonb,
+  CONSTRAINT chk_ingestion_runs_finish
+    CHECK (finished_at IS NULL OR finished_at >= started_at)
+);
+COMMENT ON COLUMN ingestion_runs.engine IS
+  'Moteur émetteur : news_engine | market_engine | ai_committee.';
+
+CREATE INDEX idx_ingestion_runs_started
+  ON ingestion_runs (started_at DESC);
+CREATE INDEX idx_ingestion_runs_failed
+  ON ingestion_runs (started_at DESC)
+  WHERE status IN ('failed', 'partial');
+
+-- VERROU D'EXÉCUTION (shared/run_lock.ts) : un seul run actif par moteur.
+-- Toute tentative concurrente lève 23505, que le moteur interprète comme
+-- ALREADY_RUNNING/SKIPPED, pas comme une erreur.
+CREATE UNIQUE INDEX uq_ingestion_runs_active
+  ON ingestion_runs (engine)
+  WHERE status = 'running';
+COMMENT ON INDEX uq_ingestion_runs_active IS
+  'Verrou anti-concurrence : un seul run actif par moteur. '
+  'Une violation 23505 signifie "run déjà en cours", pas une erreur.';
+
+-- RÉCUPÉRATION DES VERROUS ABANDONNÉS : un Worker tué (timeout plateforme,
+-- OOM, redéploiement) laisse une ligne 'running' orpheline qui bloquerait
+-- le moteur indéfiniment. Appelée par acquireLock() (shared/run_lock.ts)
+-- avant chaque tentative d'acquisition.
+CREATE OR REPLACE FUNCTION fn_reclaim_stale_runs(
+  p_engine              TEXT,
+  p_older_than_minutes  INTEGER DEFAULT 15
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_reclaimed INTEGER;
+BEGIN
+  IF p_older_than_minutes IS NULL OR p_older_than_minutes <= 0 THEN
+    RAISE EXCEPTION 'p_older_than_minutes doit être strictement positif';
+  END IF;
+
+  UPDATE ingestion_runs
+     SET status      = 'failed',
+         finished_at = now(),
+         duration_ms = GREATEST(0, EXTRACT(EPOCH FROM (now() - started_at))::INTEGER * 1000),
+         errors      = errors || jsonb_build_array(
+                         format('Verrou abandonné récupéré après %s minutes.',
+                                p_older_than_minutes))
+   WHERE engine = p_engine
+     AND status = 'running'
+     AND started_at < now() - make_interval(mins => p_older_than_minutes);
+
+  GET DIAGNOSTICS v_reclaimed = ROW_COUNT;
+  RETURN v_reclaimed;
+END;
+$$;
+COMMENT ON FUNCTION fn_reclaim_stale_runs IS
+  'Libère un verrou laissé par un Worker interrompu. Idempotente.';
+
+REVOKE ALL ON FUNCTION fn_reclaim_stale_runs(TEXT, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION fn_reclaim_stale_runs(TEXT, INTEGER) TO service_role;
+
+-- Observabilité : dernier run par moteur (parité fresh-install avec
+-- migration 0004, NEWS-RAW-002-FIX2). Réservée au service_role et aux
+-- utilisateurs authentifiés : l'état d'exploitation interne n'a pas à
+-- être public.
+CREATE OR REPLACE VIEW v_engine_last_run AS
+SELECT DISTINCT ON (engine)
+  engine, id AS run_id, trigger_type, status,
+  started_at, finished_at, duration_ms,
+  fetched_count, rejected_count, persisted_count, duplicate_count,
+  providers, errors
+FROM ingestion_runs
+ORDER BY engine, started_at DESC;
+
+GRANT SELECT ON v_engine_last_run TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------
 -- 5. NEWS ENGINE — news_events
 --    Scoring multi-facteurs. news_score est calculé EN BASE (colonne
 --    générée) : un seul lieu de vérité pour le front, l'IA et les alertes.
@@ -379,6 +488,12 @@ CREATE TABLE news_events (
   ingested_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
 
+  -- Traçabilité vers le run ayant produit la ligne (parité fresh-install
+  -- avec migration 0002 / NEWS-RAW-002-FIX). SET NULL (pas RESTRICT comme
+  -- news_articles.ingest_run_id) : news_events est un legacy déjà scoré,
+  -- purger un vieux run ne doit pas bloquer sur son historique.
+  ingest_run_id        UUID,
+
   -- Déduplication inter-agrégateurs (le même dépêche arrive par N flux).
   dedup_hash           TEXT GENERATED ALWAYS AS (
                          encode(extensions.digest(lower(btrim(title)), 'sha256'), 'hex')
@@ -386,7 +501,9 @@ CREATE TABLE news_events (
 
   CONSTRAINT fk_news_events_source
     FOREIGN KEY (source) REFERENCES data_sources (code)
-    ON UPDATE CASCADE ON DELETE RESTRICT
+    ON UPDATE CASCADE ON DELETE RESTRICT,
+  CONSTRAINT fk_news_events_ingest_run
+    FOREIGN KEY (ingest_run_id) REFERENCES ingestion_runs (id) ON DELETE SET NULL
 );
 
 COMMENT ON TABLE news_events IS
@@ -456,6 +573,185 @@ $$;
 CREATE TRIGGER trg_news_events_classify
   BEFORE INSERT ON news_events
   FOR EACH ROW EXECUTE FUNCTION fn_news_classify();
+
+-- ---------------------------------------------------------------------
+-- 5 BIS. NEWS ENGINE V2 — news_articles (couche RAW, append-only)
+--    Preuve brute pré-scoring : RAW ARTICLE -> (futur) EVENT CLUSTER ->
+--    EVENT VERSION -> EVENT IMPACT -> GOLD TRANSMISSION -> H1-H5 -> COMITÉ.
+--    Ne contient AUCUN scoring/classification/direction/magnitude/
+--    confidence/H1-H5 : ces propriétés appartiennent au futur EVENT IMPACT,
+--    pas à l'article brut. Aucun trigger vers le comité.
+-- ---------------------------------------------------------------------
+CREATE TABLE news_articles (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- RESTRICT (pas SET NULL comme news_events.ingest_run_id) : cette table
+  -- est une preuve brute, sa traçabilité vers le run qui l'a produite ne
+  -- doit jamais devenir orpheline.
+  ingest_run_id           UUID NOT NULL
+                            REFERENCES ingestion_runs (id) ON DELETE RESTRICT,
+
+  -- Collecteur ayant observé l'item (fed, ecb, treasury, ofac, gdelt,
+  -- newsapi, ...). TEXT libre et non ENUM : le nombre de providers est
+  -- amené à croître sans migration de type. Canonique : minuscules et sans
+  -- espaces superflus imposés par CHECK, pour qu'un même provider ne se
+  -- fragmente jamais en plusieurs identités ('fed' / 'Fed' / ' fed ').
+  provider                TEXT NOT NULL
+                            CHECK (
+                              length(btrim(provider)) > 0
+                              AND provider = lower(provider)
+                              AND provider = btrim(provider)
+                            ),
+  provider_item_id        TEXT,
+  -- Éditeur/autorité réelle, résolu comme dans news_events (SourceRegistry).
+  -- provider != source_code : voir COMMENT ON COLUMN ci-dessous.
+  source_code             TEXT NOT NULL
+                            REFERENCES data_sources (code)
+                            ON UPDATE CASCADE ON DELETE RESTRICT,
+  source_domain           TEXT,
+  canonical_url           TEXT,
+
+  title                   TEXT NOT NULL CHECK (length(btrim(title)) > 0),
+  summary                 TEXT,
+  content                 TEXT,
+  provider_category       TEXT,
+
+  -- Précision du timestamp amont : jamais d'heure inventée. Si la source ne
+  -- fournit qu'une date (ex. OFAC), published_date seul est renseigné.
+  published_at            TIMESTAMPTZ,
+  published_date          DATE,
+  -- Valeur de publication EXACTE reçue du provider avant normalisation,
+  -- ex. "Tue, 25 Aug 2026 18:00:00 GMT", "August 28, 2026". published_at/
+  -- published_date restent les représentations normalisées ; ce champ est
+  -- la preuve brute qui les a produites (ou non, si non-parsable).
+  provider_published_raw  TEXT,
+
+  observed_at             TIMESTAMPTZ NOT NULL,
+  ingested_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  ingest_quality_state    TEXT NOT NULL DEFAULT 'VALID'
+                            CHECK (ingest_quality_state IN ('VALID', 'DEGRADED', 'UNVERIFIED')),
+  ingest_quality_reasons  TEXT[] NOT NULL DEFAULT '{}',
+
+  -- Empreinte déterministe de L'OBSERVATION reçue (pas de l'événement réel).
+  -- Volontairement PAS de UNIQUE sur (provider, provider_item_id) ni sur
+  -- (provider, canonical_url) : un upstream peut corriger un item sous le
+  -- même GUID/URL, et cette nouvelle version doit survivre comme une
+  -- NOUVELLE ligne. Seule cette empreinte porte la contrainte d'unicité
+  -- forte (voir uq_news_articles_observation_hash) : un re-poll exact du
+  -- même contenu ET de la même publication raw produit le même hash
+  -- (conflit/ignore possible côté appli) ; un contenu modifié OU une
+  -- correction de publication upstream sous le même GUID produit un hash
+  -- différent (nouvelle ligne conservée). Inclut source_domain et
+  -- provider_published_raw (texte brut) : ce sont des données de
+  -- provenance/observation, PAS published_at/published_date qui sont des
+  -- représentations normalisées et n'entrent jamais dans l'empreinte.
+  observation_hash TEXT GENERATED ALWAYS AS (
+    encode(
+      extensions.digest(
+        provider || chr(31) ||
+        COALESCE(provider_item_id, '') || chr(31) ||
+        COALESCE(source_domain, '') || chr(31) ||
+        COALESCE(canonical_url, '') || chr(31) ||
+        source_code || chr(31) ||
+        title || chr(31) ||
+        COALESCE(summary, '') || chr(31) ||
+        COALESCE(content, '') || chr(31) ||
+        COALESCE(provider_category, '') || chr(31) ||
+        COALESCE(provider_published_raw, ''),
+        'sha256'
+      ),
+      'hex'
+    )
+  ) STORED,
+
+  CONSTRAINT chk_news_articles_published_exclusive
+    CHECK (published_at IS NULL OR published_date IS NULL),
+  CONSTRAINT chk_news_articles_published_raw_present
+    CHECK (
+      (published_at IS NULL AND published_date IS NULL)
+      OR provider_published_raw IS NOT NULL
+    ),
+  CONSTRAINT chk_news_articles_provider_published_raw_not_blank
+    CHECK (
+      provider_published_raw IS NULL
+      OR length(btrim(provider_published_raw)) > 0
+    ),
+  CONSTRAINT chk_news_articles_identity_present
+    CHECK (provider_item_id IS NOT NULL OR canonical_url IS NOT NULL),
+  CONSTRAINT chk_news_articles_provider_item_id_not_blank
+    CHECK (provider_item_id IS NULL OR length(btrim(provider_item_id)) > 0),
+  CONSTRAINT chk_news_articles_canonical_url_not_blank
+    CHECK (canonical_url IS NULL OR length(btrim(canonical_url)) > 0),
+  CONSTRAINT chk_news_articles_canonical_url_scheme
+    CHECK (canonical_url IS NULL OR canonical_url ~* '^https?://')
+);
+
+COMMENT ON TABLE news_articles IS
+  'Couche RAW ARTICLE (News/Event Engine V2), append-only, pré-scoring. Une ligne par OBSERVATION (voir observation_hash), pas par événement réel — la déduplication événementielle (novelty/confirmation/reversal) appartient au futur EVENT CLUSTER.';
+COMMENT ON COLUMN news_articles.provider IS
+  'Collecteur ayant observé l''item. provider indique COMMENT l''item a été observé ; source_code indique QUI l''a publié.';
+COMMENT ON COLUMN news_articles.source_code IS
+  'Éditeur/autorité réelle (data_sources.code). provider et source_code distincts sont des SIGNAUX DE PROVENANCE, PAS une preuve d''indépendance éditoriale : deux publishers différents peuvent avoir recopié la même dépêche. La détermination INDEPENDENT / SYNDICATED / UNKNOWN appartient au futur EVENT CLUSTER, pas à cette table.';
+COMMENT ON COLUMN news_articles.observation_hash IS
+  'Empreinte sha256 déterministe de l''observation reçue (provider, identifiants amont, domaine source, source, titre, corps, catégorie, publication brute) — PAS de l''événement réel, et PAS des timestamps normalisés (published_at/published_date n''entrent jamais dans le hash). Un contenu, un domaine source OU une publication upstream modifiée sous le même GUID/URL produit un hash différent : la nouvelle version est conservée comme une NOUVELLE ligne, l''ancienne n''est jamais modifiée.';
+COMMENT ON COLUMN news_articles.published_at IS
+  'Horodatage de publication si la source fournit une heure fiable. Mutuellement exclusif avec published_date (chk_news_articles_published_exclusive) : jamais les deux, jamais inventé.';
+COMMENT ON COLUMN news_articles.published_date IS
+  'Date de publication si la source ne fournit qu''une date (ex. OFAC). Mutuellement exclusif avec published_at.';
+COMMENT ON COLUMN news_articles.provider_published_raw IS
+  'Valeur de publication EXACTE reçue du provider avant normalisation (ex. "Tue, 25 Aug 2026 18:00:00 GMT"). Obligatoire dès que published_at OU published_date est renseigné (chk_news_articles_published_raw_present) ; entre dans observation_hash, contrairement à published_at/published_date qui sont des représentations dérivées.';
+COMMENT ON COLUMN news_articles.observed_at IS
+  'Heure réelle à laquelle le collecteur a observé l''item — distincte de published_at/published_date ET de ingested_at.';
+COMMENT ON COLUMN news_articles.ingested_at IS
+  'Heure de persistance en base (peut différer de observed_at en cas de retry/backoff).';
+
+CREATE UNIQUE INDEX uq_news_articles_observation_hash
+  ON news_articles (observation_hash);
+
+-- Indices de provenance amont, PAS des contraintes d'unicité : voir
+-- COMMENT ON COLUMN news_articles.observation_hash.
+CREATE INDEX idx_news_articles_provider_item
+  ON news_articles (provider, provider_item_id)
+  WHERE provider_item_id IS NOT NULL;
+CREATE INDEX idx_news_articles_provider_url
+  ON news_articles (provider, canonical_url)
+  WHERE canonical_url IS NOT NULL;
+
+CREATE INDEX idx_news_articles_published
+  ON news_articles (published_at DESC)
+  WHERE published_at IS NOT NULL;
+CREATE INDEX idx_news_articles_published_date
+  ON news_articles (published_date DESC)
+  WHERE published_date IS NOT NULL;
+CREATE INDEX idx_news_articles_provider_observed
+  ON news_articles (provider, observed_at DESC);
+CREATE INDEX idx_news_articles_ingest_run
+  ON news_articles (ingest_run_id);
+
+COMMENT ON INDEX idx_news_articles_provider_item IS
+  'Indice de provenance amont, PAS une contrainte d''unicité : un upstream peut corriger un item sous le même GUID (idempotence réelle = observation_hash).';
+COMMENT ON INDEX idx_news_articles_provider_url IS
+  'Indice de provenance amont, PAS une contrainte d''unicité (même rationale que idx_news_articles_provider_item).';
+
+-- Protection append-only minimale : bloque tout UPDATE/DELETE, y compris
+-- pour service_role (BYPASSRLS dispense des policies RLS, pas des triggers).
+-- Une correction upstream s'insère comme une NOUVELLE ligne (nouveau
+-- observation_hash), l'ancienne n'est jamais modifiée ni supprimée.
+CREATE OR REPLACE FUNCTION fn_news_articles_append_only()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION
+    'news_articles est append-only : % interdit. Une correction upstream doit être insérée comme une NOUVELLE ligne, jamais comme une modification de la ligne existante.',
+    TG_OP;
+END;
+$$;
+
+CREATE TRIGGER trg_news_articles_append_only
+  BEFORE UPDATE OR DELETE ON news_articles
+  FOR EACH ROW EXECUTE FUNCTION fn_news_articles_append_only();
 
 -- ---------------------------------------------------------------------
 -- 6. AI ENGINE — ai_analyses + ai_scenarios
@@ -785,9 +1081,11 @@ ORDER BY ts DESC;
 --     service_role est BYPASSRLS : aucune policy d'écriture n'est requise.
 -- ---------------------------------------------------------------------
 ALTER TABLE instruments           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ingestion_runs        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE data_sources          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE market_ticks          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE news_events           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE news_articles         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_analyses           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_scenarios          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_analysis_news      ENABLE ROW LEVEL SECURITY;
@@ -803,6 +1101,7 @@ CREATE POLICY p_ai_scenarios_read  ON ai_scenarios     FOR SELECT TO anon, authe
 
 -- Données internes : réservées aux utilisateurs authentifiés.
 CREATE POLICY p_data_sources_read  ON data_sources          FOR SELECT TO authenticated USING (true);
+CREATE POLICY p_ingestion_runs_read ON ingestion_runs       FOR SELECT TO authenticated USING (true);
 CREATE POLICY p_ai_news_read       ON ai_analysis_news      FOR SELECT TO authenticated USING (true);
 CREATE POLICY p_perf_read          ON performance_scorecard FOR SELECT TO authenticated USING (true);
 CREATE POLICY p_alerts_read        ON alerts                FOR SELECT TO authenticated USING (true);
@@ -819,6 +1118,14 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT UPDATE ON alerts TO authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+
+-- news_articles : surcharge des privilèges par défaut ci-dessus. Couche de
+-- preuve brute, non vetted pour consommation directe (contrairement à
+-- news_events) : aucun accès client, écriture backend seule, jamais
+-- UPDATE/DELETE (append-only — voir aussi trg_news_articles_append_only).
+REVOKE ALL ON news_articles FROM anon, authenticated;
+REVOKE ALL ON news_articles FROM service_role;
+GRANT SELECT, INSERT ON news_articles TO service_role;
 
 -- ---------------------------------------------------------------------
 -- 11. SEED RÉFÉRENTIEL
