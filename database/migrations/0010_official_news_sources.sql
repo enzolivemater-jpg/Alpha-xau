@@ -72,7 +72,7 @@ DO $$
 DECLARE
   v_row RECORD;
 BEGIN
-  SELECT provider_name, base_url, domain, reliability_score, is_market_source, is_news_source
+  SELECT provider_name, base_url, domain, reliability_score, is_market_source, is_news_source, is_active
     INTO v_row
     FROM data_sources
    WHERE code = 'ofac';
@@ -80,7 +80,7 @@ BEGIN
   IF NOT FOUND THEN
     INSERT INTO data_sources (
       code, provider_name, base_url, domain,
-      reliability_score, is_market_source, is_news_source
+      reliability_score, is_market_source, is_news_source, is_active
     ) VALUES (
       'ofac',
       'Office of Foreign Assets Control (OFAC)',
@@ -88,6 +88,7 @@ BEGIN
       'ofac.treasury.gov',
       100.00,
       false,
+      true,
       true
     );
   ELSIF v_row.provider_name IS DISTINCT FROM 'Office of Foreign Assets Control (OFAC)'
@@ -96,10 +97,11 @@ BEGIN
      OR v_row.reliability_score IS DISTINCT FROM 100.00
      OR v_row.is_market_source IS DISTINCT FROM false
      OR v_row.is_news_source IS DISTINCT FROM true
+     OR v_row.is_active IS DISTINCT FROM true
   THEN
     RAISE EXCEPTION
-      'STOP: data_sources.ofac existe déjà avec une définition différente (provider_name=%, base_url=%, domain=%, reliability_score=%, is_market_source=%, is_news_source=%).',
-      v_row.provider_name, v_row.base_url, v_row.domain, v_row.reliability_score, v_row.is_market_source, v_row.is_news_source;
+      'STOP: data_sources.ofac existe déjà avec une définition différente (provider_name=%, base_url=%, domain=%, reliability_score=%, is_market_source=%, is_news_source=%, is_active=%).',
+      v_row.provider_name, v_row.base_url, v_row.domain, v_row.reliability_score, v_row.is_market_source, v_row.is_news_source, v_row.is_active;
   END IF;
   -- ELSE : déjà présent à l'identique -> aucune mutation, succès.
 END $$;
