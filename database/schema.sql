@@ -179,8 +179,10 @@ CREATE TABLE data_sources (
   base_url          TEXT,
   domain            TEXT,              -- news_engine : matching éditeur
   -- Fiabilité par défaut du fournisseur, surchargée au niveau de l'événement.
-  reliability_score NUMERIC(4,3)  NOT NULL DEFAULT 0.500
-                      CHECK (reliability_score BETWEEN 0 AND 1),
+  -- Échelle 0-100 (parité fresh-install avec migration 0002 : SPEC §23 —
+  -- institutionnelles 95-100 / reconnues 70-90 / secondaires 40-70).
+  reliability_score NUMERIC(6,2)  NOT NULL DEFAULT 50
+                      CHECK (reliability_score BETWEEN 0 AND 100),
   latency_ms        INTEGER       CHECK (latency_ms IS NULL OR latency_ms >= 0),
   rate_limit_per_min INTEGER      CHECK (rate_limit_per_min IS NULL OR rate_limit_per_min > 0),
   is_market_source  BOOLEAN       NOT NULL DEFAULT false,
@@ -1143,18 +1145,46 @@ INSERT INTO instruments (symbol, display_name, asset_type, quote_currency, tick_
   ('USDJPY', 'US Dollar / Japanese Yen',     'fx',         'JPY', 0.001,  3, false),
   ('BTCUSD', 'Bitcoin / US Dollar',          'crypto',     'USD', 0.01,   2, false);
 
+-- Parité fresh-install avec migration 0002 (NEWS-RAW-012B) : échelle 0-100,
+-- ensemble complet des sources introduites par 0002 (newsapi -> unknown_source
+-- inclus), plus OFAC (nouvelle provenance officielle, jamais mappée sur
+-- us_treasury — voir NEWS-RAW-012B). us_treasury reste EXACTEMENT le
+-- contrat historique de 0002 (provider_name/domain/reliability_score
+-- inchangés) : ne pas "corriger" son libellé ou son domaine ici.
 INSERT INTO data_sources (code, provider_name, base_url, domain, reliability_score, is_market_source, is_news_source) VALUES
-  ('fred',          'Federal Reserve Economic Data', 'https://api.stlouisfed.org/fred', 'stlouisfed.org', 0.990, true,  false),
-  ('stooq',         'Stooq',                          'https://stooq.com/q/l/',          'stooq.com',      0.850, true,  false),
-  ('yahoo_finance', 'Yahoo Finance',                  'https://query1.finance.yahoo.com','finance.yahoo.com', 0.800, true, false),
-  ('twelve_data',   'Twelve Data',                    'https://api.twelvedata.com',      'twelvedata.com', 0.880, true,  false),
-  ('finnhub',       'Finnhub',                        'https://finnhub.io/api/v1',       'finnhub.io',     0.870, true,  true),
-  ('gdelt',         'GDELT Project',                  'https://api.gdeltproject.org',    'gdeltproject.org',0.700, false, true),
-  ('reuters',       'Reuters',                        NULL,                              'reuters.com',    0.950, false, true),
-  ('bloomberg',     'Bloomberg',                      NULL,                              'bloomberg.com',  0.950, false, true),
-  ('federalreserve','Board of Governors of the Fed',  'https://www.federalreserve.gov',  'federalreserve.gov', 1.000, false, true),
-  ('bls',           'US Bureau of Labor Statistics',  'https://api.bls.gov',             'bls.gov',        1.000, false, true),
-  ('ecb',           'European Central Bank',          'https://data.ecb.europa.eu',      'ecb.europa.eu',  1.000, false, true);
+  ('fred',          'Federal Reserve Economic Data', 'https://api.stlouisfed.org/fred', 'stlouisfed.org', 100.00, true,  false),
+  ('stooq',         'Stooq',                          'https://stooq.com/q/l/',          'stooq.com',       85.00, true,  false),
+  ('yahoo_finance', 'Yahoo Finance',                  'https://query1.finance.yahoo.com','finance.yahoo.com', 80.00, true, false),
+  ('twelve_data',   'Twelve Data',                    'https://api.twelvedata.com',      'twelvedata.com',  88.00, true,  false),
+  ('finnhub',       'Finnhub',                        'https://finnhub.io/api/v1',       'finnhub.io',      87.00, true,  true),
+  ('gdelt',         'GDELT Project',                  'https://api.gdeltproject.org',    'gdeltproject.org', 70.00, false, true),
+  ('reuters',       'Reuters',                        NULL,                              'reuters.com',     95.00, false, true),
+  ('bloomberg',     'Bloomberg',                      NULL,                              'bloomberg.com',   95.00, false, true),
+  ('federalreserve','Board of Governors of the Fed',  'https://www.federalreserve.gov',  'federalreserve.gov', 100.00, false, true),
+  ('bls',           'US Bureau of Labor Statistics',  'https://api.bls.gov',             'bls.gov',        100.00, false, true),
+  ('ecb',           'European Central Bank',          'https://data.ecb.europa.eu',      'ecb.europa.eu',  100.00, false, true),
+  ('newsapi',       'NewsAPI.org',                    'https://newsapi.org/v2',          'newsapi.org',     60.00, false, true),
+  ('ap',            'Associated Press',               NULL,                              'apnews.com',      95.00, false, true),
+  ('afp',           'Agence France-Presse',           NULL,                              'afp.com',         93.00, false, true),
+  ('ft',            'Financial Times',                NULL,                              'ft.com',          92.00, false, true),
+  ('wsj',           'The Wall Street Journal',        NULL,                              'wsj.com',         92.00, false, true),
+  ('cnbc',          'CNBC',                           NULL,                              'cnbc.com',        82.00, false, true),
+  ('marketwatch',   'MarketWatch',                    NULL,                              'marketwatch.com', 78.00, false, true),
+  ('kitco',         'Kitco News',                     NULL,                              'kitco.com',       75.00, false, true),
+  ('investing_com', 'Investing.com',                  NULL,                              'investing.com',   70.00, false, true),
+  ('bis',           'Bank for International Settlements', 'https://www.bis.org',         'bis.org',         98.00, false, true),
+  ('imf',           'International Monetary Fund',    'https://www.imf.org',             'imf.org',         98.00, false, true),
+  ('boj',           'Bank of Japan',                  'https://www.boj.or.jp',           'boj.or.jp',      100.00, false, true),
+  ('boe',           'Bank of England',                'https://www.bankofengland.co.uk', 'bankofengland.co.uk', 100.00, false, true),
+  ('snb',           'Swiss National Bank',            'https://www.snb.ch',              'snb.ch',         100.00, false, true),
+  ('pboc',          'People''s Bank of China',        'http://www.pbc.gov.cn',           'pbc.gov.cn',      95.00, false, true),
+  ('us_treasury',   'US Department of the Treasury',  'https://home.treasury.gov',       'treasury.gov',   100.00, false, true),
+  ('bea',           'US Bureau of Economic Analysis', 'https://www.bea.gov',             'bea.gov',        100.00, false, true),
+  ('eia',           'US Energy Information Administration', 'https://www.eia.gov',       'eia.gov',         98.00, false, true),
+  ('wgc',           'World Gold Council',             'https://www.gold.org',            'gold.org',        90.00, false, true),
+  ('cftc',          'Commodity Futures Trading Commission', 'https://www.cftc.gov',      'cftc.gov',       100.00, false, true),
+  ('unknown_source','Unclassified publisher',         NULL,                              NULL,              40.00, false, true),
+  ('ofac',          'Office of Foreign Assets Control (OFAC)', 'https://ofac.treasury.gov', 'ofac.treasury.gov', 100.00, false, true);
 
 COMMIT;
 
