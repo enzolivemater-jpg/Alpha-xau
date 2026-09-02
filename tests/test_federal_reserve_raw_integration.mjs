@@ -294,50 +294,119 @@ console.log('--- INGEST INTEGRATION STATIC INVARIANTS ---');
   t('allProvidersOk inclut fedRaw.ok', /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok/.test(source));
 }
 
-console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + NEWS-OFFICIAL-010) STATIC INVARIANTS ---');
+console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + 010 + 011) STATIC INVARIANTS ---');
 {
   const source = readFileSync(new URL('../backend/ingest.ts', import.meta.url), 'utf8');
 
-  // NEWS-OFFICIAL-010 : la barrière contient maintenant TROIS promesses
-  // (legacy, Fed, ECB) à PLAT dans un seul Promise.allSettled — jamais un
-  // Promise.all imbriqué sur les seules sources officielles, qui
-  // recréerait la même course dangling-task-before-unlock.
+  // NEWS-OFFICIAL-011 : legacyPromise = Promise.all([collectGdelt(...),
+  // collectNewsApi(...)]) était lui-même fail-fast — il pouvait se régler
+  // (rejeté) AVANT la fin réelle du collecteur sœur encore en vol, ce qui
+  // recréait la course dangling-task-before-unlock à l'intérieur même de
+  // "legacyPromise". La barrière doit désormais porter sur les QUATRE
+  // tâches async RÉELLES à PLAT : gdeltPromise, newsapiPromise,
+  // fedRawPromise, ecbRawPromise — jamais sur un agrégat fail-fast qui les
+  // enveloppe.
   const allSettledIdx = source.indexOf(
-    'await Promise.allSettled([\n      legacyPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])',
+    'await Promise.allSettled([\n      gdeltPromise,\n      newsapiPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])',
   );
-  t('utilise Promise.allSettled à PLAT sur legacyPromise + fedRawPromise + ecbRawPromise',
+  t('utilise Promise.allSettled à PLAT sur gdeltPromise + newsapiPromise + fedRawPromise + ecbRawPromise',
     allSettledIdx !== -1, allSettledIdx);
 
-  // Vérifie l'ABSENCE de l'ancien statement à DEUX promesses (le
-  // commentaire explicatif du fix NEWS-OFFICIAL-007 cite l'ancien motif en
-  // prose intentionnellement — mais jamais comme statement de code réel
-  // "await Promise.all([legacyPromise, fedRawPromise])" isolé).
+  // Aucun agrégat fail-fast "legacyPromise" ne doit pouvoir se réintroduire
+  // silencieusement (c'est exactement le défaut corrigé par cette tâche).
+  // On interdit l'USAGE réel en code (déclaration, destructuration,
+  // accès de propriété), pas la simple mention en prose dans le
+  // commentaire qui explique l'historique du fix (même principe que la
+  // section "NO LEGACY DEPENDENCIES" ci-dessus).
+  t('aucune déclaration "const legacyPromise = Promise.all(" ne subsiste',
+    !source.includes('const legacyPromise = Promise.all('));
+  t('legacyPromise n\'est plus utilisé dans un littéral de tableau ni destructuré',
+    !/\[\s*legacyPromise\s*[,\]]/.test(source) && !/,\s*legacyPromise\s*[,\]]/.test(source));
+  t('legacySettled n\'est plus accédé (.status/.value/.reason)',
+    !/\blegacySettled\s*\./.test(source));
+
+  // Vérifie l'ABSENCE des anciens statements de barrière (à deux puis trois
+  // promesses) — le commentaire explicatif des fixes précédents cite ces
+  // motifs en prose intentionnellement, mais jamais comme statement de code
+  // réel isolé.
   t('ancien statement à deux promesses "await Promise.all([legacyPromise, fedRawPromise])" absent',
     !source.includes('await Promise.all([legacyPromise, fedRawPromise])'));
-  t('ancien statement à deux promesses "await Promise.allSettled([legacyPromise, fedRawPromise])" absent (remplacé par la barrière à trois)',
+  t('ancien statement à deux promesses "await Promise.allSettled([legacyPromise, fedRawPromise])" absent',
     !source.includes('await Promise.allSettled([legacyPromise, fedRawPromise])'));
+  t('ancien statement à trois promesses "await Promise.allSettled([\\n      legacyPromise,\\n      fedRawPromise,\\n      ecbRawPromise,\\n    ])" absent',
+    !source.includes('await Promise.allSettled([\n      legacyPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])'));
 
-  // Aucun Promise.all imbriqué regroupant seulement les deux sources
-  // officielles (ce qui recréerait la course qu'allSettled élimine).
+  // Aucun Promise.all/allSettled imbriqué regroupant seulement un
+  // sous-ensemble des quatre tâches (ce qui recréerait la même course).
+  // Motif d'USAGE réel (args exacts "env, log"), pas la mention en prose
+  // du commentaire explicatif ci-dessus qui écrit "collectGdelt(..." avec
+  // une ellipse littérale, jamais les arguments réels.
+  t('pas de Promise.all([collectGdelt(env, log), collectNewsApi(env, log)]) imbriqué',
+    !/Promise\.all\(\s*\[\s*collectGdelt\(env,\s*log\)/.test(source));
   t('pas de Promise.all([fedRawPromise, ecbRawPromise]) imbriqué',
     !/Promise\.all\(\s*\[\s*fedRawPromise\s*,\s*ecbRawPromise\s*\]\s*\)/.test(source));
 
-  const legacyRejectIdx = source.indexOf("if (legacySettled.status === 'rejected')");
-  t('legacySettled vérifié', legacyRejectIdx !== -1);
-  t('legacy rejection propagée SEULEMENT après la barrière allSettled',
-    allSettledIdx !== -1 && legacyRejectIdx > allSettledIdx);
-  t('legacy rejection re-throw explicite (throw legacySettled.reason)',
-    source.includes('throw legacySettled.reason;'));
+  const gdeltPromiseDeclIdx = source.indexOf('const gdeltPromise = collectGdelt(env, log);');
+  const newsapiPromiseDeclIdx = source.indexOf('const newsapiPromise = collectNewsApi(env, log);');
+  t('gdeltPromise existe (tâche réelle, pas un agrégat)', gdeltPromiseDeclIdx !== -1);
+  t('newsapiPromise existe (tâche réelle, pas un agrégat)', newsapiPromiseDeclIdx !== -1);
+  t('gdeltPromise déclaré avant la barrière allSettled',
+    gdeltPromiseDeclIdx !== -1 && allSettledIdx !== -1 && gdeltPromiseDeclIdx < allSettledIdx);
+  t('newsapiPromise déclaré avant la barrière allSettled',
+    newsapiPromiseDeclIdx !== -1 && allSettledIdx !== -1 && newsapiPromiseDeclIdx < allSettledIdx);
+  // Concurrence préservée : gdeltPromise ne doit pas être attendu (await)
+  // avant que newsapiPromise ne soit démarré.
+  t('gdeltPromise démarré avant newsapiPromise, sans await entre les deux (pas de sérialisation)',
+    gdeltPromiseDeclIdx !== -1 && newsapiPromiseDeclIdx !== -1 && newsapiPromiseDeclIdx > gdeltPromiseDeclIdx &&
+    !/const gdeltPromise = collectGdelt\(env, log\);\s*\n\s*await\b/.test(source));
+
+  const ecbPromiseDeclIdx = source.indexOf('const ecbRawPromise: Promise<EcbRawIngestResult> = ingestEcbRaw({');
+  t('ecbRawPromise déclaré avant la barrière allSettled',
+    ecbPromiseDeclIdx !== -1 && allSettledIdx !== -1 && ecbPromiseDeclIdx < allSettledIdx);
+  t('ecbRawPromise porte un .catch() immédiat (pas d\'unhandled rejection possible)',
+    /ingestEcbRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
+
+  const fedPromiseDeclIdx = source.indexOf('const fedRawPromise: Promise<FederalReserveRawIngestResult> = ingestFederalReserveRaw({');
+  t('fedRawPromise déclaré avant la barrière allSettled (inchangé)',
+    fedPromiseDeclIdx !== -1 && allSettledIdx !== -1 && fedPromiseDeclIdx < allSettledIdx);
+  t('fedRawPromise porte toujours un .catch() immédiat (inchangé)',
+    /ingestFederalReserveRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
+
+  const gdeltRejectIdx = source.indexOf("if (gdeltSettled.status === 'rejected')");
+  t('gdeltSettled vérifié', gdeltRejectIdx !== -1);
+  t('gdelt rejection propagée SEULEMENT après la barrière allSettled',
+    allSettledIdx !== -1 && gdeltRejectIdx > allSettledIdx);
+  t('gdelt rejection re-throw explicite (throw gdeltSettled.reason)',
+    source.includes('throw gdeltSettled.reason;'));
+
+  const newsapiRejectIdx = source.indexOf("if (newsapiSettled.status === 'rejected')");
+  t('newsapiSettled vérifié', newsapiRejectIdx !== -1);
+  t('newsapi rejection propagée SEULEMENT après la barrière allSettled',
+    allSettledIdx !== -1 && newsapiRejectIdx > allSettledIdx);
+  t('newsapi rejection re-throw explicite (throw newsapiSettled.reason)',
+    source.includes('throw newsapiSettled.reason;'));
+  t('gdelt vérifié avant newsapi (ordre gdelt -> newsapi -> Fed -> ECB respecté)',
+    gdeltRejectIdx !== -1 && newsapiRejectIdx !== -1 && newsapiRejectIdx > gdeltRejectIdx);
 
   const fedRejectIdx = source.indexOf("if (fedRawSettled.status === 'rejected')");
   t('fedRawSettled vérifié explicitement avant usage', fedRejectIdx !== -1 && fedRejectIdx > allSettledIdx);
   t('fedRaw rejection re-throw explicite (défensif)', source.includes('throw fedRawSettled.reason;'));
+  t('newsapi vérifié avant Fed (ordre respecté)',
+    newsapiRejectIdx !== -1 && fedRejectIdx !== -1 && fedRejectIdx > newsapiRejectIdx);
 
   const ecbRejectIdx = source.indexOf("if (ecbRawSettled.status === 'rejected')");
   t('ecbRawSettled vérifié explicitement avant usage', ecbRejectIdx !== -1 && ecbRejectIdx > allSettledIdx);
   t('ecbRaw rejection re-throw explicite (défensif)', source.includes('throw ecbRawSettled.reason;'));
-  t('ECB settled check intervient APRÈS le check Fed (ordre légacy -> Fed -> ECB respecté)',
+  t('ECB settled check intervient APRÈS le check Fed (ordre gdelt -> newsapi -> Fed -> ECB respecté)',
     fedRejectIdx !== -1 && ecbRejectIdx !== -1 && ecbRejectIdx > fedRejectIdx);
+
+  const gdeltValueUsageIdx = source.indexOf('const gdelt = gdeltSettled.value;');
+  t('gdeltSettled.value extrait seulement après le check de rejet',
+    gdeltValueUsageIdx !== -1 && gdeltRejectIdx !== -1 && gdeltValueUsageIdx > gdeltRejectIdx);
+
+  const newsapiValueUsageIdx = source.indexOf('const newsapi = newsapiSettled.value;');
+  t('newsapiSettled.value extrait seulement après le check de rejet',
+    newsapiValueUsageIdx !== -1 && newsapiRejectIdx !== -1 && newsapiValueUsageIdx > newsapiRejectIdx);
 
   const fedValueUsageIdx = source.indexOf('const fedRaw = fedRawSettled.value;');
   t('fedRawSettled.value extrait seulement après le check de rejet',
@@ -346,25 +415,6 @@ console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + NEWS-OFFICIAL-010) STATI
   const ecbValueUsageIdx = source.indexOf('const ecbRaw = ecbRawSettled.value;');
   t('ecbRawSettled.value extrait seulement après le check de rejet',
     ecbValueUsageIdx !== -1 && ecbRejectIdx !== -1 && ecbValueUsageIdx > ecbRejectIdx);
-
-  // ECB doit démarrer (être défini) avant la barrière allSettled, comme Fed.
-  const ecbPromiseDeclIdx = source.indexOf('const ecbRawPromise: Promise<EcbRawIngestResult> = ingestEcbRaw({');
-  t('ecbRawPromise déclaré avant la barrière allSettled',
-    ecbPromiseDeclIdx !== -1 && allSettledIdx !== -1 && ecbPromiseDeclIdx < allSettledIdx);
-  t('ecbRawPromise porte un .catch() immédiat (pas d\'unhandled rejection possible)',
-    /ingestEcbRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
-
-  // Fed reste protégé exactement comme avant : déclaré avant la barrière,
-  // toujours avec son propre .catch() immédiat.
-  const fedPromiseDeclIdx = source.indexOf('const fedRawPromise: Promise<FederalReserveRawIngestResult> = ingestFederalReserveRaw({');
-  t('fedRawPromise déclaré avant la barrière allSettled (inchangé)',
-    fedPromiseDeclIdx !== -1 && allSettledIdx !== -1 && fedPromiseDeclIdx < allSettledIdx);
-  t('fedRawPromise porte toujours un .catch() immédiat (inchangé)',
-    /ingestFederalReserveRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
-
-  const legacyPromiseDeclIdx = source.indexOf('const legacyPromise = Promise.all([');
-  t('legacyPromise déclaré avant la barrière allSettled',
-    legacyPromiseDeclIdx !== -1 && allSettledIdx !== -1 && legacyPromiseDeclIdx < allSettledIdx);
 
   t('providers.ecb exposé', /ecb:\s*\{/.test(source));
   t('providers.federal_reserve toujours exposé (inchangé)', /federal_reserve:\s*\{/.test(source));

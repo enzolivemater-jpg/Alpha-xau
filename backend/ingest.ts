@@ -2050,30 +2050,37 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       };
     });
 
-    const legacyPromise = Promise.all([
-      collectGdelt(env, log),
-      collectNewsApi(env, log),
-    ]);
+    // NEWS-OFFICIAL-011 : legacyPromise = Promise.all([collectGdelt(...),
+    // collectNewsApi(...)]) était lui-même fail-fast — si UN des deux
+    // collecteurs legacy rejette pendant que l'autre est encore en vol,
+    // legacyPromise se règle (rejeté) IMMÉDIATEMENT, avant la fin réelle du
+    // collecteur encore en cours. La barrière extérieure ne voit alors
+    // qu'une "tâche" déjà réglée alors qu'un vrai travail asynchrone tourne
+    // toujours en arrière-plan : le catch extérieur et releaseLock()
+    // pourraient être atteints pendant qu'un collecteur legacy est encore
+    // en vol. L'unité de la barrière de cycle de vie doit être la tâche
+    // async RÉELLE, jamais un agrégat fail-fast qui l'enveloppe.
+    const gdeltPromise = collectGdelt(env, log);
+    const newsapiPromise = collectNewsApi(env, log);
 
-    // Barrière de cycle de vie (P1, étendue en NEWS-OFFICIAL-010 à trois
-    // pipelines) : un Promise.all([legacyPromise, fedRawPromise, ecbRawPromise])
-    // rejetterait dès que L'UN des trois échoue, laissant LES AUTRES
-    // continuer en arrière-plan pendant que le catch extérieur finalise le
-    // run et releaseLock() — une tâche du run pourrait alors s'exécuter
-    // après la libération du verrou. Promise.allSettled à PLAT sur les
-    // trois promesses ATTEND qu'elles soient TOUTES les trois réglées
-    // avant toute décision, quelle que soit l'issue de chacune : aucun
-    // chemin ne peut atteindre le catch/releaseLock tant qu'une seule
-    // reste en vol. Un Promise.all imbriqué sur les seules sources
-    // officielles recréerait exactement la même course.
-    const [legacySettled, fedRawSettled, ecbRawSettled] = await Promise.allSettled([
-      legacyPromise,
+    // Barrière de cycle de vie à PLAT sur les QUATRE tâches réelles :
+    // GDELT, NewsAPI, Fed RAW, ECB RAW démarrent toutes avant cet await, et
+    // Promise.allSettled ATTEND qu'elles soient TOUTES les quatre réglées
+    // avant toute décision, quelle que soit l'issue de chacune. Aucun
+    // chemin ne peut atteindre le catch/releaseLock tant qu'une seule reste
+    // en vol.
+    const [gdeltSettled, newsapiSettled, fedRawSettled, ecbRawSettled] = await Promise.allSettled([
+      gdeltPromise,
+      newsapiPromise,
       fedRawPromise,
       ecbRawPromise,
     ]);
 
-    if (legacySettled.status === 'rejected') {
-      throw legacySettled.reason;
+    if (gdeltSettled.status === 'rejected') {
+      throw gdeltSettled.reason;
+    }
+    if (newsapiSettled.status === 'rejected') {
+      throw newsapiSettled.reason;
     }
     if (fedRawSettled.status === 'rejected') {
       // Défensif : fedRawPromise porte déjà son propre .catch() immédiat
@@ -2087,7 +2094,8 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       throw ecbRawSettled.reason;
     }
 
-    const [gdelt, newsapi] = legacySettled.value;
+    const gdelt = gdeltSettled.value;
+    const newsapi = newsapiSettled.value;
     const fedRaw = fedRawSettled.value;
     const ecbRaw = ecbRawSettled.value;
 

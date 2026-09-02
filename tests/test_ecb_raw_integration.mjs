@@ -314,12 +314,48 @@ console.log('--- INGEST INTEGRATION STATIC INVARIANTS (ECB) ---');
     source.indexOf('const ecbRawPromise') < source.indexOf('await Promise.allSettled(['));
   t('fedRawPromise démarre avant la barrière allSettled (concurrence garantie)',
     source.indexOf('const fedRawPromise') < source.indexOf('await Promise.allSettled(['));
-  t('legacyPromise démarre avant la barrière allSettled (concurrence garantie)',
-    source.indexOf('const legacyPromise') < source.indexOf('await Promise.allSettled(['));
-  t('barrière allSettled contient les trois promesses (legacy, Fed, ECB)',
-    /await Promise\.allSettled\(\[\s*legacyPromise,\s*fedRawPromise,\s*ecbRawPromise,?\s*\]\)/.test(source));
+
+  // NEWS-OFFICIAL-011 : legacyPromise = Promise.all([collectGdelt(...),
+  // collectNewsApi(...)]) était lui-même fail-fast — il pouvait se régler
+  // (rejeté) AVANT la fin réelle du collecteur sœur encore en vol, rendant
+  // possible d'atteindre le catch extérieur / releaseLock() pendant qu'un
+  // collecteur legacy tournait encore. La barrière doit porter sur les
+  // QUATRE tâches async RÉELLES à PLAT (gdeltPromise, newsapiPromise,
+  // fedRawPromise, ecbRawPromise) — cet agrégat fail-fast ne doit jamais
+  // pouvoir se réintroduire silencieusement.
+  // On interdit l'USAGE réel en code (déclaration, destructuration, accès
+  // de propriété), pas la simple mention en prose dans le commentaire qui
+  // explique l'historique du fix (même principe que les checks statiques
+  // "NO LEGACY DEPENDENCIES" des autres fichiers de tests RAW).
+  t('aucune déclaration "const legacyPromise = Promise.all(" ne subsiste (agrégat fail-fast interdit)',
+    !source.includes('const legacyPromise = Promise.all('));
+  t('legacyPromise n\'est plus utilisé dans un littéral de tableau ni destructuré',
+    !/\[\s*legacyPromise\s*[,\]]/.test(source) && !/,\s*legacyPromise\s*[,\]]/.test(source));
+  t('legacySettled n\'est plus accédé (.status/.value/.reason)',
+    !/\blegacySettled\s*\./.test(source));
+  t('pas de Promise.all([collectGdelt(env, log), collectNewsApi(env, log)]) imbriqué (agrégat fail-fast interdit)',
+    !/Promise\.all\(\s*\[\s*collectGdelt\(env,\s*log\)/.test(source));
+
+  const gdeltPromiseDeclIdx = source.indexOf('const gdeltPromise = collectGdelt(env, log);');
+  const newsapiPromiseDeclIdx = source.indexOf('const newsapiPromise = collectNewsApi(env, log);');
+  t('gdeltPromise existe comme tâche async réelle', gdeltPromiseDeclIdx !== -1);
+  t('newsapiPromise existe comme tâche async réelle', newsapiPromiseDeclIdx !== -1);
+  t('gdeltPromise démarre avant la barrière allSettled (concurrence garantie)',
+    gdeltPromiseDeclIdx !== -1 && gdeltPromiseDeclIdx < source.indexOf('await Promise.allSettled(['));
+  t('newsapiPromise démarre avant la barrière allSettled (concurrence garantie)',
+    newsapiPromiseDeclIdx !== -1 && newsapiPromiseDeclIdx < source.indexOf('await Promise.allSettled(['));
+
+  t('barrière allSettled contient les quatre tâches à plat (gdelt, newsapi, Fed, ECB)',
+    /await Promise\.allSettled\(\[\s*gdeltPromise,\s*newsapiPromise,\s*fedRawPromise,\s*ecbRawPromise,?\s*\]\)/.test(source));
   t('aucune ancienne barrière à deux promesses restante',
     !source.includes('await Promise.allSettled([legacyPromise, fedRawPromise])'));
+  t('aucune ancienne barrière à trois promesses (legacy, Fed, ECB) restante',
+    !source.includes('await Promise.allSettled([\n      legacyPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])'));
+
+  t('gdeltSettled rejection vérifiée avant extraction de valeur',
+    source.indexOf("if (gdeltSettled.status === 'rejected')") < source.indexOf('const gdelt = gdeltSettled.value;'));
+  t('newsapiSettled rejection vérifiée avant extraction de valeur',
+    source.indexOf("if (newsapiSettled.status === 'rejected')") < source.indexOf('const newsapi = newsapiSettled.value;'));
   t('valeurs extraites seulement après les checks de statut (const ecbRaw après le check rejet)',
     source.indexOf("if (ecbRawSettled.status === 'rejected')") < source.indexOf('const ecbRaw = ecbRawSettled.value;'));
   t('top-level fetched reste calculé uniquement depuis gdelt+newsapi',
