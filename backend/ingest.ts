@@ -43,6 +43,7 @@
 
 import { acquireLock, releaseLock } from './shared/run_lock.js';
 import { ingestFederalReserveRaw, type FederalReserveRawIngestResult } from './news_sources/federal_reserve_raw.js';
+import { ingestEcbRaw, type EcbRawIngestResult } from './news_sources/ecb_raw.js';
 
 /* -------------------------------------------------------------------------- */
 /*  1. ENVIRONNEMENT ET CONFIGURATION                                          */
@@ -2024,20 +2025,52 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       };
     });
 
+    // ECB RAW démarre en parallèle de Fed RAW et de la collecte legacy,
+    // avec le même officialObservedAt (NEWS-OFFICIAL-010 §5) et le même
+    // .catch() immédiat que Fed : un échec inattendu de l'adaptateur ne
+    // doit jamais devenir une unhandled rejection.
+    const ecbRawPromise: Promise<EcbRawIngestResult> = ingestEcbRaw({
+      db,
+      ingestRunId: runId,
+      observedAt: officialObservedAt,
+    }).catch((err: unknown): EcbRawIngestResult => {
+      const reason = errorMessage(err);
+      log.error('ECB RAW : échec inattendu de l\'adaptateur', { reason });
+      return {
+        ok: false,
+        durationMs: 0,
+        observations: 0,
+        collectorRejected: 0,
+        inserted: 0,
+        duplicates: 0,
+        writerRejected: 0,
+        databaseErrors: 0,
+        feeds: [],
+        errors: [reason],
+      };
+    });
+
     const legacyPromise = Promise.all([
       collectGdelt(env, log),
       collectNewsApi(env, log),
     ]);
 
-    // Barrière de cycle de vie (P1) : Promise.all([legacyPromise, fedRawPromise])
-    // rejetterait dès que L'UN des deux échoue, laissant l'AUTRE continuer en
-    // arrière-plan pendant que le catch extérieur finalise le run et
-    // releaseLock() — une tâche du run pourrait alors s'exécuter après la
-    // libération du verrou. Promise.allSettled ATTEND que les DEUX promesses
-    // soient réglées avant toute décision, quelle que soit l'issue de
-    // chacune : aucun chemin ne peut atteindre le catch/releaseLock pendant
-    // que l'autre est encore en vol.
-    const [legacySettled, fedRawSettled] = await Promise.allSettled([legacyPromise, fedRawPromise]);
+    // Barrière de cycle de vie (P1, étendue en NEWS-OFFICIAL-010 à trois
+    // pipelines) : un Promise.all([legacyPromise, fedRawPromise, ecbRawPromise])
+    // rejetterait dès que L'UN des trois échoue, laissant LES AUTRES
+    // continuer en arrière-plan pendant que le catch extérieur finalise le
+    // run et releaseLock() — une tâche du run pourrait alors s'exécuter
+    // après la libération du verrou. Promise.allSettled à PLAT sur les
+    // trois promesses ATTEND qu'elles soient TOUTES les trois réglées
+    // avant toute décision, quelle que soit l'issue de chacune : aucun
+    // chemin ne peut atteindre le catch/releaseLock tant qu'une seule
+    // reste en vol. Un Promise.all imbriqué sur les seules sources
+    // officielles recréerait exactement la même course.
+    const [legacySettled, fedRawSettled, ecbRawSettled] = await Promise.allSettled([
+      legacyPromise,
+      fedRawPromise,
+      ecbRawPromise,
+    ]);
 
     if (legacySettled.status === 'rejected') {
       throw legacySettled.reason;
@@ -2049,9 +2082,14 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       // ne doit jamais être supposé silencieusement.
       throw fedRawSettled.reason;
     }
+    if (ecbRawSettled.status === 'rejected') {
+      // Défensif, même raisonnement que fedRawSettled ci-dessus.
+      throw ecbRawSettled.reason;
+    }
 
     const [gdelt, newsapi] = legacySettled.value;
     const fedRaw = fedRawSettled.value;
+    const ecbRaw = ecbRawSettled.value;
 
     log.info('Federal Reserve RAW terminé', {
       observations: fedRaw.observations,
@@ -2062,6 +2100,17 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       database_errors: fedRaw.databaseErrors,
       feeds: fedRaw.feeds,
       duration_ms: fedRaw.durationMs,
+    });
+
+    log.info('ECB RAW terminé', {
+      observations: ecbRaw.observations,
+      collector_rejected: ecbRaw.collectorRejected,
+      inserted: ecbRaw.inserted,
+      duplicates: ecbRaw.duplicates,
+      writer_rejected: ecbRaw.writerRejected,
+      database_errors: ecbRaw.databaseErrors,
+      feeds: ecbRaw.feeds,
+      duration_ms: ecbRaw.durationMs,
     });
 
     const providers: Record<string, ProviderReport> = {
@@ -2078,10 +2127,22 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
         database_errors: fedRaw.databaseErrors,
         ...(fedRaw.ok ? {} : { error: fedRaw.errors.join('; ') || 'federal_reserve raw ingestion unhealthy' }),
       },
+      ecb: {
+        ok: ecbRaw.ok,
+        count: ecbRaw.observations,
+        retries: 0,
+        duration_ms: ecbRaw.durationMs,
+        inserted: ecbRaw.inserted,
+        duplicates: ecbRaw.duplicates,
+        rejected: ecbRaw.collectorRejected + ecbRaw.writerRejected,
+        database_errors: ecbRaw.databaseErrors,
+        ...(ecbRaw.ok ? {} : { error: ecbRaw.errors.join('; ') || 'ecb raw ingestion unhealthy' }),
+      },
     };
     if (gdelt.report.error) errors.push(`gdelt: ${gdelt.report.error}`);
     if (newsapi.report.error) errors.push(`newsapi: ${newsapi.report.error}`);
     if (!fedRaw.ok) errors.push(`federal_reserve: ${providers.federal_reserve.error}`);
+    if (!ecbRaw.ok) errors.push(`ecb: ${providers.ecb.error}`);
 
     const fetched = gdelt.articles.length + newsapi.articles.length;
     const { unique, duplicates } = deduplicate([...gdelt.articles, ...newsapi.articles], registry);
@@ -2121,7 +2182,7 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       await dispatchActions(persisted, db, env, log);
     }
 
-    const allProvidersOk = gdelt.report.ok && newsapi.report.ok && fedRaw.ok;
+    const allProvidersOk = gdelt.report.ok && newsapi.report.ok && fedRaw.ok && ecbRaw.ok;
     report = {
       run_id: runId,
       status: errors.length === 0 && allProvidersOk ? 'success' : 'partial',

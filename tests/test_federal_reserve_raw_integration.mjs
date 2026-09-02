@@ -294,19 +294,33 @@ console.log('--- INGEST INTEGRATION STATIC INVARIANTS ---');
   t('allProvidersOk inclut fedRaw.ok', /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok/.test(source));
 }
 
-console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007) STATIC INVARIANTS ---');
+console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + NEWS-OFFICIAL-010) STATIC INVARIANTS ---');
 {
   const source = readFileSync(new URL('../backend/ingest.ts', import.meta.url), 'utf8');
 
-  const allSettledIdx = source.indexOf('await Promise.allSettled([legacyPromise, fedRawPromise])');
-  t('utilise Promise.allSettled([legacyPromise, fedRawPromise])', allSettledIdx !== -1, allSettledIdx);
+  // NEWS-OFFICIAL-010 : la barrière contient maintenant TROIS promesses
+  // (legacy, Fed, ECB) à PLAT dans un seul Promise.allSettled — jamais un
+  // Promise.all imbriqué sur les seules sources officielles, qui
+  // recréerait la même course dangling-task-before-unlock.
+  const allSettledIdx = source.indexOf(
+    'await Promise.allSettled([\n      legacyPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])',
+  );
+  t('utilise Promise.allSettled à PLAT sur legacyPromise + fedRawPromise + ecbRawPromise',
+    allSettledIdx !== -1, allSettledIdx);
 
-  // Vérifie l'ABSENCE du statement de code, pas d'une simple mention en
-  // prose expliquant la correction (le commentaire du fix cite l'ancien
-  // motif intentionnellement) : l'ancien statement réel commençait par
-  // "await Promise.all(...)", jamais présent tel quel dans le commentaire.
-  t('ancien statement "await Promise.all([legacyPromise, fedRawPromise])" absent',
+  // Vérifie l'ABSENCE de l'ancien statement à DEUX promesses (le
+  // commentaire explicatif du fix NEWS-OFFICIAL-007 cite l'ancien motif en
+  // prose intentionnellement — mais jamais comme statement de code réel
+  // "await Promise.all([legacyPromise, fedRawPromise])" isolé).
+  t('ancien statement à deux promesses "await Promise.all([legacyPromise, fedRawPromise])" absent',
     !source.includes('await Promise.all([legacyPromise, fedRawPromise])'));
+  t('ancien statement à deux promesses "await Promise.allSettled([legacyPromise, fedRawPromise])" absent (remplacé par la barrière à trois)',
+    !source.includes('await Promise.allSettled([legacyPromise, fedRawPromise])'));
+
+  // Aucun Promise.all imbriqué regroupant seulement les deux sources
+  // officielles (ce qui recréerait la course qu'allSettled élimine).
+  t('pas de Promise.all([fedRawPromise, ecbRawPromise]) imbriqué',
+    !/Promise\.all\(\s*\[\s*fedRawPromise\s*,\s*ecbRawPromise\s*\]\s*\)/.test(source));
 
   const legacyRejectIdx = source.indexOf("if (legacySettled.status === 'rejected')");
   t('legacySettled vérifié', legacyRejectIdx !== -1);
@@ -319,9 +333,43 @@ console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007) STATIC INVARIANTS ---');
   t('fedRawSettled vérifié explicitement avant usage', fedRejectIdx !== -1 && fedRejectIdx > allSettledIdx);
   t('fedRaw rejection re-throw explicite (défensif)', source.includes('throw fedRawSettled.reason;'));
 
+  const ecbRejectIdx = source.indexOf("if (ecbRawSettled.status === 'rejected')");
+  t('ecbRawSettled vérifié explicitement avant usage', ecbRejectIdx !== -1 && ecbRejectIdx > allSettledIdx);
+  t('ecbRaw rejection re-throw explicite (défensif)', source.includes('throw ecbRawSettled.reason;'));
+  t('ECB settled check intervient APRÈS le check Fed (ordre légacy -> Fed -> ECB respecté)',
+    fedRejectIdx !== -1 && ecbRejectIdx !== -1 && ecbRejectIdx > fedRejectIdx);
+
   const fedValueUsageIdx = source.indexOf('const fedRaw = fedRawSettled.value;');
   t('fedRawSettled.value extrait seulement après le check de rejet',
     fedValueUsageIdx !== -1 && fedRejectIdx !== -1 && fedValueUsageIdx > fedRejectIdx);
+
+  const ecbValueUsageIdx = source.indexOf('const ecbRaw = ecbRawSettled.value;');
+  t('ecbRawSettled.value extrait seulement après le check de rejet',
+    ecbValueUsageIdx !== -1 && ecbRejectIdx !== -1 && ecbValueUsageIdx > ecbRejectIdx);
+
+  // ECB doit démarrer (être défini) avant la barrière allSettled, comme Fed.
+  const ecbPromiseDeclIdx = source.indexOf('const ecbRawPromise: Promise<EcbRawIngestResult> = ingestEcbRaw({');
+  t('ecbRawPromise déclaré avant la barrière allSettled',
+    ecbPromiseDeclIdx !== -1 && allSettledIdx !== -1 && ecbPromiseDeclIdx < allSettledIdx);
+  t('ecbRawPromise porte un .catch() immédiat (pas d\'unhandled rejection possible)',
+    /ingestEcbRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
+
+  // Fed reste protégé exactement comme avant : déclaré avant la barrière,
+  // toujours avec son propre .catch() immédiat.
+  const fedPromiseDeclIdx = source.indexOf('const fedRawPromise: Promise<FederalReserveRawIngestResult> = ingestFederalReserveRaw({');
+  t('fedRawPromise déclaré avant la barrière allSettled (inchangé)',
+    fedPromiseDeclIdx !== -1 && allSettledIdx !== -1 && fedPromiseDeclIdx < allSettledIdx);
+  t('fedRawPromise porte toujours un .catch() immédiat (inchangé)',
+    /ingestFederalReserveRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
+
+  const legacyPromiseDeclIdx = source.indexOf('const legacyPromise = Promise.all([');
+  t('legacyPromise déclaré avant la barrière allSettled',
+    legacyPromiseDeclIdx !== -1 && allSettledIdx !== -1 && legacyPromiseDeclIdx < allSettledIdx);
+
+  t('providers.ecb exposé', /ecb:\s*\{/.test(source));
+  t('providers.federal_reserve toujours exposé (inchangé)', /federal_reserve:\s*\{/.test(source));
+  t('allProvidersOk inclut ecbRaw.ok',
+    /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok && ecbRaw\.ok/.test(source));
 
   // releaseLock reste APRÈS l'orchestration try/catch, responsabilité
   // inchangée : toujours atteint après le catch extérieur, jamais déplacé
