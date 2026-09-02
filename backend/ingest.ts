@@ -42,6 +42,7 @@
  */
 
 import { acquireLock, releaseLock } from './shared/run_lock.js';
+import { ingestFederalReserveRaw, type FederalReserveRawIngestResult } from './news_sources/federal_reserve_raw.js';
 
 /* -------------------------------------------------------------------------- */
 /*  1. ENVIRONNEMENT ET CONFIGURATION                                          */
@@ -246,6 +247,13 @@ export interface ProviderReport {
   readonly duration_ms: number;
   readonly error?: string;
   readonly skipped?: string;
+  // Champs optionnels d'observabilité RAW (federal_reserve et futurs
+  // collecteurs officiels) — jamais requis, jamais utilisés par le
+  // pipeline legacy gdelt/newsapi existant.
+  readonly inserted?: number;
+  readonly duplicates?: number;
+  readonly rejected?: number;
+  readonly database_errors?: number;
 }
 
 export interface IngestReport {
@@ -1984,18 +1992,74 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
   try {
     const registry = await SourceRegistry.load(db, log);
 
-    // Collecte en parallèle : les deux fournisseurs sont indépendants.
-    const [gdelt, newsapi] = await Promise.all([
+    // Horodatage de run UNIQUE pour toute la collecte de sources
+    // officielles RAW (jamais un new Date() par article — voir
+    // NEWS-OFFICIAL-005 §6).
+    const officialObservedAt = new Date().toISOString();
+
+    // Federal Reserve RAW (news_articles) et la collecte legacy
+    // GDELT+NewsAPI (news_events) démarrent TOUS LES DEUX ici, avant tout
+    // await : ni l'un ni l'autre n'attend la latence de l'autre. Le
+    // .catch() est attaché immédiatement pour qu'un échec inattendu de
+    // l'adaptateur ne devienne jamais une unhandled rejection — il se
+    // dégrade en résultat unhealthy explicite à la place.
+    const fedRawPromise: Promise<FederalReserveRawIngestResult> = ingestFederalReserveRaw({
+      db,
+      ingestRunId: runId,
+      observedAt: officialObservedAt,
+    }).catch((err: unknown): FederalReserveRawIngestResult => {
+      const reason = errorMessage(err);
+      log.error('Federal Reserve RAW : échec inattendu de l\'adaptateur', { reason });
+      return {
+        ok: false,
+        durationMs: 0,
+        observations: 0,
+        collectorRejected: 0,
+        inserted: 0,
+        duplicates: 0,
+        writerRejected: 0,
+        databaseErrors: 0,
+        feeds: [],
+        errors: [reason],
+      };
+    });
+
+    const legacyPromise = Promise.all([
       collectGdelt(env, log),
       collectNewsApi(env, log),
     ]);
 
+    const [[gdelt, newsapi], fedRaw] = await Promise.all([legacyPromise, fedRawPromise]);
+
+    log.info('Federal Reserve RAW terminé', {
+      observations: fedRaw.observations,
+      collector_rejected: fedRaw.collectorRejected,
+      inserted: fedRaw.inserted,
+      duplicates: fedRaw.duplicates,
+      writer_rejected: fedRaw.writerRejected,
+      database_errors: fedRaw.databaseErrors,
+      feeds: fedRaw.feeds,
+      duration_ms: fedRaw.durationMs,
+    });
+
     const providers: Record<string, ProviderReport> = {
       gdelt: gdelt.report,
       newsapi: newsapi.report,
+      federal_reserve: {
+        ok: fedRaw.ok,
+        count: fedRaw.observations,
+        retries: 0,
+        duration_ms: fedRaw.durationMs,
+        inserted: fedRaw.inserted,
+        duplicates: fedRaw.duplicates,
+        rejected: fedRaw.collectorRejected + fedRaw.writerRejected,
+        database_errors: fedRaw.databaseErrors,
+        ...(fedRaw.ok ? {} : { error: fedRaw.errors.join('; ') || 'federal_reserve raw ingestion unhealthy' }),
+      },
     };
     if (gdelt.report.error) errors.push(`gdelt: ${gdelt.report.error}`);
     if (newsapi.report.error) errors.push(`newsapi: ${newsapi.report.error}`);
+    if (!fedRaw.ok) errors.push(`federal_reserve: ${providers.federal_reserve.error}`);
 
     const fetched = gdelt.articles.length + newsapi.articles.length;
     const { unique, duplicates } = deduplicate([...gdelt.articles, ...newsapi.articles], registry);
@@ -2035,7 +2099,7 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       await dispatchActions(persisted, db, env, log);
     }
 
-    const allProvidersOk = gdelt.report.ok && newsapi.report.ok;
+    const allProvidersOk = gdelt.report.ok && newsapi.report.ok && fedRaw.ok;
     report = {
       run_id: runId,
       status: errors.length === 0 && allProvidersOk ? 'success' : 'partial',
