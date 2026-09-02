@@ -2029,7 +2029,29 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       collectNewsApi(env, log),
     ]);
 
-    const [[gdelt, newsapi], fedRaw] = await Promise.all([legacyPromise, fedRawPromise]);
+    // Barrière de cycle de vie (P1) : Promise.all([legacyPromise, fedRawPromise])
+    // rejetterait dès que L'UN des deux échoue, laissant l'AUTRE continuer en
+    // arrière-plan pendant que le catch extérieur finalise le run et
+    // releaseLock() — une tâche du run pourrait alors s'exécuter après la
+    // libération du verrou. Promise.allSettled ATTEND que les DEUX promesses
+    // soient réglées avant toute décision, quelle que soit l'issue de
+    // chacune : aucun chemin ne peut atteindre le catch/releaseLock pendant
+    // que l'autre est encore en vol.
+    const [legacySettled, fedRawSettled] = await Promise.allSettled([legacyPromise, fedRawPromise]);
+
+    if (legacySettled.status === 'rejected') {
+      throw legacySettled.reason;
+    }
+    if (fedRawSettled.status === 'rejected') {
+      // Défensif : fedRawPromise porte déjà son propre .catch() immédiat
+      // (ligne ci-dessus) qui dégrade tout échec en résultat unhealthy —
+      // cette branche ne devrait jamais s'exécuter, mais un état impossible
+      // ne doit jamais être supposé silencieusement.
+      throw fedRawSettled.reason;
+    }
+
+    const [gdelt, newsapi] = legacySettled.value;
+    const fedRaw = fedRawSettled.value;
 
     log.info('Federal Reserve RAW terminé', {
       observations: fedRaw.observations,

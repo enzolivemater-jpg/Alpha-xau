@@ -294,5 +294,43 @@ console.log('--- INGEST INTEGRATION STATIC INVARIANTS ---');
   t('allProvidersOk inclut fedRaw.ok', /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok/.test(source));
 }
 
+console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007) STATIC INVARIANTS ---');
+{
+  const source = readFileSync(new URL('../backend/ingest.ts', import.meta.url), 'utf8');
+
+  const allSettledIdx = source.indexOf('await Promise.allSettled([legacyPromise, fedRawPromise])');
+  t('utilise Promise.allSettled([legacyPromise, fedRawPromise])', allSettledIdx !== -1, allSettledIdx);
+
+  // Vérifie l'ABSENCE du statement de code, pas d'une simple mention en
+  // prose expliquant la correction (le commentaire du fix cite l'ancien
+  // motif intentionnellement) : l'ancien statement réel commençait par
+  // "await Promise.all(...)", jamais présent tel quel dans le commentaire.
+  t('ancien statement "await Promise.all([legacyPromise, fedRawPromise])" absent',
+    !source.includes('await Promise.all([legacyPromise, fedRawPromise])'));
+
+  const legacyRejectIdx = source.indexOf("if (legacySettled.status === 'rejected')");
+  t('legacySettled vérifié', legacyRejectIdx !== -1);
+  t('legacy rejection propagée SEULEMENT après la barrière allSettled',
+    allSettledIdx !== -1 && legacyRejectIdx > allSettledIdx);
+  t('legacy rejection re-throw explicite (throw legacySettled.reason)',
+    source.includes('throw legacySettled.reason;'));
+
+  const fedRejectIdx = source.indexOf("if (fedRawSettled.status === 'rejected')");
+  t('fedRawSettled vérifié explicitement avant usage', fedRejectIdx !== -1 && fedRejectIdx > allSettledIdx);
+  t('fedRaw rejection re-throw explicite (défensif)', source.includes('throw fedRawSettled.reason;'));
+
+  const fedValueUsageIdx = source.indexOf('const fedRaw = fedRawSettled.value;');
+  t('fedRawSettled.value extrait seulement après le check de rejet',
+    fedValueUsageIdx !== -1 && fedRejectIdx !== -1 && fedValueUsageIdx > fedRejectIdx);
+
+  // releaseLock reste APRÈS l'orchestration try/catch, responsabilité
+  // inchangée : toujours atteint après le catch extérieur, jamais déplacé
+  // à l'intérieur du bloc try modifié ci-dessus.
+  const outerCatchIdx = source.indexOf('} catch (err) {\n    errors.push(errorMessage(err));');
+  const releaseLockIdx = source.indexOf('await releaseLock(db, runId, {');
+  t('releaseLock() reste après le catch extérieur (responsabilité inchangée)',
+    outerCatchIdx !== -1 && releaseLockIdx !== -1 && releaseLockIdx > outerCatchIdx);
+}
+
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);
