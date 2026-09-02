@@ -44,6 +44,19 @@ workers_dev = true
 # pattern = "alpha-xau.exemple.com"
 # custom_domain = true
 
+# Budget de sous-requêtes explicite (NEWS-OFFICIAL-016).
+#
+# Cause : l'ingestion news en production effectue de nombreuses
+# sous-requêtes sortantes/PostgREST bornées (Fed RAW, ECB RAW, GDELT,
+# NewsAPI, écritures news_articles une par une) et a dépassé en
+# production le budget implicite de 50 sous-requêtes hérité du plan
+# Workers gratuit. XAU V2 fixe désormais un budget de production borné et
+# explicite. La valeur 1000 reste volontairement en-deçà du plafond par
+# défaut du plan Workers Paid (10000) afin de conserver une protection
+# contre l'emballement (runaway) plutôt que de retirer toute limite.
+[limits]
+subrequests = 1000
+
 [observability]
 enabled = true
 
