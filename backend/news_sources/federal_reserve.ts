@@ -266,10 +266,15 @@ async function collectSingleFeed(
     throw new Error('malformed feed: missing rss/channel structure');
   }
 
+  const itemBlocks = extractItemBlocks(body);
+  if (itemBlocks.length === 0) {
+    throw new Error('malformed feed: no item blocks');
+  }
+
   const observations: RawNewsObservationInput[] = [];
   const rejected: FederalReserveRejectedItem[] = [];
 
-  for (const block of extractItemBlocks(body)) {
+  for (const block of itemBlocks) {
     try {
       const result = processItem(feedConfig.id, feedConfig.category, block, ingestRunId, observedAt);
       if ('observation' in result) {

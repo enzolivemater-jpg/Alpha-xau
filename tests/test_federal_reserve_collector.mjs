@@ -40,6 +40,17 @@ function xmlFeed(items) {
 </rss>`;
 }
 
+// Feed structurellement valide (RSS + channel + >=1 <item> reconnaissable),
+// mais volontairement sans identité (ni guid ni link) : reste status='ok'
+// avec 0 observation + 1 rejet déterministe. À utiliser partout où le test
+// a besoin d'un SECOND flux non pertinent mais structurellement valide —
+// depuis NEWS-OFFICIAL-004, un flux SANS aucun <item> est désormais
+// status='failed' (voir "EMPTY RSS (NO ITEM BLOCKS)" ci-dessous), donc
+// xmlFeed([]) n'est plus un flux "secondaire inoffensif" valide.
+function neutralRejectedFeed() {
+  return xmlFeed([xmlItem({ title: 'Neutral fixture item' })]);
+}
+
 function makeFakeFetch(responseByUrl) {
   const calls = [];
   const fn = async (url, init) => {
@@ -78,7 +89,7 @@ console.log('--- A. MONETARY FEED HAPPY PATH ---');
   })]);
   const fakeFetch = makeFakeFetch({
     [MONETARY_URL]: { body: feed },
-    [SPEECHES_URL]: { body: xmlFeed([]) },
+    [SPEECHES_URL]: { body: neutralRejectedFeed() },
   });
   const result = await run('A', fakeFetch);
   const obs = result.observations.find((o) => o.provider === 'federal_reserve' && o.providerCategory === 'monetary_policy_press_release');
@@ -109,7 +120,7 @@ console.log('--- B. SPEECHES HAPPY PATH ---');
     category: 'Speech',
   })]);
   const fakeFetch = makeFakeFetch({
-    [MONETARY_URL]: { body: xmlFeed([]) },
+    [MONETARY_URL]: { body: neutralRejectedFeed() },
     [SPEECHES_URL]: { body: feed },
   });
   const result = await run('B', fakeFetch);
@@ -127,7 +138,7 @@ console.log('--- C. CDATA ---');
     description: 'CDATA <b>description</b> body',
     pubDate: 'Wed, 29 Jul 2026 18:00:00 GMT',
   })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('C', fakeFetch);
   const obs = result.observations[0];
   t('CDATA title parsed correctly (tags preserved as literal text)', obs?.title === 'CDATA <Title> With Tags', obs?.title);
@@ -143,7 +154,7 @@ console.log('--- D. ENTITIES ---');
     description: 'plain',
     pubDate: 'Wed, 29 Jul 2026 18:00:00 GMT',
   })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('D', fakeFetch);
   const obs = result.observations[0];
   t('&#39; (decimal) decoded', obs?.title.includes("Board's meeting"), obs?.title);
@@ -159,7 +170,7 @@ console.log('--- E. MISSING PUBDATE ---');
     guid: 'https://www.federalreserve.gov/x',
     description: 'desc',
   })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('E', fakeFetch);
   const obs = result.observations[0];
   t('providerPublishedRaw null', obs?.providerPublishedRaw === null, JSON.stringify(obs));
@@ -175,7 +186,7 @@ console.log('--- F. MALFORMED TIMESTAMP TEXT (collector must NOT fix it) ---');
     description: 'desc',
     pubDate: 'this is not a real date',
   })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('F', fakeFetch);
   const obs = result.observations[0];
   t('providerPublishedRaw preserved verbatim', obs?.providerPublishedRaw === 'this is not a real date', obs?.providerPublishedRaw);
@@ -188,7 +199,7 @@ console.log('--- G. NO TITLE ---');
     xmlItem({ link: 'https://www.federalreserve.gov/no-title', guid: 'https://www.federalreserve.gov/no-title' }),
     xmlItem({ title: 'Valid item', link: 'https://www.federalreserve.gov/valid', guid: 'https://www.federalreserve.gov/valid' }),
   ]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('G', fakeFetch);
   t('exactly 1 observation preserved', result.observations.length === 1, JSON.stringify(result));
   t('rejected item recorded with fed_item_title_missing', result.rejectedItems.some((r) => r.reason === 'fed_item_title_missing'), JSON.stringify(result.rejectedItems));
@@ -197,7 +208,7 @@ console.log('--- G. NO TITLE ---');
 console.log('--- H. NO GUID BUT VALID FED URL ---');
 {
   const feed = xmlFeed([xmlItem({ title: 'No guid item', link: 'https://www.federalreserve.gov/no-guid' })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('H', fakeFetch);
   t('accepted with providerItemId null and canonicalUrl set',
     result.observations.length === 1 && result.observations[0].providerItemId === null
@@ -208,7 +219,7 @@ console.log('--- H. NO GUID BUT VALID FED URL ---');
 console.log('--- I. NO GUID + NO URL ---');
 {
   const feed = xmlFeed([xmlItem({ title: 'No identity item' })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('I', fakeFetch);
   t('rejected: fed_item_identity_missing', result.observations.length === 0 && result.rejectedItems.some((r) => r.reason === 'fed_item_identity_missing'), JSON.stringify(result));
 }
@@ -216,7 +227,7 @@ console.log('--- I. NO GUID + NO URL ---');
 console.log('--- J. EXTERNAL URL ---');
 {
   const feed = xmlFeed([xmlItem({ title: 'External link item', link: 'https://example.com/not-fed' })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('J', fakeFetch);
   t('rejected: fed_item_url_external, never emitted', result.observations.length === 0 && result.rejectedItems.some((r) => r.reason === 'fed_item_url_external'), JSON.stringify(result));
   t('no observation claims sourceCode federalreserve for this item', !result.observations.some((o) => o.canonicalUrl === 'https://example.com/not-fed'));
@@ -225,7 +236,7 @@ console.log('--- J. EXTERNAL URL ---');
 console.log('--- K. INVALID URL ---');
 {
   const feed = xmlFeed([xmlItem({ title: 'Invalid url item', link: 'not-a-url-at-all' })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('K', fakeFetch);
   t('rejected: fed_item_url_invalid', result.observations.length === 0 && result.rejectedItems.some((r) => r.reason === 'fed_item_url_invalid'), JSON.stringify(result));
 }
@@ -260,7 +271,7 @@ console.log('--- N. TIMEOUT / ABORTERROR ---');
 {
   const fakeFetch = makeFakeFetch({
     [MONETARY_URL]: { abort: true },
-    [SPEECHES_URL]: { body: xmlFeed([]) },
+    [SPEECHES_URL]: { body: neutralRejectedFeed() },
   });
   const result = await run('N', fakeFetch);
   const monetary = result.feeds.find((s) => s.feed === 'press_monetary');
@@ -272,7 +283,7 @@ console.log('--- O. EMPTY BODY ---');
 {
   const fakeFetch = makeFakeFetch({
     [MONETARY_URL]: { body: '' },
-    [SPEECHES_URL]: { body: xmlFeed([]) },
+    [SPEECHES_URL]: { body: neutralRejectedFeed() },
   });
   const result = await run('O', fakeFetch);
   const monetary = result.feeds.find((s) => s.feed === 'press_monetary');
@@ -283,11 +294,29 @@ console.log('--- P. MALFORMED FEED ---');
 {
   const fakeFetch = makeFakeFetch({
     [MONETARY_URL]: { body: '<html><body>not rss at all</body></html>' },
-    [SPEECHES_URL]: { body: xmlFeed([]) },
+    [SPEECHES_URL]: { body: neutralRejectedFeed() },
   });
   const result = await run('P', fakeFetch);
   const monetary = result.feeds.find((s) => s.feed === 'press_monetary');
   t('malformed feed -> failed', monetary?.status === 'failed', JSON.stringify(monetary));
+}
+
+console.log('--- P2. EMPTY RSS (NO ITEM BLOCKS) — NEWS-OFFICIAL-004 regression ---');
+{
+  // RSS + channel structurellement présents, mais AUCUN <item> reconnaissable :
+  // ceci ne doit PLUS être traité comme un flux vide "réussi".
+  const fakeFetch = makeFakeFetch({
+    [MONETARY_URL]: { body: xmlFeed([]) },
+    [SPEECHES_URL]: { body: neutralRejectedFeed() },
+  });
+  const result = await run('P2', fakeFetch);
+  const monetary = result.feeds.find((s) => s.feed === 'press_monetary');
+  const speeches = result.feeds.find((s) => s.feed === 'speeches');
+  t('RSS/channel-only feed (0 items) -> failed, PAS un succès vide', monetary?.status === 'failed', JSON.stringify(monetary));
+  t('erreur explicite mentionnant l\'absence de structure item', /item/i.test(monetary?.error ?? ''), monetary?.error);
+  t('zero observation issue du flux vide', !result.observations.some((o) => o.providerCategory === 'monetary_policy_press_release'));
+  t('partial failure toujours déterministe : second flux reste ok malgré le premier en échec',
+    speeches?.status === 'ok', JSON.stringify(speeches));
 }
 
 console.log('--- Q. CONCURRENCY ---');
@@ -300,10 +329,10 @@ console.log('--- Q. CONCURRENCY ---');
     callOrder.push(url);
     if (url === MONETARY_URL) {
       await pendingMonetary;
-      return { ok: true, status: 200, async text() { return xmlFeed([]); } };
+      return { ok: true, status: 200, async text() { return neutralRejectedFeed(); } };
     }
     await pendingSpeeches;
-    return { ok: true, status: 200, async text() { return xmlFeed([]); } };
+    return { ok: true, status: 200, async text() { return neutralRejectedFeed(); } };
   };
 
   const resultPromise = run('Q', fakeFetch);
@@ -327,7 +356,7 @@ console.log('--- R. RAW FIDELITY ---');
     guid: 'https://www.federalreserve.gov/long',
     description: longDescription,
   })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   const result = await run('R', fakeFetch);
   const obs = result.observations[0];
   t('long title not truncated', obs?.title === longTitle);
@@ -338,7 +367,7 @@ console.log('--- R. RAW FIDELITY ---');
 console.log('--- S. NO ARTICLE-PAGE FETCH ---');
 {
   const feed = xmlFeed([xmlItem({ title: 'X', link: 'https://www.federalreserve.gov/x', guid: 'https://www.federalreserve.gov/x' })]);
-  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: xmlFeed([]) } });
+  const fakeFetch = makeFakeFetch({ [MONETARY_URL]: { body: feed }, [SPEECHES_URL]: { body: neutralRejectedFeed() } });
   await run('S', fakeFetch);
   t('exactly two feed requests total (no article-page fetch)', fakeFetch.calls.length === 2, JSON.stringify(fakeFetch.calls.map((c) => c.url)));
   t('requests target exactly the two known feed URLs',
