@@ -409,5 +409,89 @@ console.log('--- AG. NO RUNTIME DEPENDENCY (static) ---');
   t('tous les imports sont relatifs (aucune nouvelle dépendance npm)', allRelative, JSON.stringify(importLines));
 }
 
+console.log('--- AH. LAST ITEM CATEGORY MISSING + TRAILING PAGE CONTENT (P1, XAU-V2-NEWS-OFFICIAL-023) ---');
+{
+  // Item est le DERNIER (et seul) résultat de la page, sans sa propre
+  // ancre de catégorie — mais son propre conteneur <div> reste bien
+  // balancé. Immédiatement après sa fermeture, du contenu de page
+  // totalement étranger (barre latérale "Filter by Category") est
+  // présent, exactement comme sur la page live réelle.
+  const lastItemHtml = itemBlock({
+    href: '/recent-actions/20260905',
+    title: 'Last Item No Category',
+    date: 'September 05, 2026',
+    categoryHref: null,
+    categoryLabel: null,
+  });
+  const trailingContent =
+    '<h3>Filter by Category</h3>' +
+    '<a href="/recent-actions">All Recent Actions</a>' +
+    '<a href="/recent-actions/general-licenses">General Licenses</a>';
+  const html = `<!doctype html><html><body><div class="view-content">${lastItemHtml}</div>${trailingContent}</body></html>`;
+  const result = await run(html);
+
+  t('zero accepted observations for the malformed result', result.observations.length === 0, JSON.stringify(result.observations));
+  t('rejection reason = ofac_item_category_missing', result.rejectedItems.length === 1 && result.rejectedItems[0]?.reason === 'ofac_item_category_missing', JSON.stringify(result.rejectedItems));
+  t('"All Recent Actions" never used as providerCategory', !result.observations.some((o) => o.providerCategory === 'All Recent Actions'));
+  t('trailing "General Licenses" never used as providerCategory', !result.observations.some((o) => o.providerCategory === 'General Licenses'));
+  t('providerPublishedRaw never constructed from trailing page text', !result.observations.some((o) => o.providerPublishedRaw?.includes('Filter by Category')));
+  t('page.status = failed (only item, malformed)', result.page.status === 'failed', JSON.stringify(result.page));
+}
+
+console.log('--- AI. VALID LAST ITEM + TRAILING LINKS (P1, XAU-V2-NEWS-OFFICIAL-023) ---');
+{
+  const lastItemHtml = itemBlock({
+    href: '/recent-actions/20260906',
+    title: 'Valid Last Item',
+    date: 'September 06, 2026',
+    categoryHref: '/recent-actions/enforcement-actions',
+    categoryLabel: 'Enforcement Actions',
+  });
+  const trailingContent =
+    '<footer><h3>Filter by Category</h3>' +
+    '<a href="/recent-actions">All Recent Actions</a>' +
+    '<a href="/recent-actions/sanctions-list-updates">Sanctions List Updates</a>' +
+    '<p>Some arbitrary trailing paragraph text — September 01, 2099</p></footer>';
+  const html = `<!doctype html><html><body><div class="view-content">${lastItemHtml}</div>${trailingContent}</body></html>`;
+  const result = await run(html);
+
+  t('exactly one accepted observation', result.observations.length === 1, JSON.stringify(result));
+  const obs = result.observations[0];
+  t('own title preserved', obs?.title === 'Valid Last Item', obs?.title);
+  t('own canonicalUrl preserved', obs?.canonicalUrl === 'https://ofac.treasury.gov/recent-actions/20260906', obs?.canonicalUrl);
+  t('own DATE_RAW preserved', obs?.providerPublishedRaw === 'September 06, 2026', obs?.providerPublishedRaw);
+  t('own category preserved', obs?.providerCategory === 'Enforcement Actions', obs?.providerCategory);
+  t('trailing anchors had zero effect', result.rejectedItems.length === 0, JSON.stringify(result.rejectedItems));
+  t('page status ok', result.page.status === 'ok');
+}
+
+console.log('--- AJ. MALFORMED / UNBALANCED DIV SAFETY (P1, XAU-V2-NEWS-OFFICIAL-023) ---');
+{
+  // Conteneur A : ancre de titre valide, mais balisage <div> corrompu —
+  // aucune balise fermante avant le début du conteneur B suivant. La
+  // barrière de sécurité doit s'arrêter AVANT B, jamais l'absorber.
+  const malformedA =
+    '<div class="search-result views-row"><div><div class="font-sans-lg margin-bottom-05 margin-top-1 text-no-underline">' +
+    '<a href="/recent-actions/20260101" hreflang="en">Malformed A</a>';
+  const itemB = itemBlock({
+    href: '/recent-actions/20260906',
+    title: 'Valid B After Malformed',
+    date: 'September 06, 2026',
+    categoryLabel: 'General Licenses',
+  });
+  const html = page([malformedA, itemB]);
+  const result = await run(html);
+
+  t('exactly one accepted observation (B only)', result.observations.length === 1, JSON.stringify(result.observations));
+  const obs = result.observations[0];
+  t('B parsed independently: title', obs?.title === 'Valid B After Malformed', obs?.title);
+  t('B parsed independently: url', obs?.canonicalUrl === 'https://ofac.treasury.gov/recent-actions/20260906', obs?.canonicalUrl);
+  t('B parsed independently: date', obs?.providerPublishedRaw === 'September 06, 2026', obs?.providerPublishedRaw);
+  t('B parsed independently: category', obs?.providerCategory === 'General Licenses', obs?.providerCategory);
+  t('malformed A rejected, never merged into B', result.rejectedItems.length === 1, JSON.stringify(result.rejectedItems));
+  t('no field from A ever present on B (title check)', obs?.title !== 'Malformed A');
+  t('page remains status=ok (B is valid)', result.page.status === 'ok');
+}
+
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);

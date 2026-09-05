@@ -161,20 +161,60 @@ function findResultContainerStarts(html: string): number[] {
   return starts;
 }
 
+const DIV_TOKEN_RE = /<\/?div\b[^>]*>/g;
+
 /**
- * Découpage par INDEX, PAS par recherche d'un terminateur de fermeture
- * (même correction que us_treasury.ts, XAU-V2-NEWS-OFFICIAL-021/022) :
- * la région candidate d'un item OFAC s'arrête TOUJOURS AVANT le prochain
- * conteneur de résultat, quel que soit son contenu interne — un item
- * malformé ne peut donc jamais "déborder" sur le titre/la date/la
- * catégorie de l'item suivant.
+ * Trouve la fin RÉELLE du conteneur de résultat démarrant à
+ * `containerStart`, par comptage de profondeur des balises <div>/</div>
+ * rencontrées (scanner de profondeur étroit, PAS un parseur HTML
+ * générique) — jamais par un simple "jusqu'au prochain conteneur" (voir
+ * XAU-V2-NEWS-OFFICIAL-023 §2/§3, P1 corrigé ici) : ce dernier motif
+ * laissait le DERNIER item déborder jusqu'à `html.length`, capable
+ * d'absorber des ancres de page totalement étrangères (ex. "Filter by
+ * Category") si son propre conteneur était malformé.
+ *
+ * La profondeur démarre à 0 ; la balise d'ouverture du conteneur
+ * lui-même (à `containerStart`) l'amène à 1 ; chaque <div> ouvrant
+ * l'incrémente, chaque </div> la décrémente ; la fin réelle du
+ * conteneur est le point où la profondeur retombe à 0.
+ *
+ * Barrière de sécurité : si le prochain conteneur de résultat
+ * (`boundaryLimit`) est atteint avant que la profondeur ne retombe à 0
+ * (HTML de fournisseur mal formé / non balancé), le scan s'arrête à
+ * cette barrière plutôt que de continuer à l'intérieur du conteneur
+ * suivant — un item malformé ne peut donc JAMAIS consommer l'item
+ * suivant, y compris quand son propre balisage <div> est corrompu.
+ */
+function findContainerEnd(html: string, containerStart: number, boundaryLimit: number): number {
+  DIV_TOKEN_RE.lastIndex = containerStart;
+  let depth = 0;
+  let m: RegExpExecArray | null;
+  while ((m = DIV_TOKEN_RE.exec(html)) !== null) {
+    if (m.index >= boundaryLimit) {
+      return boundaryLimit;
+    }
+    depth += m[0].startsWith('</') ? -1 : 1;
+    if (depth === 0) {
+      return m.index + m[0].length;
+    }
+  }
+  return boundaryLimit;
+}
+
+/**
+ * Découpage par PROFONDEUR DE DIV, borné dans tous les cas par le
+ * prochain conteneur de résultat (ou la fin du document pour le
+ * dernier) : aucun item, y compris le dernier de la page, ne peut
+ * jamais lire du HTML situé après son propre conteneur
+ * search-result/views-row.
  */
 function extractItemBlocks(html: string): string[] {
   const starts = findResultContainerStarts(html);
   const blocks: string[] = [];
   for (let i = 0; i < starts.length; i++) {
     const begin = starts[i];
-    const end = i + 1 < starts.length ? starts[i + 1] : html.length;
+    const boundaryLimit = i + 1 < starts.length ? starts[i + 1] : html.length;
+    const end = findContainerEnd(html, begin, boundaryLimit);
     blocks.push(html.slice(begin, end));
   }
   return blocks;
