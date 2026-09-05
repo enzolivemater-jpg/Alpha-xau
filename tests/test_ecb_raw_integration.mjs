@@ -304,16 +304,22 @@ console.log('--- INGEST INTEGRATION STATIC INVARIANTS (ECB) ---');
     /ingestFederalReserveRaw\(\{[\s\S]{0,160}?observedAt:\s*officialObservedAt/.test(source));
   t('providers.ecb exposé', /ecb:\s*\{/.test(source));
   t('providers.federal_reserve toujours présent', /federal_reserve:\s*\{/.test(source));
+  t('providers.us_treasury exposé (NEWS-OFFICIAL-027)', /us_treasury:\s*\{/.test(source));
+  t('providers.ofac exposé (NEWS-OFFICIAL-027)', /ofac:\s*\{/.test(source));
   t('scoreArticle() ne référence pas ecbRaw', !/scoreArticle\([^)]*ecbRaw/.test(source));
   t('deduplicate() ne référence pas ecbRaw ni fedRaw', !/deduplicate\(\[[^\]]*(ecbRaw|fedRaw)/.test(source));
   t('collectGdelt toujours présent (legacy inchangé)', source.includes('function collectGdelt'));
   t('collectNewsApi toujours présent (legacy inchangé)', source.includes('function collectNewsApi'));
-  t('allProvidersOk inclut ecbRaw.ok ET fedRaw.ok',
-    /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok && ecbRaw\.ok/.test(source));
+  t('allProvidersOk inclut ecbRaw.ok, fedRaw.ok, treasuryRaw.ok ET ofacRaw.ok',
+    /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok && ecbRaw\.ok && treasuryRaw\.ok && ofacRaw\.ok/.test(source));
   t('ecbRawPromise démarre avant la barrière allSettled (concurrence garantie)',
     source.indexOf('const ecbRawPromise') < source.indexOf('await Promise.allSettled(['));
   t('fedRawPromise démarre avant la barrière allSettled (concurrence garantie)',
     source.indexOf('const fedRawPromise') < source.indexOf('await Promise.allSettled(['));
+  t('treasuryRawPromise démarre avant la barrière allSettled (concurrence garantie, NEWS-OFFICIAL-027)',
+    source.indexOf('const treasuryRawPromise') < source.indexOf('await Promise.allSettled(['));
+  t('ofacRawPromise démarre avant la barrière allSettled (concurrence garantie, NEWS-OFFICIAL-027)',
+    source.indexOf('const ofacRawPromise') < source.indexOf('await Promise.allSettled(['));
 
   // NEWS-OFFICIAL-011 : legacyPromise = Promise.all([collectGdelt(...),
   // collectNewsApi(...)]) était lui-même fail-fast — il pouvait se régler
@@ -345,12 +351,14 @@ console.log('--- INGEST INTEGRATION STATIC INVARIANTS (ECB) ---');
   t('newsapiPromise démarre avant la barrière allSettled (concurrence garantie)',
     newsapiPromiseDeclIdx !== -1 && newsapiPromiseDeclIdx < source.indexOf('await Promise.allSettled(['));
 
-  t('barrière allSettled contient les quatre tâches à plat (gdelt, newsapi, Fed, ECB)',
-    /await Promise\.allSettled\(\[\s*gdeltPromise,\s*newsapiPromise,\s*fedRawPromise,\s*ecbRawPromise,?\s*\]\)/.test(source));
+  t('barrière allSettled contient les SIX tâches à plat (gdelt, newsapi, Fed, ECB, Treasury, OFAC — NEWS-OFFICIAL-027)',
+    /await Promise\.allSettled\(\[\s*gdeltPromise,\s*newsapiPromise,\s*fedRawPromise,\s*ecbRawPromise,\s*treasuryRawPromise,\s*ofacRawPromise,?\s*\]\)/.test(source));
   t('aucune ancienne barrière à deux promesses restante',
     !source.includes('await Promise.allSettled([legacyPromise, fedRawPromise])'));
   t('aucune ancienne barrière à trois promesses (legacy, Fed, ECB) restante',
     !source.includes('await Promise.allSettled([\n      legacyPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])'));
+  t('aucune ancienne barrière à quatre promesses (sans Treasury/OFAC) restante',
+    !source.includes('await Promise.allSettled([\n      gdeltPromise,\n      newsapiPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])'));
 
   t('gdeltSettled rejection vérifiée avant extraction de valeur',
     source.indexOf("if (gdeltSettled.status === 'rejected')") < source.indexOf('const gdelt = gdeltSettled.value;'));
@@ -358,6 +366,10 @@ console.log('--- INGEST INTEGRATION STATIC INVARIANTS (ECB) ---');
     source.indexOf("if (newsapiSettled.status === 'rejected')") < source.indexOf('const newsapi = newsapiSettled.value;'));
   t('valeurs extraites seulement après les checks de statut (const ecbRaw après le check rejet)',
     source.indexOf("if (ecbRawSettled.status === 'rejected')") < source.indexOf('const ecbRaw = ecbRawSettled.value;'));
+  t('valeurs extraites seulement après les checks de statut (const treasuryRaw après le check rejet, NEWS-OFFICIAL-027)',
+    source.indexOf("if (treasuryRawSettled.status === 'rejected')") < source.indexOf('const treasuryRaw = treasuryRawSettled.value;'));
+  t('valeurs extraites seulement après les checks de statut (const ofacRaw après le check rejet, NEWS-OFFICIAL-027)',
+    source.indexOf("if (ofacRawSettled.status === 'rejected')") < source.indexOf('const ofacRaw = ofacRawSettled.value;'));
   t('top-level fetched reste calculé uniquement depuis gdelt+newsapi',
     /const fetched = gdelt\.articles\.length \+ newsapi\.articles\.length;/.test(source));
   t('releaseLock() reste après le bloc try/catch externe',

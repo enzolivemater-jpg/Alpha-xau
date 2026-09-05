@@ -44,6 +44,8 @@
 import { acquireLock, releaseLock } from './shared/run_lock.js';
 import { ingestFederalReserveRaw, type FederalReserveRawIngestResult } from './news_sources/federal_reserve_raw.js';
 import { ingestEcbRaw, type EcbRawIngestResult } from './news_sources/ecb_raw.js';
+import { ingestTreasuryRaw, type TreasuryRawIngestResult } from './news_sources/us_treasury_raw.js';
+import { ingestOfacRaw, type OfacRawIngestResult } from './news_sources/ofac_raw.js';
 
 /* -------------------------------------------------------------------------- */
 /*  1. ENVIRONNEMENT ET CONFIGURATION                                          */
@@ -2050,6 +2052,64 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       };
     });
 
+    // Treasury RAW démarre en parallèle de Fed RAW, ECB RAW et de la
+    // collecte legacy, avec le même officialObservedAt et le même
+    // .catch() immédiat : un échec inattendu de l'adaptateur ne doit
+    // jamais devenir une unhandled rejection.
+    const treasuryRawPromise: Promise<TreasuryRawIngestResult> = ingestTreasuryRaw({
+      db,
+      ingestRunId: runId,
+      observedAt: officialObservedAt,
+    }).catch((err: unknown): TreasuryRawIngestResult => {
+      const reason = errorMessage(err);
+      log.error('Treasury RAW : échec inattendu de l\'adaptateur', { reason });
+      return {
+        ok: false,
+        durationMs: 0,
+        observations: 0,
+        collectorRejected: 0,
+        inserted: 0,
+        duplicates: 0,
+        writerRejected: 0,
+        databaseErrors: 0,
+        page: {
+          url: 'https://home.treasury.gov/news/press-releases',
+          status: 'failed',
+          itemsAccepted: 0,
+          error: reason,
+        },
+        errors: [reason],
+      };
+    });
+
+    // OFAC RAW démarre en parallèle des cinq autres tâches, avec le même
+    // officialObservedAt et le même .catch() immédiat.
+    const ofacRawPromise: Promise<OfacRawIngestResult> = ingestOfacRaw({
+      db,
+      ingestRunId: runId,
+      observedAt: officialObservedAt,
+    }).catch((err: unknown): OfacRawIngestResult => {
+      const reason = errorMessage(err);
+      log.error('OFAC RAW : échec inattendu de l\'adaptateur', { reason });
+      return {
+        ok: false,
+        durationMs: 0,
+        observations: 0,
+        collectorRejected: 0,
+        inserted: 0,
+        duplicates: 0,
+        writerRejected: 0,
+        databaseErrors: 0,
+        page: {
+          url: 'https://ofac.treasury.gov/recent-actions',
+          status: 'failed',
+          itemsAccepted: 0,
+          error: reason,
+        },
+        errors: [reason],
+      };
+    });
+
     // NEWS-OFFICIAL-011 : legacyPromise = Promise.all([collectGdelt(...),
     // collectNewsApi(...)]) était lui-même fail-fast — si UN des deux
     // collecteurs legacy rejette pendant que l'autre est encore en vol,
@@ -2063,17 +2123,19 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
     const gdeltPromise = collectGdelt(env, log);
     const newsapiPromise = collectNewsApi(env, log);
 
-    // Barrière de cycle de vie à PLAT sur les QUATRE tâches réelles :
-    // GDELT, NewsAPI, Fed RAW, ECB RAW démarrent toutes avant cet await, et
-    // Promise.allSettled ATTEND qu'elles soient TOUTES les quatre réglées
-    // avant toute décision, quelle que soit l'issue de chacune. Aucun
-    // chemin ne peut atteindre le catch/releaseLock tant qu'une seule reste
-    // en vol.
-    const [gdeltSettled, newsapiSettled, fedRawSettled, ecbRawSettled] = await Promise.allSettled([
+    // Barrière de cycle de vie à PLAT sur les SIX tâches réelles : GDELT,
+    // NewsAPI, Fed RAW, ECB RAW, Treasury RAW, OFAC RAW démarrent toutes
+    // avant cet await, et Promise.allSettled ATTEND qu'elles soient
+    // TOUTES les six réglées avant toute décision, quelle que soit
+    // l'issue de chacune. Aucun chemin ne peut atteindre le
+    // catch/releaseLock tant qu'une seule reste en vol.
+    const [gdeltSettled, newsapiSettled, fedRawSettled, ecbRawSettled, treasuryRawSettled, ofacRawSettled] = await Promise.allSettled([
       gdeltPromise,
       newsapiPromise,
       fedRawPromise,
       ecbRawPromise,
+      treasuryRawPromise,
+      ofacRawPromise,
     ]);
 
     if (gdeltSettled.status === 'rejected') {
@@ -2093,11 +2155,21 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       // Défensif, même raisonnement que fedRawSettled ci-dessus.
       throw ecbRawSettled.reason;
     }
+    if (treasuryRawSettled.status === 'rejected') {
+      // Défensif, même raisonnement que fedRawSettled ci-dessus.
+      throw treasuryRawSettled.reason;
+    }
+    if (ofacRawSettled.status === 'rejected') {
+      // Défensif, même raisonnement que fedRawSettled ci-dessus.
+      throw ofacRawSettled.reason;
+    }
 
     const gdelt = gdeltSettled.value;
     const newsapi = newsapiSettled.value;
     const fedRaw = fedRawSettled.value;
     const ecbRaw = ecbRawSettled.value;
+    const treasuryRaw = treasuryRawSettled.value;
+    const ofacRaw = ofacRawSettled.value;
 
     log.info('Federal Reserve RAW terminé', {
       observations: fedRaw.observations,
@@ -2119,6 +2191,28 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       database_errors: ecbRaw.databaseErrors,
       feeds: ecbRaw.feeds,
       duration_ms: ecbRaw.durationMs,
+    });
+
+    log.info('Treasury RAW terminé', {
+      observations: treasuryRaw.observations,
+      collector_rejected: treasuryRaw.collectorRejected,
+      inserted: treasuryRaw.inserted,
+      duplicates: treasuryRaw.duplicates,
+      writer_rejected: treasuryRaw.writerRejected,
+      database_errors: treasuryRaw.databaseErrors,
+      page: treasuryRaw.page,
+      duration_ms: treasuryRaw.durationMs,
+    });
+
+    log.info('OFAC RAW terminé', {
+      observations: ofacRaw.observations,
+      collector_rejected: ofacRaw.collectorRejected,
+      inserted: ofacRaw.inserted,
+      duplicates: ofacRaw.duplicates,
+      writer_rejected: ofacRaw.writerRejected,
+      database_errors: ofacRaw.databaseErrors,
+      page: ofacRaw.page,
+      duration_ms: ofacRaw.durationMs,
     });
 
     const providers: Record<string, ProviderReport> = {
@@ -2146,11 +2240,35 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
         database_errors: ecbRaw.databaseErrors,
         ...(ecbRaw.ok ? {} : { error: ecbRaw.errors.join('; ') || 'ecb raw ingestion unhealthy' }),
       },
+      us_treasury: {
+        ok: treasuryRaw.ok,
+        count: treasuryRaw.observations,
+        retries: 0,
+        duration_ms: treasuryRaw.durationMs,
+        inserted: treasuryRaw.inserted,
+        duplicates: treasuryRaw.duplicates,
+        rejected: treasuryRaw.collectorRejected + treasuryRaw.writerRejected,
+        database_errors: treasuryRaw.databaseErrors,
+        ...(treasuryRaw.ok ? {} : { error: treasuryRaw.errors.join('; ') || 'us_treasury raw ingestion unhealthy' }),
+      },
+      ofac: {
+        ok: ofacRaw.ok,
+        count: ofacRaw.observations,
+        retries: 0,
+        duration_ms: ofacRaw.durationMs,
+        inserted: ofacRaw.inserted,
+        duplicates: ofacRaw.duplicates,
+        rejected: ofacRaw.collectorRejected + ofacRaw.writerRejected,
+        database_errors: ofacRaw.databaseErrors,
+        ...(ofacRaw.ok ? {} : { error: ofacRaw.errors.join('; ') || 'ofac raw ingestion unhealthy' }),
+      },
     };
     if (gdelt.report.error) errors.push(`gdelt: ${gdelt.report.error}`);
     if (newsapi.report.error) errors.push(`newsapi: ${newsapi.report.error}`);
     if (!fedRaw.ok) errors.push(`federal_reserve: ${providers.federal_reserve.error}`);
     if (!ecbRaw.ok) errors.push(`ecb: ${providers.ecb.error}`);
+    if (!treasuryRaw.ok) errors.push(`us_treasury: ${providers.us_treasury.error}`);
+    if (!ofacRaw.ok) errors.push(`ofac: ${providers.ofac.error}`);
 
     const fetched = gdelt.articles.length + newsapi.articles.length;
     const { unique, duplicates } = deduplicate([...gdelt.articles, ...newsapi.articles], registry);
@@ -2190,7 +2308,7 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
       await dispatchActions(persisted, db, env, log);
     }
 
-    const allProvidersOk = gdelt.report.ok && newsapi.report.ok && fedRaw.ok && ecbRaw.ok;
+    const allProvidersOk = gdelt.report.ok && newsapi.report.ok && fedRaw.ok && ecbRaw.ok && treasuryRaw.ok && ofacRaw.ok;
     report = {
       run_id: runId,
       status: errors.length === 0 && allProvidersOk ? 'success' : 'partial',

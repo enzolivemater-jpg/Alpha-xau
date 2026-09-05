@@ -294,7 +294,7 @@ console.log('--- INGEST INTEGRATION STATIC INVARIANTS ---');
   t('allProvidersOk inclut fedRaw.ok', /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok/.test(source));
 }
 
-console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + 010 + 011) STATIC INVARIANTS ---');
+console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + 010 + 011 + 027) STATIC INVARIANTS ---');
 {
   const source = readFileSync(new URL('../backend/ingest.ts', import.meta.url), 'utf8');
 
@@ -302,15 +302,17 @@ console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + 010 + 011) STATIC INVARI
   // collectNewsApi(...)]) était lui-même fail-fast — il pouvait se régler
   // (rejeté) AVANT la fin réelle du collecteur sœur encore en vol, ce qui
   // recréait la course dangling-task-before-unlock à l'intérieur même de
-  // "legacyPromise". La barrière doit désormais porter sur les QUATRE
-  // tâches async RÉELLES à PLAT : gdeltPromise, newsapiPromise,
-  // fedRawPromise, ecbRawPromise — jamais sur un agrégat fail-fast qui les
-  // enveloppe.
+  // "legacyPromise". NEWS-OFFICIAL-027 étend la barrière à SIX tâches
+  // async RÉELLES à PLAT : gdeltPromise, newsapiPromise, fedRawPromise,
+  // ecbRawPromise, treasuryRawPromise, ofacRawPromise — jamais sur un
+  // agrégat fail-fast qui les enveloppe.
   const allSettledIdx = source.indexOf(
-    'await Promise.allSettled([\n      gdeltPromise,\n      newsapiPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])',
+    'await Promise.allSettled([\n      gdeltPromise,\n      newsapiPromise,\n      fedRawPromise,\n      ecbRawPromise,\n      treasuryRawPromise,\n      ofacRawPromise,\n    ])',
   );
-  t('utilise Promise.allSettled à PLAT sur gdeltPromise + newsapiPromise + fedRawPromise + ecbRawPromise',
+  t('utilise Promise.allSettled à PLAT sur les SIX tâches (gdelt, newsapi, Fed, ECB, Treasury, OFAC)',
     allSettledIdx !== -1, allSettledIdx);
+  t('ancien statement à quatre promesses (sans Treasury/OFAC) absent',
+    !source.includes('await Promise.allSettled([\n      gdeltPromise,\n      newsapiPromise,\n      fedRawPromise,\n      ecbRawPromise,\n    ])'));
 
   // Aucun agrégat fail-fast "legacyPromise" ne doit pouvoir se réintroduire
   // silencieusement (c'est exactement le défaut corrigé par cette tâche).
@@ -372,6 +374,18 @@ console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + 010 + 011) STATIC INVARI
   t('fedRawPromise porte toujours un .catch() immédiat (inchangé)',
     /ingestFederalReserveRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
 
+  const treasuryPromiseDeclIdx = source.indexOf('const treasuryRawPromise: Promise<TreasuryRawIngestResult> = ingestTreasuryRaw({');
+  t('treasuryRawPromise déclaré avant la barrière allSettled',
+    treasuryPromiseDeclIdx !== -1 && allSettledIdx !== -1 && treasuryPromiseDeclIdx < allSettledIdx);
+  t('treasuryRawPromise porte un .catch() immédiat (pas d\'unhandled rejection possible)',
+    /ingestTreasuryRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
+
+  const ofacPromiseDeclIdx = source.indexOf('const ofacRawPromise: Promise<OfacRawIngestResult> = ingestOfacRaw({');
+  t('ofacRawPromise déclaré avant la barrière allSettled',
+    ofacPromiseDeclIdx !== -1 && allSettledIdx !== -1 && ofacPromiseDeclIdx < allSettledIdx);
+  t('ofacRawPromise porte un .catch() immédiat (pas d\'unhandled rejection possible)',
+    /ingestOfacRaw\(\{[\s\S]{0,200}?\}\)\.catch\(/.test(source));
+
   const gdeltRejectIdx = source.indexOf("if (gdeltSettled.status === 'rejected')");
   t('gdeltSettled vérifié', gdeltRejectIdx !== -1);
   t('gdelt rejection propagée SEULEMENT après la barrière allSettled',
@@ -400,6 +414,18 @@ console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + 010 + 011) STATIC INVARI
   t('ECB settled check intervient APRÈS le check Fed (ordre gdelt -> newsapi -> Fed -> ECB respecté)',
     fedRejectIdx !== -1 && ecbRejectIdx !== -1 && ecbRejectIdx > fedRejectIdx);
 
+  const treasuryRejectIdx = source.indexOf("if (treasuryRawSettled.status === 'rejected')");
+  t('treasuryRawSettled vérifié explicitement avant usage', treasuryRejectIdx !== -1 && treasuryRejectIdx > allSettledIdx);
+  t('treasuryRaw rejection re-throw explicite (défensif)', source.includes('throw treasuryRawSettled.reason;'));
+  t('Treasury settled check intervient APRÈS le check ECB (ordre gdelt -> newsapi -> Fed -> ECB -> Treasury -> OFAC respecté)',
+    ecbRejectIdx !== -1 && treasuryRejectIdx !== -1 && treasuryRejectIdx > ecbRejectIdx);
+
+  const ofacRejectIdx = source.indexOf("if (ofacRawSettled.status === 'rejected')");
+  t('ofacRawSettled vérifié explicitement avant usage', ofacRejectIdx !== -1 && ofacRejectIdx > allSettledIdx);
+  t('ofacRaw rejection re-throw explicite (défensif)', source.includes('throw ofacRawSettled.reason;'));
+  t('OFAC settled check intervient APRÈS le check Treasury (ordre respecté)',
+    treasuryRejectIdx !== -1 && ofacRejectIdx !== -1 && ofacRejectIdx > treasuryRejectIdx);
+
   const gdeltValueUsageIdx = source.indexOf('const gdelt = gdeltSettled.value;');
   t('gdeltSettled.value extrait seulement après le check de rejet',
     gdeltValueUsageIdx !== -1 && gdeltRejectIdx !== -1 && gdeltValueUsageIdx > gdeltRejectIdx);
@@ -416,10 +442,20 @@ console.log('--- LIFECYCLE BARRIER (NEWS-OFFICIAL-007 + 010 + 011) STATIC INVARI
   t('ecbRawSettled.value extrait seulement après le check de rejet',
     ecbValueUsageIdx !== -1 && ecbRejectIdx !== -1 && ecbValueUsageIdx > ecbRejectIdx);
 
+  const treasuryValueUsageIdx = source.indexOf('const treasuryRaw = treasuryRawSettled.value;');
+  t('treasuryRawSettled.value extrait seulement après le check de rejet',
+    treasuryValueUsageIdx !== -1 && treasuryRejectIdx !== -1 && treasuryValueUsageIdx > treasuryRejectIdx);
+
+  const ofacValueUsageIdx = source.indexOf('const ofacRaw = ofacRawSettled.value;');
+  t('ofacRawSettled.value extrait seulement après le check de rejet',
+    ofacValueUsageIdx !== -1 && ofacRejectIdx !== -1 && ofacValueUsageIdx > ofacRejectIdx);
+
   t('providers.ecb exposé', /ecb:\s*\{/.test(source));
   t('providers.federal_reserve toujours exposé (inchangé)', /federal_reserve:\s*\{/.test(source));
-  t('allProvidersOk inclut ecbRaw.ok',
-    /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok && ecbRaw\.ok/.test(source));
+  t('providers.us_treasury exposé', /us_treasury:\s*\{/.test(source));
+  t('providers.ofac exposé', /ofac:\s*\{/.test(source));
+  t('allProvidersOk inclut treasuryRaw.ok et ofacRaw.ok',
+    /allProvidersOk = gdelt\.report\.ok && newsapi\.report\.ok && fedRaw\.ok && ecbRaw\.ok && treasuryRaw\.ok && ofacRaw\.ok/.test(source));
 
   // releaseLock reste APRÈS l'orchestration try/catch, responsabilité
   // inchangée : toujours atteint après le catch extérieur, jamais déplacé
