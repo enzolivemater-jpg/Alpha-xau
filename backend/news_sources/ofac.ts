@@ -163,55 +163,69 @@ function findResultContainerStarts(html: string): number[] {
 
 const DIV_TOKEN_RE = /<\/?div\b[^>]*>/g;
 
-interface ContainerScanResult {
-  readonly end: number;
-  /** true UNIQUEMENT quand la profondeur retombe génuinement à 0 —
-   *  jamais quand le scan s'est arrêté sur la barrière de sécurité ou en
-   *  fin de document (XAU-V2-NEWS-OFFICIAL-024 §3). */
-  readonly closed: boolean;
+interface DivPairing {
+  /** opening-token-start -> closing-token-end, UNIQUEMENT pour les
+   *  paires dont la fermeture a été prouvée par la pile globale. */
+  readonly closeEndByOpenStart: ReadonlyMap<number, number>;
+  /** true SEULEMENT si le document entier est correctement balancé :
+   *  aucune fermeture sans ouverture correspondante, ET la pile est vide
+   *  en fin de document. */
+  readonly balanced: boolean;
 }
 
 /**
- * Trouve la fin RÉELLE du conteneur de résultat démarrant à
- * `containerStart`, par comptage de profondeur des balises <div>/</div>
- * rencontrées (scanner de profondeur étroit, PAS un parseur HTML
- * générique) — jamais par un simple "jusqu'au prochain conteneur" (voir
- * XAU-V2-NEWS-OFFICIAL-023 §2/§3) : ce dernier motif laissait le DERNIER
- * item déborder jusqu'à `html.length`, capable d'absorber des ancres de
- * page totalement étrangères (ex. "Filter by Category") si son propre
- * conteneur était malformé.
+ * Appariement GLOBAL, document entier, par PILE unique — remplace le
+ * scanner de profondeur local par item (XAU-V2-NEWS-OFFICIAL-023/024),
+ * qui ne pouvait PAS prouver la propriété d'une fermeture : un scan
+ * démarrant à `containerStart` avec profondeur=0 voit sa profondeur
+ * retomber à 0 dès qu'un NOMBRE ÉGAL de fermetures a été rencontré,
+ * même si l'une de ces fermetures appartient en réalité à un ANCÊTRE
+ * (ex. le </div> qui ferme <div class=view-content> peut être
+ * mécaniquement confondu avec la fermeture du <div class="search-result
+ * views-row"> qu'il contient si la fermeture propre du résultat est
+ * absente) — voir XAU-V2-NEWS-OFFICIAL-025 §2.
  *
- * La profondeur démarre à 0 ; la balise d'ouverture du conteneur
- * lui-même (à `containerStart`) l'amène à 1 ; chaque <div> ouvrant
- * l'incrémente, chaque </div> la décrémente ; la fin réelle du
- * conteneur est le point où la profondeur retombe à 0 — c'est le SEUL
- * cas où `closed` vaut true.
+ * Ici, une seule pile parcourt le document dans l'ordre : chaque
+ * ouverture est empilée ; chaque fermeture dépile l'ouverture la PLUS
+ * RÉCEMMENT empilée et enregistre la paire exacte (position d'ouverture
+ * -> fin de fermeture). Une fermeture sans ouverture à dépiler, ou une
+ * pile non vide en fin de document, rend `balanced=false` pour le
+ * document ENTIER — jamais seulement pour un item local. Cette
+ * propriété de comptage global garantit qu'une fermeture d'ancêtre ne
+ * peut JAMAIS se substituer silencieusement à la fermeture propre d'un
+ * résultat : si la fermeture propre d'un résultat manque, le décompte
+ * total ouvertures/fermetures ne peut plus s'équilibrer nulle part dans
+ * l'arbre, et le document entier est détecté comme non balancé.
  *
- * Barrière de sécurité : si le prochain conteneur de résultat
- * (`boundaryLimit`) est atteint avant que la profondeur ne retombe à 0,
- * OU si la fin du document est atteinte en premier (HTML de fournisseur
- * mal formé / non balancé), le scan s'arrête à cette barrière — la
- * région candidate reste retournée (bornée, pour diagnostic/isolation),
- * MAIS `closed=false` : XAU-V2-NEWS-OFFICIAL-024 exige que cette région
- * ne soit JAMAIS transmise à processItem() comme candidate valide, quel
- * que soit son contenu apparent — l'intégrité structurelle est un
- * prérequis à l'acceptation, pas seulement l'absence de débordement
- * inter-item.
+ * PAS un parseur HTML générique : uniquement l'appariement structurel
+ * des balises <div>/</div>, aucune interprétation d'autres éléments.
  */
-function findContainerEnd(html: string, containerStart: number, boundaryLimit: number): ContainerScanResult {
-  DIV_TOKEN_RE.lastIndex = containerStart;
-  let depth = 0;
+function pairDivsGlobally(html: string): DivPairing {
+  const closeEndByOpenStart = new Map<number, number>();
+  const stack: number[] = [];
+  let balanced = true;
+
+  DIV_TOKEN_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = DIV_TOKEN_RE.exec(html)) !== null) {
-    if (m.index >= boundaryLimit) {
-      return { end: boundaryLimit, closed: false };
-    }
-    depth += m[0].startsWith('</') ? -1 : 1;
-    if (depth === 0) {
-      return { end: m.index + m[0].length, closed: true };
+    if (m[0].startsWith('</')) {
+      const openStart = stack.pop();
+      if (openStart === undefined) {
+        // Fermeture sans ouverture correspondante : erreur structurelle.
+        balanced = false;
+        continue;
+      }
+      closeEndByOpenStart.set(openStart, m.index + m[0].length);
+    } else {
+      stack.push(m.index);
     }
   }
-  return { end: boundaryLimit, closed: false };
+  if (stack.length > 0) {
+    // Ouverture(s) jamais fermée(s) avant la fin du document.
+    balanced = false;
+  }
+
+  return { closeEndByOpenStart, balanced };
 }
 
 interface OfacItemCandidate {
@@ -220,22 +234,34 @@ interface OfacItemCandidate {
 }
 
 /**
- * Découpage par PROFONDEUR DE DIV, borné dans tous les cas par le
- * prochain conteneur de résultat (ou la fin du document pour le
- * dernier) : aucun item, y compris le dernier de la page, ne peut
- * jamais lire du HTML situé après son propre conteneur
- * search-result/views-row. Chaque candidat porte son statut `closed` :
- * un conteneur non structurellement fermé doit être rejeté explicitement
- * par l'appelant, jamais analysé comme un item normal.
+ * Localise chaque conteneur de résultat et sa fermeture EXACTE via
+ * l'appariement global de la pile document entier — jamais via un
+ * balayage local. Si le document entier n'est pas balancé, l'appartenance
+ * de propriété d'une fermeture ne peut plus être prouvée nulle part :
+ * l'échec est alors levé au niveau PAGE (voir collectOfacNews), pas
+ * item par item (XAU-V2-NEWS-OFFICIAL-025 §5) — l'intégrité de données
+ * prime sur la disponibilité partielle face à un HTML fournisseur
+ * globalement malformé.
  */
 function extractItemBlocks(html: string): OfacItemCandidate[] {
+  const pairing = pairDivsGlobally(html);
+  if (!pairing.balanced) {
+    throw new Error('malformed page: unbalanced document-level <div> nesting');
+  }
+
   const starts = findResultContainerStarts(html);
   const candidates: OfacItemCandidate[] = [];
-  for (let i = 0; i < starts.length; i++) {
-    const begin = starts[i];
-    const boundaryLimit = i + 1 < starts.length ? starts[i + 1] : html.length;
-    const scan = findContainerEnd(html, begin, boundaryLimit);
-    candidates.push({ block: html.slice(begin, scan.end), closed: scan.closed });
+  for (const begin of starts) {
+    const closeEnd = pairing.closeEndByOpenStart.get(begin);
+    if (closeEnd === undefined) {
+      // Défensif : ne devrait jamais se produire quand balanced=true
+      // (toute ouverture est alors nécessairement appariée), mais un
+      // résultat sans fermeture prouvée n'est jamais transmis à
+      // processItem() comme candidat valide.
+      candidates.push({ block: html.slice(begin), closed: false });
+      continue;
+    }
+    candidates.push({ block: html.slice(begin, closeEnd), closed: true });
   }
   return candidates;
 }

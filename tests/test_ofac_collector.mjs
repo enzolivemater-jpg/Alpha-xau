@@ -465,11 +465,16 @@ console.log('--- AI. VALID LAST ITEM + TRAILING LINKS (P1, XAU-V2-NEWS-OFFICIAL-
   t('page status ok', result.page.status === 'ok');
 }
 
-console.log('--- AJ. MALFORMED / UNBALANCED DIV SAFETY (P1, XAU-V2-NEWS-OFFICIAL-023) ---');
+console.log('--- AJ. MALFORMED / UNBALANCED DIV SAFETY => GLOBAL FAIL CLOSED (XAU-V2-NEWS-OFFICIAL-025) ---');
 {
   // Conteneur A : ancre de titre valide, mais balisage <div> corrompu —
-  // aucune balise fermante avant le début du conteneur B suivant. La
-  // barrière de sécurité doit s'arrêter AVANT B, jamais l'absorber.
+  // aucune balise fermante propre à A. Sous l'ancien contrat local
+  // (§023/§024), la barrière de sécurité isolait A et laissait B
+  // survivre. Sous le NOUVEL appariement global par pile document
+  // entier (§025), l'absence d'une fermeture propre à A dérègle
+  // nécessairement le décompte ouvertures/fermetures pour le document
+  // COMPLET (aucune fermeture ne peut plus être imputée avec certitude
+  // à qui que ce soit) : la page entière échoue, PAS seulement A.
   const malformedA =
     '<div class="search-result views-row"><div><div class="font-sans-lg margin-bottom-05 margin-top-1 text-no-underline">' +
     '<a href="/recent-actions/20260101" hreflang="en">Malformed A</a>';
@@ -482,24 +487,21 @@ console.log('--- AJ. MALFORMED / UNBALANCED DIV SAFETY (P1, XAU-V2-NEWS-OFFICIAL
   const html = page([malformedA, itemB]);
   const result = await run(html);
 
-  t('exactly one accepted observation (B only)', result.observations.length === 1, JSON.stringify(result.observations));
-  const obs = result.observations[0];
-  t('B parsed independently: title', obs?.title === 'Valid B After Malformed', obs?.title);
-  t('B parsed independently: url', obs?.canonicalUrl === 'https://ofac.treasury.gov/recent-actions/20260906', obs?.canonicalUrl);
-  t('B parsed independently: date', obs?.providerPublishedRaw === 'September 06, 2026', obs?.providerPublishedRaw);
-  t('B parsed independently: category', obs?.providerCategory === 'General Licenses', obs?.providerCategory);
-  t('malformed A rejected specifically as ofac_item_container_unbalanced (XAU-V2-NEWS-OFFICIAL-024)', result.rejectedItems.length === 1 && result.rejectedItems[0]?.reason === 'ofac_item_container_unbalanced', JSON.stringify(result.rejectedItems));
-  t('no field from A ever present on B (title check)', obs?.title !== 'Malformed A');
-  t('page remains status=ok (B is valid)', result.page.status === 'ok');
+  t('zero observations (global fail-closed, B is NOT silently recovered)', result.observations.length === 0, JSON.stringify(result.observations));
+  t('page.status === failed', result.page.status === 'failed', JSON.stringify(result.page));
+  t('failure message references unbalanced document nesting', result.page.error?.includes('unbalanced document-level'), result.page.error);
+  t('no per-item rejection reason fabricated (extraction fails before the per-item loop runs)', result.rejectedItems.length === 0, JSON.stringify(result.rejectedItems));
 }
 
-console.log('--- AK. UNBALANCED LAST ITEM => FAIL CLOSED (XAU-V2-NEWS-OFFICIAL-024) ---');
+console.log('--- AK. UNBALANCED LAST ITEM => GLOBAL FAIL CLOSED (XAU-V2-NEWS-OFFICIAL-025) ---');
 {
   // Dernier (et seul) conteneur de résultat : titre valide, URL datée
   // valide, DATE_RAW visible valide, PAS de catégorie, et surtout
-  // AUCUNE balise </div> de fermeture — le conteneur ne peut jamais être
-  // prouvé structurellement fermé. Contenu de page étranger réaliste
-  // ("Filter by Category") ajouté immédiatement après.
+  // AUCUNE balise </div> de fermeture. Contenu de page étranger réaliste
+  // ("Filter by Category") ajouté immédiatement après. Sous
+  // l'appariement global, ceci dérègle le document ENTIER (pas
+  // seulement cet item) : la page échoue avant même le passage
+  // item-par-item, donc rejectedItems reste vide.
   const unbalancedLastHtml =
     '<div class="search-result views-row"><div><div class="font-sans-lg margin-bottom-05 margin-top-1 text-no-underline">' +
     '<a href="/recent-actions/20260907" hreflang="en">Unbalanced Last Item</a></div></div>' +
@@ -512,19 +514,18 @@ console.log('--- AK. UNBALANCED LAST ITEM => FAIL CLOSED (XAU-V2-NEWS-OFFICIAL-0
   const result = await run(html);
 
   t('observations.length === 0', result.observations.length === 0, JSON.stringify(result.observations));
-  t('rejectedItems.length === 1', result.rejectedItems.length === 1, JSON.stringify(result.rejectedItems));
-  t('reason === ofac_item_container_unbalanced', result.rejectedItems[0]?.reason === 'ofac_item_container_unbalanced', JSON.stringify(result.rejectedItems));
   t('page.status === failed', result.page.status === 'failed', JSON.stringify(result.page));
+  t('failure message references unbalanced document nesting', result.page.error?.includes('unbalanced document-level'), result.page.error);
   t('"All Recent Actions" never becomes providerCategory', !result.observations.some((o) => o.providerCategory === 'All Recent Actions'));
   t('trailing "General Licenses" never becomes providerCategory', !result.observations.some((o) => o.providerCategory === 'General Licenses'));
 }
 
-console.log('--- AL. STRONGER FAIL-CLOSED: ALL FIELDS VALID-LOOKING BUT UNCLOSED (XAU-V2-NEWS-OFFICIAL-024) ---');
+console.log('--- AL. STRONGER FAIL-CLOSED: ALL FIELDS VALID-LOOKING BUT UNCLOSED (XAU-V2-NEWS-OFFICIAL-025) ---');
 {
   // Cette fois le conteneur non fermé contient TOUT ce qu'il faudrait
   // pour être accepté (titre valide, URL datée valide, DATE_RAW valide,
-  // catégorie valide) — l'intégrité structurelle doit primer sur
-  // l'apparence de validité du contenu.
+  // catégorie valide) — l'intégrité structurelle globale du document
+  // doit primer sur l'apparence de validité du contenu d'un item isolé.
   const unbalancedFullyValidLooking =
     '<div class="search-result views-row"><div><div class="font-sans-lg margin-bottom-05 margin-top-1 text-no-underline">' +
     '<a href="/recent-actions/20260908" hreflang="en">Fully Valid Looking But Unbalanced</a></div></div>' +
@@ -534,8 +535,57 @@ console.log('--- AL. STRONGER FAIL-CLOSED: ALL FIELDS VALID-LOOKING BUT UNCLOSED
   const result = await run(html);
 
   t('rejected despite all fields looking valid', result.observations.length === 0, JSON.stringify(result.observations));
-  t('reason === ofac_item_container_unbalanced', result.rejectedItems.length === 1 && result.rejectedItems[0]?.reason === 'ofac_item_container_unbalanced', JSON.stringify(result.rejectedItems));
-  t('page.status === failed', result.page.status === 'failed');
+  t('page.status === failed (global unbalance, not per-item rejection)', result.page.status === 'failed', JSON.stringify(result.page));
+  t('failure message references unbalanced document nesting', result.page.error?.includes('unbalanced document-level'), result.page.error);
+}
+
+console.log('--- AM. ANCESTOR CLOSE SUBSTITUTION (XAU-V2-NEWS-OFFICIAL-025) ---');
+{
+  // Le résultat lui-même a un titre/URL/date/catégorie valides, mais son
+  // PROPRE </div> de fermeture est omis. Le seul </div> qui suit dans le
+  // document est celui qui ferme normalement <div class=view-content>
+  // (l'ancêtre). Sous l'ancien scanner LOCAL, ce </div> d'ancêtre aurait
+  // pu être mécaniquement confondu avec la fermeture propre du résultat
+  // (profondeur locale retombant à 0). Sous l'appariement GLOBAL, ce
+  // </div> ferme réellement le <div search-result> le plus récemment
+  // ouvert (règle de pile standard) — laissant <div class=view-content>
+  // lui-même non fermé en fin de document, ce qui dérègle le décompte
+  // global : la page entière doit échouer, jamais accepter le résultat.
+  const html =
+    '<!doctype html><html><body><div class="view-content"><div class="search-result views-row">' +
+    titleAnchor('/recent-actions/20260910', 'Ancestor Close Substitution') +
+    metadataBlock('September 10, 2026', '/recent-actions/sanctions-list-updates', 'Sanctions List Updates') +
+    // OMIS : la fermeture propre du résultat.
+    '</div>' + // fermeture destinée à view-content, mécaniquement absorbée par la pile.
+    '<p>Trailing page content</p></body></html>';
+  const result = await run(html);
+
+  t('observations.length === 0 (ancestor close never substitutes for the result\'s own)', result.observations.length === 0, JSON.stringify(result.observations));
+  t('page.status === failed', result.page.status === 'failed', JSON.stringify(result.page));
+}
+
+console.log('--- AN. BALANCED CONTROL: RESULT_CLOSE THEN PARENT_CLOSE (XAU-V2-NEWS-OFFICIAL-025) ---');
+{
+  // Même structure que AM, mais avec la fermeture PROPRE du résultat
+  // présente AVANT la fermeture de view-content : RESULT_CLOSE puis
+  // PARENT_CLOSE, jamais PARENT_CLOSE seul. Prouve que le scanner
+  // distingue correctement les deux cas.
+  const html =
+    '<!doctype html><html><body><div class="view-content"><div class="search-result views-row">' +
+    titleAnchor('/recent-actions/20260911', 'Balanced Control Item') +
+    metadataBlock('September 11, 2026', '/recent-actions/general-licenses', 'General Licenses') +
+    '</div>' + // RESULT_CLOSE : ferme le search-result.
+    '</div>' + // PARENT_CLOSE : ferme view-content.
+    '<p>Trailing page content</p></body></html>';
+  const result = await run(html);
+
+  t('exactly one accepted observation', result.observations.length === 1, JSON.stringify(result));
+  const obs = result.observations[0];
+  t('correct title', obs?.title === 'Balanced Control Item', obs?.title);
+  t('correct canonicalUrl', obs?.canonicalUrl === 'https://ofac.treasury.gov/recent-actions/20260911', obs?.canonicalUrl);
+  t('correct DATE_RAW', obs?.providerPublishedRaw === 'September 11, 2026', obs?.providerPublishedRaw);
+  t('correct category', obs?.providerCategory === 'General Licenses', obs?.providerCategory);
+  t('page.status === ok', result.page.status === 'ok', JSON.stringify(result.page));
 }
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
