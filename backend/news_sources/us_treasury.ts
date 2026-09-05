@@ -120,21 +120,46 @@ function decodeHtmlEntities(text: string): string {
 }
 
 /**
- * Bloc "item" borné par les ancres structurelles Treasury observées : de
- * <span class=date-format> jusqu'au </h3> qui ferme le titre
- * featured-stories__headline correspondant. Non gourmand, un seul
- * niveau — PAS un `<div>...[\s\S]*?</div>` naïf (dangereux en présence de
- * divs imbriqués) : voir XAU-V2-NEWS-OFFICIAL-020 §5. Tolère guillemets
- * doubles, simples, ou absence de guillemets sur l'attribut class,
- * conformément à la forme réellement observée (non quotée) sans figer un
- * format d'attribut unique.
+ * Ancre de DÉBUT d'item Treasury observée : <span class=date-format>.
+ * Tolère guillemets doubles, simples, ou absence de guillemets sur
+ * l'attribut class, conformément à la forme réellement observée (non
+ * quotée) sans figer un format d'attribut unique.
  */
-const ITEM_BLOCK_RE = /<span\s+class=(?:"date-format"|'date-format'|date-format)>[\s\S]*?<\/h3>/g;
+const DATE_FORMAT_START_RE = /<span\s+class=(?:"date-format"|'date-format'|date-format)>/g;
 
-/** Un seul niveau, pas de motif imbriqué — extraction bornée. */
+/**
+ * Découpage par INDEX, PAS par recherche d'un terminateur `</h3>` (voir
+ * XAU-V2-NEWS-OFFICIAL-021 §2, P1 corrigé ici) : la région candidate d'un
+ * item Treasury s'arrête TOUJOURS AVANT le prochain marqueur
+ * date-format, quel que soit son contenu interne. Un item A dont le
+ * titre/h3 est absent ou malformé ne peut donc JAMAIS "déborder" sur le
+ * `</h3>` de l'item B suivant et produire une association croisée
+ * DATE_A + TITRE_B + URL_B — l'ancien motif
+ * `<span class=date-format>[\s\S]*?</h3>` souffrait exactement de ce
+ * défaut : en l'absence de </h3> propre à l'item A, la recherche non
+ * gourmande continuait jusqu'au PROCHAIN </h3> rencontré, qui pouvait
+ * appartenir à l'item B, absorbant B entier dans le bloc "A" et le
+ * faisant disparaître comme entrée indépendante.
+ *
+ * PAS un parseur HTML générique : un seul niveau, une seule ancre de
+ * début recherchée, un slicing borné et déterministe — pas de
+ * `<div>...[\s\S]*?</div>` naïf (dangereux en présence de divs imbriqués).
+ */
 function extractItemBlocks(html: string): string[] {
-  const matches = html.match(ITEM_BLOCK_RE);
-  return matches ?? [];
+  const starts: number[] = [];
+  DATE_FORMAT_START_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = DATE_FORMAT_START_RE.exec(html)) !== null) {
+    starts.push(m.index);
+  }
+
+  const blocks: string[] = [];
+  for (let i = 0; i < starts.length; i++) {
+    const begin = starts[i];
+    const end = i + 1 < starts.length ? starts[i + 1] : html.length;
+    blocks.push(html.slice(begin, end));
+  }
+  return blocks;
 }
 
 /** Vérifie la présence des ancres structurelles minimales de la page de
@@ -242,11 +267,17 @@ function processItem(
     return { rejected: { reason: validated.reason, detail: href } };
   }
 
+  // Fidélité RAW stricte (XAU-V2-NEWS-OFFICIAL-021 §4) : le contenu brut
+  // de l'attribut datetime est persisté EXACTEMENT tel qu'extrait — .trim()
+  // sert UNIQUEMENT au test de non-vacuité ci-dessous, jamais à la valeur
+  // transmise. Aucun décodage d'entités HTML n'est appliqué à cette
+  // valeur (contrairement au titre et au href) : le writer RAW est seul
+  // responsable de la validation/dégradation du timestamp fournisseur.
   const rawDatetime = firstGroup(TIME_DATETIME_RE.exec(block));
-  const providerPublishedRaw = rawDatetime !== null ? decodeHtmlEntities(rawDatetime).trim() : '';
-  if (providerPublishedRaw.length === 0) {
+  if (rawDatetime === null || rawDatetime.trim().length === 0) {
     return { rejected: { reason: 'treasury_item_publication_missing' } };
   }
+  const providerPublishedRaw = rawDatetime;
 
   const observation: RawNewsObservationInput = {
     ingestRunId,

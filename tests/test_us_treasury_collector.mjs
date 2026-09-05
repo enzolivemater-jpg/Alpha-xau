@@ -320,5 +320,72 @@ console.log('--- Y. NO RUNTIME DEPENDENCY ADDED (static) ---');
   t('tous les imports sont relatifs (aucune nouvelle dépendance npm)', allRelativeOrTypeOnly, JSON.stringify(importLines));
 }
 
+console.log('--- Z. CROSS-ITEM BOUNDARY (P1, XAU-V2-NEWS-OFFICIAL-021) ---');
+{
+  // Item A : date-format valide mais AUCUN <h3> du tout (headline
+  // totalement absente, pas seulement un <a> vide à l'intérieur d'un
+  // <h3> présent). Sous l'ancien motif `[\s\S]*?</h3>` non borné par le
+  // prochain marqueur date-format, la recherche non gourmande aurait pu
+  // "déborder" jusqu'au </h3> de l'item B suivant, absorbant B tout
+  // entier dans le bloc "A" et produisant DATE_A + TITLE_B + URL_B.
+  const DATE_A = '2026-01-01T00:00:00Z';
+  const itemA_noHeadlineAtAll = `<span class=date-format><time datetime="${DATE_A}" class=datetime>January 1, 2026</time></span><span></span>`;
+  const itemB = itemBlock({
+    datetime: '2026-09-03T13:00:00Z',
+    href: '/news/press-releases/sb0621/',
+    title: 'TITLE_B',
+  });
+  const html = `<!doctype html><html><body><div data-news-list data-news-category=press-releases>${itemA_noHeadlineAtAll}${itemB}</div></body></html>`;
+  const result = await run(html);
+
+  t('exactly one accepted observation', result.observations.length === 1, JSON.stringify(result.observations));
+  const obs = result.observations[0];
+  t('accepted title == TITLE_B', obs?.title === 'TITLE_B', obs?.title);
+  t('accepted canonicalUrl == URL_B', obs?.canonicalUrl === 'https://home.treasury.gov/news/press-releases/sb0621/', obs?.canonicalUrl);
+  t('accepted providerPublishedRaw == DATE_B (never DATE_A)', obs?.providerPublishedRaw === '2026-09-03T13:00:00Z', obs?.providerPublishedRaw);
+  t('DATE_A never associated with TITLE_B', obs?.providerPublishedRaw !== DATE_A);
+  t('malformed A is rejected', result.rejectedItems.length === 1, JSON.stringify(result.rejectedItems));
+  t('A rejected as title_missing (headline entirely absent)', result.rejectedItems[0]?.reason === 'treasury_item_title_missing', JSON.stringify(result.rejectedItems));
+  t('page remains status=ok (B is valid)', result.page.status === 'ok', JSON.stringify(result.page));
+
+  // Cas inverse : A valide, B malformé (pas de headline du tout) => A
+  // doit rester intact et indépendant, B ne doit jamais "voler" le titre
+  // d'un item ultérieur ni A ne doit être contaminé par B.
+  const itemA_valid = itemBlock({
+    datetime: '2026-09-04T14:30:00Z',
+    href: '/news/press-releases/sb0622/',
+    title: 'TITLE_A_VALID',
+  });
+  const DATE_B2 = '2026-01-02T00:00:00Z';
+  const itemB_noHeadlineAtAll = `<span class=date-format><time datetime="${DATE_B2}" class=datetime>January 2, 2026</time></span><span></span>`;
+  const html2 = `<!doctype html><html><body><div data-news-list data-news-category=press-releases>${itemA_valid}${itemB_noHeadlineAtAll}</div></body></html>`;
+  const result2 = await run(html2);
+
+  t('inverse case: exactly one accepted observation', result2.observations.length === 1, JSON.stringify(result2.observations));
+  const obs2 = result2.observations[0];
+  t('inverse case: A preserved unchanged (title)', obs2?.title === 'TITLE_A_VALID', obs2?.title);
+  t('inverse case: A preserved unchanged (url)', obs2?.canonicalUrl === 'https://home.treasury.gov/news/press-releases/sb0622/', obs2?.canonicalUrl);
+  t('inverse case: A preserved unchanged (datetime)', obs2?.providerPublishedRaw === '2026-09-04T14:30:00Z', obs2?.providerPublishedRaw);
+  t('inverse case: B (malformed, last item) rejected independently', result2.rejectedItems.length === 1 && result2.rejectedItems[0]?.reason === 'treasury_item_title_missing', JSON.stringify(result2.rejectedItems));
+  t('inverse case: page remains status=ok (A is valid)', result2.page.status === 'ok');
+}
+
+console.log('--- AA. RAW DATETIME EXACT FIDELITY (P1, XAU-V2-NEWS-OFFICIAL-021) ---');
+{
+  // Valeur volontairement inhabituelle mais non vide : espaces
+  // d'encadrement à l'intérieur des guillemets + une séquence
+  // ressemblant à une entité HTML — toute transformation (trim et/ou
+  // décodage) serait immédiatement détectable dans le résultat.
+  const UNUSUAL_RAW = '  2026-09-04T14:30:00Z&amp;RAW-MARKER  ';
+  const html = `<!doctype html><html><body><div data-news-list data-news-category=press-releases><span class=date-format><time datetime="${UNUSUAL_RAW}" class=datetime>Display</time></span><span></span><h3 class=featured-stories__headline><a href="/news/press-releases/sb0699/" hreflang=en>Fidelity Test Item</a></h3></div></body></html>`;
+  const result = await run(html);
+
+  t('exactly one accepted observation', result.observations.length === 1, JSON.stringify(result));
+  const obs = result.observations[0];
+  t('providerPublishedRaw preserved EXACTLY (no trim, no entity decode)', obs?.providerPublishedRaw === UNUSUAL_RAW, JSON.stringify(obs?.providerPublishedRaw));
+  t('publicationPrecision still timestamp', obs?.publicationPrecision === 'timestamp');
+  t('page status ok (collector never validates the timestamp itself)', result.page.status === 'ok');
+}
+
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);
