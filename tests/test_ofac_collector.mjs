@@ -488,9 +488,54 @@ console.log('--- AJ. MALFORMED / UNBALANCED DIV SAFETY (P1, XAU-V2-NEWS-OFFICIAL
   t('B parsed independently: url', obs?.canonicalUrl === 'https://ofac.treasury.gov/recent-actions/20260906', obs?.canonicalUrl);
   t('B parsed independently: date', obs?.providerPublishedRaw === 'September 06, 2026', obs?.providerPublishedRaw);
   t('B parsed independently: category', obs?.providerCategory === 'General Licenses', obs?.providerCategory);
-  t('malformed A rejected, never merged into B', result.rejectedItems.length === 1, JSON.stringify(result.rejectedItems));
+  t('malformed A rejected specifically as ofac_item_container_unbalanced (XAU-V2-NEWS-OFFICIAL-024)', result.rejectedItems.length === 1 && result.rejectedItems[0]?.reason === 'ofac_item_container_unbalanced', JSON.stringify(result.rejectedItems));
   t('no field from A ever present on B (title check)', obs?.title !== 'Malformed A');
   t('page remains status=ok (B is valid)', result.page.status === 'ok');
+}
+
+console.log('--- AK. UNBALANCED LAST ITEM => FAIL CLOSED (XAU-V2-NEWS-OFFICIAL-024) ---');
+{
+  // Dernier (et seul) conteneur de résultat : titre valide, URL datée
+  // valide, DATE_RAW visible valide, PAS de catégorie, et surtout
+  // AUCUNE balise </div> de fermeture — le conteneur ne peut jamais être
+  // prouvé structurellement fermé. Contenu de page étranger réaliste
+  // ("Filter by Category") ajouté immédiatement après.
+  const unbalancedLastHtml =
+    '<div class="search-result views-row"><div><div class="font-sans-lg margin-bottom-05 margin-top-1 text-no-underline">' +
+    '<a href="/recent-actions/20260907" hreflang="en">Unbalanced Last Item</a></div></div>' +
+    '<div><div class="margin-top-1 font-sans-2xs line-height-sans-3 margin-bottom-1">September 07, 2026 -   \n';
+  const trailingContent =
+    '<h3>Filter by Category</h3>' +
+    '<a href="/recent-actions">All Recent Actions</a>' +
+    '<a href="/recent-actions/general-licenses">General Licenses</a>';
+  const html = `<!doctype html><html><body><div class="view-content">${unbalancedLastHtml}${trailingContent}</body></html>`;
+  const result = await run(html);
+
+  t('observations.length === 0', result.observations.length === 0, JSON.stringify(result.observations));
+  t('rejectedItems.length === 1', result.rejectedItems.length === 1, JSON.stringify(result.rejectedItems));
+  t('reason === ofac_item_container_unbalanced', result.rejectedItems[0]?.reason === 'ofac_item_container_unbalanced', JSON.stringify(result.rejectedItems));
+  t('page.status === failed', result.page.status === 'failed', JSON.stringify(result.page));
+  t('"All Recent Actions" never becomes providerCategory', !result.observations.some((o) => o.providerCategory === 'All Recent Actions'));
+  t('trailing "General Licenses" never becomes providerCategory', !result.observations.some((o) => o.providerCategory === 'General Licenses'));
+}
+
+console.log('--- AL. STRONGER FAIL-CLOSED: ALL FIELDS VALID-LOOKING BUT UNCLOSED (XAU-V2-NEWS-OFFICIAL-024) ---');
+{
+  // Cette fois le conteneur non fermé contient TOUT ce qu'il faudrait
+  // pour être accepté (titre valide, URL datée valide, DATE_RAW valide,
+  // catégorie valide) — l'intégrité structurelle doit primer sur
+  // l'apparence de validité du contenu.
+  const unbalancedFullyValidLooking =
+    '<div class="search-result views-row"><div><div class="font-sans-lg margin-bottom-05 margin-top-1 text-no-underline">' +
+    '<a href="/recent-actions/20260908" hreflang="en">Fully Valid Looking But Unbalanced</a></div></div>' +
+    '<div><div class="margin-top-1 font-sans-2xs line-height-sans-3 margin-bottom-1">September 08, 2026 -   \n' +
+    '<a href="/recent-actions/sanctions-list-updates">Sanctions List Updates</a>';
+  const html = `<!doctype html><html><body><div class="view-content">${unbalancedFullyValidLooking}</body></html>`;
+  const result = await run(html);
+
+  t('rejected despite all fields looking valid', result.observations.length === 0, JSON.stringify(result.observations));
+  t('reason === ofac_item_container_unbalanced', result.rejectedItems.length === 1 && result.rejectedItems[0]?.reason === 'ofac_item_container_unbalanced', JSON.stringify(result.rejectedItems));
+  t('page.status === failed', result.page.status === 'failed');
 }
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);

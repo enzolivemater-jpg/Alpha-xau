@@ -163,42 +163,60 @@ function findResultContainerStarts(html: string): number[] {
 
 const DIV_TOKEN_RE = /<\/?div\b[^>]*>/g;
 
+interface ContainerScanResult {
+  readonly end: number;
+  /** true UNIQUEMENT quand la profondeur retombe génuinement à 0 —
+   *  jamais quand le scan s'est arrêté sur la barrière de sécurité ou en
+   *  fin de document (XAU-V2-NEWS-OFFICIAL-024 §3). */
+  readonly closed: boolean;
+}
+
 /**
  * Trouve la fin RÉELLE du conteneur de résultat démarrant à
  * `containerStart`, par comptage de profondeur des balises <div>/</div>
  * rencontrées (scanner de profondeur étroit, PAS un parseur HTML
  * générique) — jamais par un simple "jusqu'au prochain conteneur" (voir
- * XAU-V2-NEWS-OFFICIAL-023 §2/§3, P1 corrigé ici) : ce dernier motif
- * laissait le DERNIER item déborder jusqu'à `html.length`, capable
- * d'absorber des ancres de page totalement étrangères (ex. "Filter by
- * Category") si son propre conteneur était malformé.
+ * XAU-V2-NEWS-OFFICIAL-023 §2/§3) : ce dernier motif laissait le DERNIER
+ * item déborder jusqu'à `html.length`, capable d'absorber des ancres de
+ * page totalement étrangères (ex. "Filter by Category") si son propre
+ * conteneur était malformé.
  *
  * La profondeur démarre à 0 ; la balise d'ouverture du conteneur
  * lui-même (à `containerStart`) l'amène à 1 ; chaque <div> ouvrant
  * l'incrémente, chaque </div> la décrémente ; la fin réelle du
- * conteneur est le point où la profondeur retombe à 0.
+ * conteneur est le point où la profondeur retombe à 0 — c'est le SEUL
+ * cas où `closed` vaut true.
  *
  * Barrière de sécurité : si le prochain conteneur de résultat
- * (`boundaryLimit`) est atteint avant que la profondeur ne retombe à 0
- * (HTML de fournisseur mal formé / non balancé), le scan s'arrête à
- * cette barrière plutôt que de continuer à l'intérieur du conteneur
- * suivant — un item malformé ne peut donc JAMAIS consommer l'item
- * suivant, y compris quand son propre balisage <div> est corrompu.
+ * (`boundaryLimit`) est atteint avant que la profondeur ne retombe à 0,
+ * OU si la fin du document est atteinte en premier (HTML de fournisseur
+ * mal formé / non balancé), le scan s'arrête à cette barrière — la
+ * région candidate reste retournée (bornée, pour diagnostic/isolation),
+ * MAIS `closed=false` : XAU-V2-NEWS-OFFICIAL-024 exige que cette région
+ * ne soit JAMAIS transmise à processItem() comme candidate valide, quel
+ * que soit son contenu apparent — l'intégrité structurelle est un
+ * prérequis à l'acceptation, pas seulement l'absence de débordement
+ * inter-item.
  */
-function findContainerEnd(html: string, containerStart: number, boundaryLimit: number): number {
+function findContainerEnd(html: string, containerStart: number, boundaryLimit: number): ContainerScanResult {
   DIV_TOKEN_RE.lastIndex = containerStart;
   let depth = 0;
   let m: RegExpExecArray | null;
   while ((m = DIV_TOKEN_RE.exec(html)) !== null) {
     if (m.index >= boundaryLimit) {
-      return boundaryLimit;
+      return { end: boundaryLimit, closed: false };
     }
     depth += m[0].startsWith('</') ? -1 : 1;
     if (depth === 0) {
-      return m.index + m[0].length;
+      return { end: m.index + m[0].length, closed: true };
     }
   }
-  return boundaryLimit;
+  return { end: boundaryLimit, closed: false };
+}
+
+interface OfacItemCandidate {
+  readonly block: string;
+  readonly closed: boolean;
 }
 
 /**
@@ -206,18 +224,20 @@ function findContainerEnd(html: string, containerStart: number, boundaryLimit: n
  * prochain conteneur de résultat (ou la fin du document pour le
  * dernier) : aucun item, y compris le dernier de la page, ne peut
  * jamais lire du HTML situé après son propre conteneur
- * search-result/views-row.
+ * search-result/views-row. Chaque candidat porte son statut `closed` :
+ * un conteneur non structurellement fermé doit être rejeté explicitement
+ * par l'appelant, jamais analysé comme un item normal.
  */
-function extractItemBlocks(html: string): string[] {
+function extractItemBlocks(html: string): OfacItemCandidate[] {
   const starts = findResultContainerStarts(html);
-  const blocks: string[] = [];
+  const candidates: OfacItemCandidate[] = [];
   for (let i = 0; i < starts.length; i++) {
     const begin = starts[i];
     const boundaryLimit = i + 1 < starts.length ? starts[i + 1] : html.length;
-    const end = findContainerEnd(html, begin, boundaryLimit);
-    blocks.push(html.slice(begin, end));
+    const scan = findContainerEnd(html, begin, boundaryLimit);
+    candidates.push({ block: html.slice(begin, scan.end), closed: scan.closed });
   }
-  return blocks;
+  return candidates;
 }
 
 /** Vérifie la présence de l'ancre structurelle minimale de la page de
@@ -404,9 +424,19 @@ export async function collectOfacNews(
       throw new Error('malformed page: zero result-container blocks found');
     }
 
-    for (const block of itemBlocks) {
+    for (const candidate of itemBlocks) {
+      // Une région dont le conteneur n'est pas structurellement fermé
+      // n'est JAMAIS transmise à processItem() — l'intégrité structurelle
+      // est un prérequis, pas seulement l'absence de débordement
+      // inter-item (XAU-V2-NEWS-OFFICIAL-024 §3/§4). Un item ne doit
+      // jamais être accepté simplement parce que des chaînes ressemblant
+      // à un titre/URL/date/catégorie existent dans sa région bornée.
+      if (!candidate.closed) {
+        rejectedItems.push({ reason: 'ofac_item_container_unbalanced' });
+        continue;
+      }
       try {
-        const result = processItem(block, options.ingestRunId, options.observedAt);
+        const result = processItem(candidate.block, options.ingestRunId, options.observedAt);
         if ('observation' in result) {
           observations.push(result.observation);
         } else {
