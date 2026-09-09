@@ -1817,15 +1817,64 @@ export interface EventResult {
 }
 
 /**
- * Réclame l'événement de façon idempotente.
+ * Résultat de la réclamation d'idempotence — jamais un simple booléen
+ * (correctif XAU-V2-OPS-009 : un booléen ne peut pas distinguer « doublon
+ * d'un succès » de « doublon d'un échec », ce qui acquittait à tort une
+ * news dont l'analyse n'avait jamais abouti).
  *
- * L'INSERT sur `ai_events.event_id` (clé primaire) est atomique. Une
- * violation d'unicité signifie que l'événement a DÉJÀ été traité : la
- * seconde livraison n'entraîne aucun appel LLM.
- *
- * Retourne false si l'événement est un doublon.
+ *   claimed: true              -> le caller peut (re)lancer runCommittee.
+ *   claimed: false, terminal   -> succès terminal RÉEL (PROCESSED ou
+ *     : true                     SKIPPED_NO_CHANGE), lu en base, jamais
+ *                                 supposé depuis la seule violation d'unicité.
+ *   claimed: false, terminal   -> anomalie par rapport au contrat de
+ *     : false                    verrouillage (jamais censée survenir, cf.
+ *                                 cas D ci-dessous) : à traiter comme
+ *                                 IN_PROGRESS, jamais comme un succès.
  */
-async function claimEvent(db: SupabaseClient, event: CommitteeEvent): Promise<boolean> {
+type ClaimOutcome =
+  | { readonly claimed: true; readonly via: 'INSERT' | 'RECLAIM_FAILED' | 'RECLAIM_ORPHAN_RUNNING' }
+  | { readonly claimed: false; readonly terminal: true; readonly analysisId: string | null }
+  | { readonly claimed: false; readonly terminal: false };
+
+/**
+ * Réclame l'événement de façon idempotente, avec reprise sûre des états
+ * rejouables.
+ *
+ * A. event_id neuf                        -> INSERT RUNNING (atomique par la PK).
+ * B. PROCESSED/SKIPPED_NO_CHANGE existant -> ALREADY_PROCESSED réel : lu
+ *    en base, jamais déduit de la seule violation d'unicité.
+ * C. FAILED/DATA_UNAVAILABLE existant -> réclamation CAS (compare-and-swap)
+ *    via un PATCH conditionné sur le statut EXACT lu à l'instant présent.
+ *    Le SET change le statut vers une valeur hors du filtre : un second
+ *    appelant concurrent ne peut plus matcher la ligne une fois le premier
+ *    PATCH validé — deux gagnants sont donc impossibles (garanti par le
+ *    verrouillage de ligne Postgres au moment de l'UPDATE, pas par une
+ *    vérification applicative).
+ * D. RUNNING existant alors que NOUS venons d'acquérir le verrou global
+ *    `ai_committee` -> résidu orphelin d'un run qui n'a jamais atteint
+ *    closeEvent (crash Worker, exception non rattrapée avant persistance).
+ *    Sûr à reprendre ICI SEULEMENT parce que ce code n'est atteint
+ *    qu'après `acquireLock('ai_committee', ...)` réussi (handleCommitteeEvent,
+ *    §2 VERROU) : le contrat de verrouillage garantit qu'aucun autre
+ *    propriétaire légitime du comité ne peut détenir ce même verrou
+ *    exclusif en même temps que nous. `status=eq.RUNNING` seul ne serait
+ *    PAS un vrai CAS (le SET ne change pas la valeur filtrée) : le WHERE
+ *    porte donc aussi sur la valeur PRÉCISE de `started_at` lue à l'instant
+ *    présent, que ce même PATCH modifie — après une reprise gagnante, plus
+ *    aucun appelant ne peut relire cette valeur exacte.
+ *
+ * UNE SEULE lecture (`snapshot`) déclenche AU PLUS UNE tentative de CAS,
+ * jamais un enchaînement vers une autre branche : un CAS perdu signifie
+ * qu'un autre acteur a changé la ligne entre notre lecture et notre
+ * écriture (impossible sous le contrat de verrou ci-dessus, sauf anomalie),
+ * auquel cas on relit la vérité plutôt que de tenter une réclamation
+ * différente au hasard — c'est précisément ce qui permettrait à deux
+ * appelants de "gagner" chacun une branche différente pour le même
+ * event_id. Aucune décision n'est prise en mémoire : chaque cas est une
+ * écriture ou une lecture PostgREST dont le résultat fait foi.
+ */
+async function claimEvent(db: SupabaseClient, event: CommitteeEvent, log: Logger): Promise<ClaimOutcome> {
+  // A. Tentative d'INSERT — chemin nominal, un seul aller-retour.
   try {
     await db.request('POST', 'ai_events', [{
       event_id: event.event_id,
@@ -1836,15 +1885,88 @@ async function claimEvent(db: SupabaseClient, event: CommitteeEvent): Promise<bo
       news_event_id: event.news_event_id,
       news_score: event.news_score,
     }], { prefer: 'return=minimal' });
-    return true;
+    return { claimed: true, via: 'INSERT' };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (isUniqueViolation(message)) return false;
-    throw err;
+    if (!isUniqueViolation(message)) throw err;
   }
+
+  const encodedId = encodeURIComponent(event.event_id);
+  const resetFields = {
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    duration_ms: null,
+    analysis_id: null,
+    error: null,
+  };
+
+  const [snapshot] = await db.select<{ status: string; started_at: string; analysis_id: string | null }>(
+    'ai_events', 'status,started_at,analysis_id', `event_id=eq.${encodedId}`,
+  );
+
+  if (snapshot?.status === 'FAILED' || snapshot?.status === 'DATA_UNAVAILABLE') {
+    // C. Reprise CAS d'un état rejouable, conditionnée sur le statut EXACT
+    // observé (pas sur l'ensemble {FAILED,DATA_UNAVAILABLE} générique) :
+    // un CAS ne doit matcher que la réalité qu'il vient de lire.
+    const reclaimed = await db.request<Array<{ event_id: string }>>(
+      'PATCH',
+      `ai_events?event_id=eq.${encodedId}&status=eq.${snapshot.status}`,
+      { status: 'RUNNING', ...resetFields },
+      { prefer: 'return=representation' },
+    );
+    if (reclaimed.length > 0) {
+      log.info('Événement repris après échec précédent (FAILED/DATA_UNAVAILABLE)', {
+        event_id: event.event_id,
+      });
+      return { claimed: true, via: 'RECLAIM_FAILED' };
+    }
+    // CAS perdu : ne PAS tenter la réclamation orpheline en secours ici.
+  } else if (snapshot?.status === 'RUNNING') {
+    // D. Reprise d'un RUNNING orphelin (voir doc ci-dessus).
+    const reclaimed = await db.request<Array<{ event_id: string }>>(
+      'PATCH',
+      `ai_events?event_id=eq.${encodedId}&status=eq.RUNNING&started_at=eq.${encodeURIComponent(snapshot.started_at)}`,
+      { status: 'RUNNING', ...resetFields },
+      { prefer: 'return=representation' },
+    );
+    if (reclaimed.length > 0) {
+      log.warn('Événement RUNNING orphelin repris sous verrou global ai_committee', {
+        event_id: event.event_id,
+      });
+      return { claimed: true, via: 'RECLAIM_ORPHAN_RUNNING' };
+    }
+    // CAS perdu : idem, jamais d'enchaînement vers une autre branche.
+  }
+
+  // B. État terminal réel (déjà PROCESSED/SKIPPED_NO_CHANGE au premier
+  // instantané), OU un CAS ci-dessus a été tenté et perdu : dans les deux
+  // cas, on relit la vérité plutôt que de deviner.
+  const terminalStatuses = new Set(['PROCESSED', 'SKIPPED_NO_CHANGE']);
+  if (snapshot && terminalStatuses.has(snapshot.status)) {
+    return { claimed: false, terminal: true, analysisId: snapshot.analysis_id ?? null };
+  }
+  const [reread] = await db.select<{ status: string; analysis_id: string | null }>(
+    'ai_events', 'status,analysis_id', `event_id=eq.${encodedId}`,
+  );
+  if (reread && terminalStatuses.has(reread.status)) {
+    return { claimed: false, terminal: true, analysisId: reread.analysis_id ?? null };
+  }
+  // Anomalie : un CAS attendu comme gagnant a été perdu (contrat de verrou
+  // violé, en théorie impossible). Ne jamais fabriquer un faux succès.
+  return { claimed: false, terminal: false };
 }
 
-/** Clôture la trace de l'événement. Best-effort : n'invalide pas l'analyse. */
+/**
+ * Clôture la trace de l'événement.
+ *
+ * NE PLUS avaler l'échec d'écriture (correctif XAU-V2-OPS-009) : un
+ * caller ne doit jamais retourner PROCESSED/ALREADY_PROCESSED tant que
+ * l'état terminal correspondant n'a pas été durablement écrit — sinon la
+ * BD (source de vérité) reste RUNNING pendant que la news aurait déjà été
+ * acquittée auprès du news_engine. Si cette écriture échoue, la ligne
+ * reste RUNNING : elle sera récupérée comme orpheline par claimEvent (cas
+ * D) lors d'une prochaine livraison, sous le verrou global.
+ */
 async function closeEvent(
   db: SupabaseClient,
   eventId: string,
@@ -1859,7 +1981,32 @@ async function closeEvent(
     duration_ms: Date.now() - startedAt,
     analysis_id: analysisId,
     error,
-  }, { prefer: 'return=minimal' }).catch(() => undefined);
+  }, { prefer: 'return=minimal' });
+}
+
+/**
+ * Clôture un état de SUCCÈS TERMINAL (PROCESSED / SKIPPED_NO_CHANGE) et ne
+ * renvoie true que si l'écriture a réellement abouti. Un échec ici ne doit
+ * jamais se traduire par un succès renvoyé à l'appelant HTTP : les détails
+ * de l'erreur restent internes au log (jamais de corps/secret exposé).
+ */
+async function closeTerminalSuccessOrFail(
+  db: SupabaseClient,
+  eventId: string,
+  status: 'PROCESSED' | 'SKIPPED_NO_CHANGE',
+  startedAt: number,
+  analysisId: string | null,
+  log: Logger,
+): Promise<boolean> {
+  try {
+    await closeEvent(db, eventId, status, startedAt, analysisId, null);
+    return true;
+  } catch (err) {
+    log.error('Clôture ai_events en échec : succès NON acquitté, rejeu nécessaire', {
+      event_id: eventId, reason: errorMessage(err),
+    });
+    return false;
+  }
 }
 
 /**
@@ -1911,8 +2058,14 @@ export async function handleCommitteeEvent(raw: unknown, env: Env): Promise<Even
   // Le type d'événement précis est tracé dans ai_events, pas ici.
   const lock = await acquireLock(db, 'ai_committee', 'webhook');
   if (!lock.acquired) {
-    // L'événement n'est PAS réclamé : il reste rejouable. Le comité en cours
-    // lit de toute façon l'intégralité des news actionnables.
+    // L'événement n'est PAS réclamé : il reste rejouable. Classé
+    // IN_PROGRESS (jamais TERMINAL_SUCCESS, cf. audit XAU-V2-OPS-008) :
+    // il n'existe aucune garantie durable que le run en cours couvrira
+    // effectivement CET événement (échec Anthropic/DATA_UNAVAILABLE/
+    // exception du run en cours, ou news arrivée après que ce run a déjà
+    // lu son instantané de v_news_actionable). handleRequest mappe ce
+    // statut sur HTTP 409 (non-2xx) : postNotification ne doit surtout
+    // pas marquer la news comme notifiée sur la seule foi de ce retour.
     log.warn('ALREADY_RUNNING', { event_id: event.event_id });
     return { ...base, status: 'ALREADY_RUNNING', analysis_id: null, errors: [] };
   }
@@ -1926,17 +2079,26 @@ export async function handleCommitteeEvent(raw: unknown, env: Env): Promise<Even
   let outcome: { status: 'success' | 'failed'; errors: readonly string[] } =
     { status: 'success', errors: [] };
   try {
-    // 3. IDEMPOTENCE
-    const claimed = await claimEvent(db, event);
-    if (!claimed) {
-      log.info('ALREADY_PROCESSED : aucun appel LLM', { event_id: event.event_id });
-      return { ...base, status: 'ALREADY_PROCESSED', analysis_id: null, errors: [] };
+    // 3. IDEMPOTENCE (avec reprise CAS des états rejouables/orphelins).
+    const claim = await claimEvent(db, event, log);
+    if (!claim.claimed) {
+      if (claim.terminal) {
+        log.info('ALREADY_PROCESSED : aucun appel LLM', { event_id: event.event_id });
+        return { ...base, status: 'ALREADY_PROCESSED', analysis_id: claim.analysisId, errors: [] };
+      }
+      // Anomalie par rapport au contrat de verrouillage (cf. doc claimEvent,
+      // cas D) : un CAS attendu comme gagnant a été perdu. Jamais un faux
+      // succès -- traité comme IN_PROGRESS, exactement comme ALREADY_RUNNING.
+      log.warn('Réclamation en échec inattendu : traité comme IN_PROGRESS', {
+        event_id: event.event_id,
+      });
+      return { ...base, status: 'ALREADY_RUNNING', analysis_id: null, errors: [] };
     }
 
     // 4. COMITÉ, sous verrou déjà détenu.
     log.info('Traitement event-driven', {
       event_id: event.event_id, event_type: event.event_type, scope,
-      news_event_id: event.news_event_id, news_score: event.news_score,
+      news_event_id: event.news_event_id, news_score: event.news_score, claim: claim.via,
     });
 
     const analysis = await runCommittee(env, {
@@ -1946,15 +2108,54 @@ export async function handleCommitteeEvent(raw: unknown, env: Env): Promise<Even
     });
 
     const analysisId = analysis.meta.analysis_id;
-    if (analysis.meta.execution_status === 'NO_VALID_SETUP' || analysisId === null) {
-      await closeEvent(db, event.event_id, 'SKIPPED_NO_CHANGE', startedAt, analysisId, null);
+
+    if (analysis.meta.execution_status === 'NO_VALID_SETUP') {
+      // Succès terminal légitime, que l'analyse de blocage ait été
+      // persistée ou non (persistBlocked est déjà best-effort en amont) :
+      // il n'y a de toute façon rien d'actionnable à protéger.
+      const closed = await closeTerminalSuccessOrFail(
+        db, event.event_id, 'SKIPPED_NO_CHANGE', startedAt, analysisId, log,
+      );
+      if (!closed) {
+        outcome = { status: 'failed', errors: ['Clôture ai_events (SKIPPED_NO_CHANGE) en échec.'] };
+        return {
+          ...base, status: 'FAILED', analysis_id: null,
+          errors: ['Clôture de l\'événement en échec ; nouvelle tentative nécessaire.'],
+        };
+      }
       return {
         ...base, status: 'PROCESSED', analysis_id: analysisId,
         errors: analysis.meta.validation_errors,
       };
     }
 
-    await closeEvent(db, event.event_id, 'PROCESSED', startedAt, analysisId, null);
+    // execution_status === 'VALID_SETUP' à partir d'ici.
+    if (analysisId === null) {
+      // Setup valide CALCULÉ mais jamais PERSISTÉ (échec d'écriture
+      // ai_analyses, cf. runCommitteeLocked qui sert quand même l'analyse
+      // au terminal en best-effort). Ce n'est JAMAIS un SKIPPED_NO_CHANGE :
+      // classer FAILED/rejouable et ne jamais acquitter la news.
+      const message = 'Analyse VALID_SETUP calculée mais non persistée (analysis_id manquant).';
+      outcome = { status: 'failed', errors: [message] };
+      try {
+        await closeEvent(db, event.event_id, 'FAILED', startedAt, null, message);
+      } catch (closeErr) {
+        log.error('Clôture ai_events (FAILED) en échec', { reason: errorMessage(closeErr) });
+      }
+      log.error('FAILED : setup valide non persisté', { event_id: event.event_id });
+      return { ...base, status: 'FAILED', analysis_id: null, errors: [message] };
+    }
+
+    const closed = await closeTerminalSuccessOrFail(
+      db, event.event_id, 'PROCESSED', startedAt, analysisId, log,
+    );
+    if (!closed) {
+      outcome = { status: 'failed', errors: ['Clôture ai_events (PROCESSED) en échec.'] };
+      return {
+        ...base, status: 'FAILED', analysis_id: null,
+        errors: ['Clôture de l\'événement en échec ; nouvelle tentative nécessaire.'],
+      };
+    }
     return { ...base, status: 'PROCESSED', analysis_id: analysisId, errors: [] };
   } catch (err) {
     const message = errorMessage(err);
@@ -2032,14 +2233,18 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 
   if (body !== null && typeof body === 'object' && 'event_type' in (body as object)) {
     const result = await handleCommitteeEvent(body, env);
+    // ALREADY_RUNNING est IN_PROGRESS, pas un succès terminal (correctif
+    // XAU-V2-OPS-009) : 409, un non-2xx, pour que postNotification()
+    // n'acquitte jamais la news sur cette seule base — elle doit rester
+    // rejouable par la sweep de réconciliation.
     const httpStatus =
       result.status === 'INVALID_EVENT' ? 400
         : result.status === 'DATA_UNAVAILABLE' ? 503
           : result.status === 'FAILED' ? 500
-            // PROCESSED / ALREADY_PROCESSED / ALREADY_RUNNING : l'événement a
-            // été pris en charge. Un 2xx confirme la livraison au news_engine,
-            // qui n'a pas à le rejouer.
-            : 200;
+            : result.status === 'ALREADY_RUNNING' ? 409
+              // PROCESSED / ALREADY_PROCESSED : succès terminal confirmé et
+              // durablement écrit avant ce retour (voir closeTerminalSuccessOrFail).
+              : 200;
     return jsonResponse(result, httpStatus);
   }
 
