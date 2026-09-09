@@ -50,7 +50,17 @@ function extractBlock(src, startRegex) {
     }
     searchFrom = j + 1;
   }
-  const braceStart = src.indexOf('{', searchFrom);
+  // Le type de retour lui-même peut contenir ses propres accolades/chevrons
+  // (ex. `Promise<{ swept: number }>`) : une accolade ne marque le début du
+  // corps que si elle apparaît hors de tout groupe <...>/(...)/[...] encore
+  // ouvert depuis la fin de la liste de paramètres.
+  let nest = 0, braceStart = -1;
+  for (let k = searchFrom; k < src.length; k++) {
+    const c = src[k];
+    if (c === '<' || c === '(' || c === '[') nest++;
+    else if (c === '>' || c === ')' || c === ']') nest = Math.max(0, nest - 1);
+    else if (c === '{' && nest === 0) { braceStart = k; break; }
+  }
   let depth = 0, i = braceStart;
   for (; i < src.length; i++) {
     if (src[i] === '{') depth++;
@@ -81,6 +91,7 @@ console.log('--- CONTRAT STATIQUE (lecture de source) ---');
 const postNotificationSrc = extractBlock(ingestSource, /async function postNotification\(/);
 const notifyAiEngineSrc = extractBlock(ingestSource, /async function notifyAiEngine\(/);
 const buildNotificationSrc = extractBlock(ingestSource, /export function buildNotification\(/);
+const createNotifyBudgetSrc = extractBlock(ingestSource, /export function createNotifyBudget\(\)/);
 const secretKeyPatternMatch = /const SECRET_KEY_PATTERN = .*;/.exec(ingestSource);
 if (!secretKeyPatternMatch) throw new Error('SECRET_KEY_PATTERN introuvable.');
 const redactStringSrc = extractBlock(ingestSource, /function redactString\(value: string\)/);
@@ -97,6 +108,28 @@ console.log('--- postNotification() : aucun fetch() ne subsiste dans ce chemin -
   t('committeeEnv ne transmet jamais COMMITTEE_TOKEN', !/COMMITTEE_TOKEN/.test(postNotificationSrc));
 }
 
+console.log('--- COMPTABILITE notify_attempts : jamais sur les événements différés ---');
+{
+  const dispatchActionsSrc = extractBlock(ingestSource, /async function dispatchActions\(/);
+  const reconcileNotificationsSrc = extractBlock(ingestSource, /export async function reconcileNotifications\(/);
+  for (const [name, src] of [['dispatchActions', dispatchActionsSrc], ['reconcileNotifications', reconcileNotificationsSrc]]) {
+    t(`${name}() calcule failedAttempts = attempted.filter(id => !delivered.includes(id))`,
+      /failedAttempts = attempted\.filter\(\(id\) => !delivered\.includes\(id\)\)/.test(src));
+    t(`${name}() appelle bumpNotifyAttempts(failedAttempts) — jamais avec deferred`,
+      /bumpNotifyAttempts\(failedAttempts\)/.test(src) && !/bumpNotifyAttempts\(deferred\)/.test(src));
+    t(`${name}() appelle markNotified(delivered) — jamais avec attempted ou deferred`,
+      /markNotified\(delivered\)/.test(src) && !/markNotified\(attempted\)/.test(src) && !/markNotified\(deferred\)/.test(src));
+  }
+  t('reconcileNotifications() et runIngestion() acceptent un NotifyBudget partagé (défaut : un budget frais)',
+    /reconcileNotifications\(\s*env: Env,\s*budget: NotifyBudget = createNotifyBudget\(\),/.test(ingestSource)
+    && /export async function runIngestion\(\s*env: Env,\s*triggerType: string,\s*budget: NotifyBudget = createNotifyBudget\(\),/.test(ingestSource));
+  t('worker.ts crée UN budget partagé pour tout le cycle news_engine (dispatch direct + réconciliation)',
+    (() => {
+      const workerSource = readFileSync(new URL('../backend/worker.ts', import.meta.url), 'utf8');
+      return /const budget = createNotifyBudget\(\);\s*\n\s*await runNewsIngestion\(env, 'cron', budget\);\s*\n\s*await reconcileNotifications\(env, budget\);/.test(workerSource);
+    })());
+}
+
 console.log('--- EXECUTION REELLE (fonctions extraites verbatim, handleCommitteeEvent mocké) ---');
 const dir = mkdtempSync(join(tmpdir(), 'xau-ops010-'));
 const harnessPath = join(dir, 'harness.ts');
@@ -109,6 +142,7 @@ ${redactStringSrc}
 ${redactSrc}
 ${errorMessageSrc}
 ${buildNotificationSrc}
+${createNotifyBudgetSrc}
 
 const calls = [];
 function makeLog() {
@@ -184,7 +218,7 @@ for (const status of ['PROCESSED', 'ALREADY_PROCESSED', 'ALREADY_RUNNING', 'FAIL
     { id: 'high', action: 'RECALC_H1_H2', score: 95 },
     { id: 'mid', action: 'RECALC_H1_H2', score: 80 },
   ];
-  const outcome = await notifyAiEngine(events, baseEnv, log);
+  const outcome = await notifyAiEngine(events, baseEnv, log, createNotifyBudget());
   results.cost_guard = { outcome, callCount: __handleCommitteeEventCallCount };
 }
 
@@ -198,8 +232,54 @@ for (const status of ['PROCESSED', 'ALREADY_PROCESSED', 'ALREADY_RUNNING', 'FAIL
     { id: 'best', action: 'RECALC_H1_H2', score: 90 },
     { id: 'second', action: 'RECALC_H1_H2', score: 85 },
   ];
-  const outcome = await notifyAiEngine(events, baseEnv, log);
+  const outcome = await notifyAiEngine(events, baseEnv, log, createNotifyBudget());
   results.cost_guard_failed = { outcome, callCount: __handleCommitteeEventCallCount };
+}
+
+// 13. BUDGET PARTAGE SUR TOUT LE CYCLE : dispatch direct (1er appel) +
+//     réconciliation (2e appel) partageant LE MÊME budget -> un seul
+//     appel handleCommitteeEvent au total pour les DEUX appels combinés.
+{
+  __handleCommitteeEventCallCount = 0;
+  __handleCommitteeEventImpl = async () => ({ status: 'PROCESSED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: 'a-direct', errors: [] });
+  const log = makeLog();
+  const sharedBudget = createNotifyBudget();
+  const directEvents = [{ id: 'direct-1', action: 'RECALC_H1_H2', score: 95 }];
+  const reconcileEvents = [{ id: 'reconcile-1', action: 'RECALC_H1_H2', score: 90 }, { id: 'reconcile-2', action: 'REEVALUATE_H3', score: 70 }];
+  const directOutcome = await notifyAiEngine(directEvents, baseEnv, log, sharedBudget);
+  const reconcileOutcome = await notifyAiEngine(reconcileEvents, baseEnv, log, sharedBudget);
+  results.shared_budget_direct_wins = {
+    directOutcome, reconcileOutcome, totalCommitteeCalls: __handleCommitteeEventCallCount,
+  };
+}
+
+// 14. Budget partagé, chemin direct SANS événement éligible (liste vide) :
+//     ne consomme PAS le slot -> la réconciliation peut ensuite l'utiliser.
+{
+  __handleCommitteeEventCallCount = 0;
+  __handleCommitteeEventImpl = async () => ({ status: 'PROCESSED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: 'a-reconcile', errors: [] });
+  const log = makeLog();
+  const sharedBudget = createNotifyBudget();
+  const directOutcome = await notifyAiEngine([], baseEnv, log, sharedBudget);
+  const reconcileOutcome = await notifyAiEngine([{ id: 'reconcile-only', action: 'RECALC_H1_H2', score: 88 }], baseEnv, log, sharedBudget);
+  results.shared_budget_direct_empty = {
+    directOutcome, reconcileOutcome, totalCommitteeCalls: __handleCommitteeEventCallCount,
+  };
+}
+
+// 15. Budget partagé, la tentative directe UNIQUE échoue : la réconciliation
+//     ne doit PAS retenter un second comité dans le même cycle -- son
+//     événement doit être différé, jamais tenté une seconde fois.
+{
+  __handleCommitteeEventCallCount = 0;
+  __handleCommitteeEventImpl = async () => ({ status: 'FAILED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: null, errors: ['simulé'] });
+  const log = makeLog();
+  const sharedBudget = createNotifyBudget();
+  const directOutcome = await notifyAiEngine([{ id: 'direct-fails', action: 'RECALC_H1_H2', score: 95 }], baseEnv, log, sharedBudget);
+  const reconcileOutcome = await notifyAiEngine([{ id: 'reconcile-blocked', action: 'RECALC_H1_H2', score: 90 }], baseEnv, log, sharedBudget);
+  results.shared_budget_direct_fails = {
+    directOutcome, reconcileOutcome, totalCommitteeCalls: __handleCommitteeEventCallCount,
+  };
 }
 
 // 12. committeeEnv ne porte jamais COMMITTEE_TOKEN, même si présent sur env.
@@ -264,6 +344,31 @@ console.log('--- GARDE-FOU COUT : ECHEC DE LA TENTATIVE UNIQUE ---');
 t('un seul appel handleCommitteeEvent même en échec', results.cost_guard_failed.callCount === 1);
 t('tentative échouée -> attempted mais pas delivered', results.cost_guard_failed.outcome.attempted.includes('best') && !results.cost_guard_failed.outcome.delivered.includes('best'));
 t('événement jamais tenté -> différé, PAS confondu avec un échec', results.cost_guard_failed.outcome.deferred.includes('second') && !results.cost_guard_failed.outcome.attempted.includes('second'));
+
+console.log('--- BUDGET DE CYCLE PARTAGE : DISPATCH DIRECT CONSOMME LE SLOT ---');
+{
+  const r = results.shared_budget_direct_wins;
+  t('un seul appel handleCommitteeEvent pour TOUT le cycle (direct + réconciliation combinés)', r.totalCommitteeCalls === 1);
+  t('le dispatch direct tente et délivre son événement', r.directOutcome.attempted.length === 1 && r.directOutcome.delivered.length === 1);
+  t('la réconciliation ne tente RIEN : budget déjà consommé par le direct', r.reconcileOutcome.attempted.length === 0 && r.reconcileOutcome.delivered.length === 0);
+  t('les 2 événements de réconciliation sont différés, jamais échoués', r.reconcileOutcome.deferred.length === 2 && r.reconcileOutcome.deferred.includes('reconcile-1') && r.reconcileOutcome.deferred.includes('reconcile-2'));
+}
+
+console.log('--- BUDGET DE CYCLE PARTAGE : AUCUN EVENEMENT DIRECT ELIGIBLE -> RECONCILIATION PEUT CONSOMMER LE SLOT ---');
+{
+  const r = results.shared_budget_direct_empty;
+  t('le dispatch direct (liste vide) ne consomme pas le budget', r.directOutcome.attempted.length === 0 && r.directOutcome.deferred.length === 0);
+  t('la réconciliation peut ensuite tenter son événement', r.reconcileOutcome.attempted.length === 1 && r.reconcileOutcome.delivered.length === 1);
+  t('un seul appel handleCommitteeEvent au total (consommé par la réconciliation)', r.totalCommitteeCalls === 1);
+}
+
+console.log('--- BUDGET DE CYCLE PARTAGE : ECHEC DIRECT -> PAS DE 2E COMITE DANS LE MEME CYCLE ---');
+{
+  const r = results.shared_budget_direct_fails;
+  t('le dispatch direct tente (et échoue) -- le slot est consommé par la TENTATIVE, pas par le succès', r.directOutcome.attempted.includes('direct-fails') && !r.directOutcome.delivered.includes('direct-fails'));
+  t('la réconciliation NE retente PAS un second comité : son événement est différé', r.reconcileOutcome.attempted.length === 0 && r.reconcileOutcome.deferred.includes('reconcile-blocked'));
+  t('un seul appel handleCommitteeEvent pour tout le cycle, même en échec', r.totalCommitteeCalls === 1);
+}
 
 console.log('--- SEPARATION DES ENVIRONNEMENTS (pas de COMMITTEE_TOKEN interne) ---');
 t('committeeEnv transmis à handleCommitteeEvent ne porte jamais COMMITTEE_TOKEN', results.env_split.sawCommitteeToken === false);

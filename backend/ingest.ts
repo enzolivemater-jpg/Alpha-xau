@@ -1791,7 +1791,32 @@ export interface NotifyOutcome {
 }
 
 /**
- * Notifie le comité pour AU PLUS UN événement actionnable par appel.
+ * Budget de coût PARTAGÉ entre le dispatch direct (runIngestion) et la
+ * sweep de réconciliation (reconcileNotifications) lorsqu'ils s'enchaînent
+ * au sein d'UN SEUL cycle NEWS orchestré (correctif XAU-V2-OPS-010,
+ * complément) : sans cela, chacun des deux chemins pouvait indépendamment
+ * consommer sa propre tentative, exécutant potentiellement DEUX comités
+ * complets (5 appels LLM chacun) pour un seul tick cron.
+ *
+ * Ce n'est PAS un mécanisme de concurrence — PostgreSQL/run_lock reste le
+ * seul arbitre de l'exécution effective du comité (acquireLock dans
+ * handleCommitteeEvent). C'est un simple compteur local : créé par
+ * l'orchestrateur d'UN appel (worker.ts / le `scheduled()` Vercel-compat
+ * ci-dessous), passé explicitement aux deux fonctions concernées, et
+ * jeté ensuite. Jamais un état de module partagé entre invocations.
+ */
+export interface NotifyBudget {
+  remaining: number;
+}
+
+/** Un cycle NEWS orchestré dispose d'AU PLUS une tentative de comité. */
+export function createNotifyBudget(): NotifyBudget {
+  return { remaining: 1 };
+}
+
+/**
+ * Notifie le comité pour AU PLUS UN événement actionnable par appel, ET
+ * seulement si le budget de cycle partagé le permet encore.
  *
  * GARDE-FOU COÛT (XAU-V2-OPS-010) : avant ce correctif, le transport était
  * un ping HTTP quasi gratuit (et de toute façon cassé, cf. XAU-V2-OPS-007).
@@ -1805,11 +1830,17 @@ export interface NotifyOutcome {
  * les autres événements actionnables sont DIFFÉRÉS — jamais marqués en
  * échec, jamais comptés dans notify_attempts — et restent éligibles au
  * prochain cycle NEWS ou à la sweep de réconciliation.
+ *
+ * Le budget n'est décrémenté QUE lorsqu'un événement réellement éligible
+ * est sur le point d'être tenté : un lot vide ou entièrement ARCHIVE_ONLY
+ * ne consomme jamais le slot, laissant l'autre chemin du même cycle
+ * (dispatch direct ou réconciliation) l'utiliser.
  */
 async function notifyAiEngine(
   events: ReadonlyArray<{ id: string; action: NewsAction; score: number }>,
   env: Env,
   log: Logger,
+  budget: NotifyBudget,
 ): Promise<NotifyOutcome> {
   // Le plus fort score d'abord : c'est cet événement qui doit consommer
   // l'unique tentative de ce cycle.
@@ -1830,6 +1861,15 @@ async function notifyAiEngine(
   if (first === null) {
     return { attempted: [], delivered: [], deferred: [] };
   }
+
+  if (budget.remaining <= 0) {
+    // Le budget du cycle a déjà été consommé par l'autre chemin (dispatch
+    // direct ou réconciliation) : cet événement, pourtant éligible, est
+    // différé — jamais marqué en échec, jamais compté dans notify_attempts.
+    log.info('Notification différée : budget de cycle épuisé', { event_id: first.id });
+    return { attempted: [], delivered: [], deferred: [first.id, ...deferred] };
+  }
+  budget.remaining -= 1;
 
   const ok = await postNotification(first.notification, env, log);
   const attempted = [first.id];
@@ -1863,6 +1903,7 @@ async function dispatchActions(
   db: SupabaseClient,
   env: Env,
   log: Logger,
+  budget: NotifyBudget,
 ): Promise<void> {
   const actionable = persisted.filter((p) => p.event._computed.action !== 'ARCHIVE_ONLY');
   if (actionable.length === 0) return;
@@ -1904,8 +1945,10 @@ async function dispatchActions(
   }
 
   // Seuls les événements EFFECTIVEMENT pris en charge sont marqués notifiés.
-  // Au plus un événement est réellement TENTÉ par appel (garde-fou coût,
-  // XAU-V2-OPS-010) : les autres sont différés, jamais comptés en échec.
+  // Au plus un événement est réellement TENTÉ par appel, ET seulement si le
+  // budget de cycle (partagé avec reconcileNotifications) le permet encore
+  // (garde-fou coût, XAU-V2-OPS-010) : les autres sont différés, jamais
+  // comptés en échec.
   const { attempted, delivered, deferred } = await notifyAiEngine(
     actionable.map(({ event, id }) => ({
       id,
@@ -1914,6 +1957,7 @@ async function dispatchActions(
     })),
     env,
     log,
+    budget,
   );
 
   if (delivered.length > 0) {
@@ -1944,8 +1988,19 @@ async function dispatchActions(
  * Volontairement séparée de runIngestion() : un déploiement peut appeler
  * cette fonction seule à une fréquence différente si le budget cron le
  * justifie, sans dépendre du cycle de collecte des news.
+ *
+ * `budget` : voir NotifyBudget. Quand cette fonction s'enchaîne avec
+ * runIngestion() au sein d'un même cycle NEWS orchestré, l'appelant DOIT
+ * transmettre le MÊME objet budget que celui passé à runIngestion() — un
+ * seul comité complet doit être tenté pour tout le cycle, quel que soit le
+ * chemin (dispatch direct ou réconciliation) qui consomme le slot.
+ * Sans budget explicite (appel HTTP `/reconcile` autonome, hors cycle
+ * enchaîné), un budget frais d'une seule tentative est utilisé.
  */
-export async function reconcileNotifications(env: Env): Promise<{ swept: number; notified: number }> {
+export async function reconcileNotifications(
+  env: Env,
+  budget: NotifyBudget = createNotifyBudget(),
+): Promise<{ swept: number; notified: number }> {
   const log = new Logger(env.LOG_LEVEL, 'reconcile');
   const db = new SupabaseClient(env, log);
 
@@ -1960,13 +2015,15 @@ export async function reconcileNotifications(env: Env): Promise<{ swept: number;
     ids: pending.map((p) => p.id),
   });
 
-  // Au plus un événement est réellement TENTÉ par appel (garde-fou coût,
-  // XAU-V2-OPS-010) : les autres sont DIFFÉRÉS, jamais comptés en échec, et
-  // resteront éligibles à la prochaine sweep (notify_attempts inchangé).
+  // Au plus un événement est réellement TENTÉ par appel, sous réserve du
+  // budget de cycle partagé (garde-fou coût, XAU-V2-OPS-010) : les autres
+  // sont DIFFÉRÉS, jamais comptés en échec, et resteront éligibles à la
+  // prochaine sweep (notify_attempts inchangé).
   const { attempted, delivered, deferred } = await notifyAiEngine(
     pending.map((p) => ({ id: p.id, action: p.action, score: p.news_score })),
     env,
     log,
+    budget,
   );
 
   if (delivered.length > 0) {
@@ -2035,8 +2092,18 @@ export class NewsEngineBusyError extends Error {
  * verrou précède toute collecte, via l'implémentation partagée
  * shared/run_lock.ts (mêmes garanties PostgreSQL, même récupération des
  * verrous abandonnés que market_engine/ai_committee).
+ *
+ * `budget` : voir NotifyBudget. Quand ce run s'enchaîne avec
+ * reconcileNotifications() au sein d'un même cycle NEWS orchestré,
+ * l'appelant DOIT transmettre le MÊME objet budget aux deux fonctions.
+ * Sans budget explicite (appel HTTP `/news` autonome, hors cycle
+ * enchaîné), un budget frais d'une seule tentative est utilisé.
  */
-export async function runIngestion(env: Env, triggerType: string): Promise<IngestReport> {
+export async function runIngestion(
+  env: Env,
+  triggerType: string,
+  budget: NotifyBudget = createNotifyBudget(),
+): Promise<IngestReport> {
   const startedAt = Date.now();
   const bootLog = new Logger(env.LOG_LEVEL, 'pending');
   const db = new SupabaseClient(env, bootLog);
@@ -2366,7 +2433,7 @@ export async function runIngestion(env: Env, triggerType: string): Promise<Inges
     const major = persisted.filter((p) => p.event._computed.action === 'REEVALUATE_H3').length;
 
     if (persisted.length > 0) {
-      await dispatchActions(persisted, db, env, log);
+      await dispatchActions(persisted, db, env, log, budget);
     }
 
     const allProvidersOk = gdelt.report.ok && newsapi.report.ok && fedRaw.ok && ecbRaw.ok && treasuryRaw.ok && ofacRaw.ok;
@@ -2517,15 +2584,21 @@ export default {
     // La sweep suit l'ingestion sur le même tick : coût quasi nul en régime
     // normal (index partiel sur notified_at IS NULL), et garantit qu'aucun
     // événement CATALYST/MAJOR ne reste orphelin d'un échec HTTP transitoire.
+    //
+    // Un SEUL budget de notification (voir NotifyBudget) est créé ICI et
+    // partagé entre les deux appels : le dispatch direct et la
+    // réconciliation ne doivent jamais, à eux deux, déclencher plus d'UN
+    // comité complet pour ce tick (correctif XAU-V2-OPS-010, complément).
+    const budget = createNotifyBudget();
     ctx.waitUntil(
-      runIngestion(env, 'cron')
+      runIngestion(env, 'cron', budget)
         .catch((err: unknown) => {
           new Logger(env.LOG_LEVEL, 'cron').error('Run cron en échec', {
             cron: event.cron,
             reason: errorMessage(err),
           });
         })
-        .then(() => reconcileNotifications(env))
+        .then(() => reconcileNotifications(env, budget))
         .catch((err: unknown) => {
           new Logger(env.LOG_LEVEL, 'cron-reconcile').error('Sweep de réconciliation en échec', {
             reason: errorMessage(err),

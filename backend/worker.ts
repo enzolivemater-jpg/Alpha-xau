@@ -52,6 +52,7 @@ import { runMarketIngestion, type MarketEnv } from './market_engine/ingest_marke
 import {
   runIngestion as runNewsIngestion,
   reconcileNotifications,
+  createNotifyBudget,
   handleRequest as handleNewsRequest,
   NewsEngineBusyError,
   type Env as NewsEnv,
@@ -120,8 +121,15 @@ export async function runJob(job: JobName, env: WorkerEnv): Promise<void> {
       return;
     }
     if (job === 'news_engine') {
-      await runNewsIngestion(env, 'cron');
-      await reconcileNotifications(env);
+      // Un SEUL budget de notification (NotifyBudget) pour tout le cycle :
+      // le dispatch direct et la réconciliation qui le suit immédiatement
+      // ne doivent jamais, à eux deux, déclencher plus d'UN comité complet
+      // (correctif XAU-V2-OPS-010, complément). Simple compteur local créé
+      // ici et jeté après ce cycle — PostgreSQL/run_lock reste le seul
+      // arbitre de concurrence pour l'exécution effective du comité.
+      const budget = createNotifyBudget();
+      await runNewsIngestion(env, 'cron', budget);
+      await reconcileNotifications(env, budget);
       log('info', job, 'SUCCESS');
       return;
     }
