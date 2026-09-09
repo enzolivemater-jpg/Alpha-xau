@@ -37,7 +37,10 @@
  *                                  produirait un bruit d'analyse sans
  *                                  information nouvelle. Les événements
  *                                  CATALYST CRITICAL déclenchent déjà un
- *                                  recalcul hors cron via AI_ENGINE_URL.
+ *                                  recalcul hors cron par appel direct
+ *                                  in-process (handleCommitteeEvent,
+ *                                  XAU-V2-OPS-010) — aucun aller-retour
+ *                                  réseau ni URL propre au Worker.
  *
  *  ANTI-CONCURRENCE : chaque moteur prend un verrou en base
  *  (uq_ingestion_runs_active, migration 0004) avant de travailler. Un run
@@ -65,8 +68,16 @@ import {
  * Environnement consolidé du Worker. Toutes les valeurs proviennent des
  * secrets Cloudflare (`wrangler secret put`) ou des vars de wrangler.toml.
  * Aucune n'est committée.
+ *
+ * `ANTHROPIC_API_KEY` est optionnelle côté NewsEnv (le transport
+ * event-driven interne dégrade proprement en son absence, cf.
+ * postNotification dans ingest.ts) mais requise côté CommitteeEnv (le
+ * cron horaire du comité ne peut pas fonctionner sans elle). Sur le
+ * Worker RÉELLEMENT déployé, la clé est toujours présente : `Omit`
+ * tranche ce conflit d'optionalité au niveau du type fusionné sans
+ * affaiblir le contrat propre à chacun des deux modules.
  */
-export interface WorkerEnv extends MarketEnv, NewsEnv, CommitteeEnv {}
+export interface WorkerEnv extends MarketEnv, Omit<NewsEnv, 'ANTHROPIC_API_KEY'>, CommitteeEnv {}
 
 /** Expressions cron déclarées dans wrangler.toml. */
 const CRON_MARKET = '*/5 * * * *';

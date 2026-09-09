@@ -42,6 +42,9 @@
  */
 
 import { acquireLock, releaseLock } from './shared/run_lock.js';
+// XAU-V2-OPS-010 : appel direct in-process du comité, plus de self-fetch
+// HTTP (voir postNotification ci-dessous et l'audit XAU-V2-OPS-007).
+import { handleCommitteeEvent, type CommitteeRuntimeEnv } from './ai_engine/committee_orchestrator.js';
 import { ingestFederalReserveRaw, type FederalReserveRawIngestResult } from './news_sources/federal_reserve_raw.js';
 import { ingestEcbRaw, type EcbRawIngestResult } from './news_sources/ecb_raw.js';
 import { ingestTreasuryRaw, type TreasuryRawIngestResult } from './news_sources/us_treasury_raw.js';
@@ -65,9 +68,18 @@ export interface Env {
   readonly INGEST_TOKEN: string;
   /** Clé NewsAPI. Absente => le collecteur NewsAPI est désactivé, pas en erreur. */
   readonly NEWSAPI_KEY?: string;
-  /** Endpoint du moteur IA notifié sur CATALYST CRITICAL / MAJOR IMPACT. */
-  readonly AI_ENGINE_URL?: string;
-  readonly AI_ENGINE_TOKEN?: string;
+  /**
+   * Requis UNIQUEMENT pour la notification event-driven du comité sur
+   * CATALYST CRITICAL / MAJOR IMPACT (postNotification, appel direct
+   * in-process — XAU-V2-OPS-010). Absente => notification IGNORÉE et
+   * journalisée en warn ; l'ingestion RAW/scoring elle-même n'en dépend
+   * jamais. Remplace AI_ENGINE_URL/AI_ENGINE_TOKEN (self-fetch HTTP retiré,
+   * cf. audit XAU-V2-OPS-007 : un Worker ne peut pas fiablement s'appeler
+   * lui-même via son URL workers.dev publique).
+   */
+  readonly ANTHROPIC_API_KEY?: string;
+  readonly MODEL_ANALYST?: string;
+  readonly MODEL_COMMITTEE?: string;
   /** Fenêtre GDELT, ex. "60min", "2h". Défaut : 60min. */
   readonly GDELT_TIMESPAN?: string;
   /** Surcharge de test uniquement, comme STOOQ_BASE_URL/FRED_BASE_URL dans
@@ -1715,106 +1727,122 @@ export function buildNotification(
 }
 
 /**
- * Catégorie fixe dérivée du statut HTTP — jamais le corps ni les en-têtes
- * de la réponse, uniquement le code lui-même classé par plage.
+ * Notifie le comité pour UN événement, par appel direct in-process.
+ *
+ * XAU-V2-OPS-010 : plus de fetch() HTTP. news_engine et le comité
+ * partagent le même script Worker (backend/worker.ts) — un aller-retour
+ * réseau vers sa propre URL n'a jamais eu de raison d'exister, et
+ * l'audit XAU-V2-OPS-007 a prouvé qu'il produisait un 404 plateforme
+ * avant même d'atteindre le routage applicatif (auto-fetch workers.dev).
+ * `handleCommitteeEvent` est appelée directement, avec un environnement
+ * Comité minimal (CommitteeRuntimeEnv) qui ne requiert JAMAIS
+ * COMMITTEE_TOKEN — ce jeton ne protège que la surface HTTP externe
+ * `/committee`, jamais ce chemin interne.
+ *
+ * Acquittement basé sur EventResult.status (XAU-V2-OPS-009), jamais un
+ * proxy HTTP : seuls PROCESSED et ALREADY_PROCESSED sont des succès
+ * terminaux sûrs à acquitter. ALREADY_RUNNING/FAILED/DATA_UNAVAILABLE/
+ * INVALID_EVENT restent rejouables ; une exception inattendue l'est aussi.
  */
-function categorizeHttpFailure(status: number): 'client_error' | 'server_error' | 'unexpected' {
-  if (status >= 400 && status < 500) return 'client_error';
-  if (status >= 500) return 'server_error';
-  return 'unexpected';
-}
-
 async function postNotification(
   notification: CommitteeNotification,
   env: Env,
   log: Logger,
 ): Promise<boolean> {
-  if (!env.AI_ENGINE_URL) {
-    // BLOCKER #3 : niveau `warn` et non `debug`. Avec LOG_LEVEL=info par
-    // défaut, un `debug` était invisible : le chemin event-driven mourait
-    // sans laisser la moindre trace, ce qui est le pire mode de panne —
-    // le système paraît sain et ne réagit plus aux CATALYST.
-    log.warn('AI_ENGINE_URL non configurée : notification event-driven IGNORÉE. '
-      + 'Le comité ne réagira qu\'au cron horaire. Poser AI_ENGINE_URL et '
-      + 'AI_ENGINE_TOKEN (= COMMITTEE_TOKEN) pour activer le temps réel.');
+  if (!env.ANTHROPIC_API_KEY) {
+    // BLOCKER #3 (préservé) : niveau `warn` et non `debug`. Avec
+    // LOG_LEVEL=info par défaut, un `debug` était invisible : le chemin
+    // event-driven mourait sans laisser la moindre trace.
+    log.warn('ANTHROPIC_API_KEY non configurée : notification event-driven IGNORÉE. '
+      + 'Le comité ne réagira qu\'au cron horaire.');
     return false;
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CONFIG.HTTP_TIMEOUT_MS);
+  const committeeEnv: CommitteeRuntimeEnv = {
+    ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
+    SUPABASE_URL: env.SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: env.SUPABASE_SERVICE_ROLE_KEY,
+    MODEL_ANALYST: env.MODEL_ANALYST,
+    MODEL_COMMITTEE: env.MODEL_COMMITTEE,
+    LOG_LEVEL: env.LOG_LEVEL,
+  };
+
   try {
-    const response = await fetch(env.AI_ENGINE_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        // COUPLAGE OBLIGATOIRE : AI_ENGINE_TOKEN doit être ÉGAL à
-        // COMMITTEE_TOKEN du moteur IA — c'est cette valeur que compare son
-        // contrôle d'autorisation (timingSafeEqual). Deux valeurs distinctes
-        // produisent un 401 sur chaque notification. Voir wrangler.toml.
-        ...(env.AI_ENGINE_TOKEN ? { authorization: `Bearer ${env.AI_ENGINE_TOKEN}` } : {}),
-      },
-      body: JSON.stringify(notification),
-      signal: controller.signal,
-    });
-    // Un 2xx confirme la prise en charge ; tout le reste est traité comme un
-    // échec rejouable par la sweep, y compris un 200 mal formé côté moteur IA.
-    // PROCESSED, ALREADY_PROCESSED et ALREADY_RUNNING répondent tous 200 :
-    // dans les trois cas l'événement est pris en charge et ne doit pas être
-    // rejoué indéfiniment.
-    if (!response.ok) {
-      // Observabilité uniquement : le code HTTP et sa catégorie, jamais le
-      // corps de réponse, les en-têtes, l'URL ou un quelconque jeton.
-      log.warn('Notification du moteur IA rejetée par le comité', {
-        http_status: response.status,
-        http_status_category: categorizeHttpFailure(response.status),
-      });
+    const result = await handleCommitteeEvent(notification, committeeEnv);
+    const delivered = result.status === 'PROCESSED' || result.status === 'ALREADY_PROCESSED';
+    if (!delivered) {
+      // Observabilité uniquement : le statut event-driven, jamais le
+      // contenu de l'analyse ni un quelconque secret.
+      log.warn('Notification du comité non délivrée', { status: result.status });
     }
-    return response.ok;
+    return delivered;
   } catch (err) {
-    log.warn('Notification du moteur IA en échec', { reason: errorMessage(err) });
+    log.warn('Notification du comité en échec (exception)', { reason: errorMessage(err) });
     return false;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
+/** Résultat d'un cycle de notification : distingue ce qui a été tenté, ce
+ *  qui a été livré, et ce qui a été volontairement différé. */
+export interface NotifyOutcome {
+  readonly attempted: readonly string[];
+  readonly delivered: readonly string[];
+  readonly deferred: readonly string[];
+}
+
 /**
- * Notifie le comité pour chaque événement actionnable, séquentiellement.
+ * Notifie le comité pour AU PLUS UN événement actionnable par appel.
  *
- * Séquentiel et non parallèle : le comité est protégé par un verrou unique.
- * En rafale, la première notification déclenche le recalcul et les suivantes
- * reçoivent ALREADY_RUNNING — ce qui est correct, le comité en cours lisant
- * déjà l'intégralité des news actionnables via v_news_actionable.
- *
- * Renvoie les identifiants de news effectivement pris en charge.
+ * GARDE-FOU COÛT (XAU-V2-OPS-010) : avant ce correctif, le transport était
+ * un ping HTTP quasi gratuit (et de toute façon cassé, cf. XAU-V2-OPS-007).
+ * Le transport direct in-process appelle désormais un run Comité complet
+ * (5 appels LLM séquentiels). Notifier CHAQUE événement actionnable d'un
+ * même lot exécuterait potentiellement N comités complets en séquence pour
+ * un seul cycle NEWS — un coût sans rapport avec le budget prévu (un comité
+ * par heure, plus un accélérateur temps réel ponctuel par cycle). Au plus
+ * UNE tentative de comité par appel : le plus fort score d'abord (le
+ * verrou global n'autorise de toute façon qu'un recalcul actif à la fois),
+ * les autres événements actionnables sont DIFFÉRÉS — jamais marqués en
+ * échec, jamais comptés dans notify_attempts — et restent éligibles au
+ * prochain cycle NEWS ou à la sweep de réconciliation.
  */
 async function notifyAiEngine(
   events: ReadonlyArray<{ id: string; action: NewsAction; score: number }>,
   env: Env,
   log: Logger,
-): Promise<string[]> {
-  if (!env.AI_ENGINE_URL) {
-    // Voir ci-dessus : configuration manquante => panne observable.
-    log.warn('AI_ENGINE_URL non configurée : aucune notification émise.', {
-      evenements_non_notifies: events.length,
-    });
-    return [];
-  }
-
-  const delivered: string[] = [];
-  // Le plus fort score d'abord : si le verrou n'autorise qu'un recalcul,
-  // il doit être déclenché par l'événement le plus significatif.
+): Promise<NotifyOutcome> {
+  // Le plus fort score d'abord : c'est cet événement qui doit consommer
+  // l'unique tentative de ce cycle.
   const ordered = [...events].sort((a, b) => b.score - a.score);
 
+  let first: { id: string; notification: CommitteeNotification } | null = null;
+  const deferred: string[] = [];
   for (const event of ordered) {
     const notification = buildNotification(event.id, event.action, event.score);
-    if (notification === null) continue;
-    const ok = await postNotification(notification, env, log);
-    if (ok) delivered.push(event.id);
+    if (notification === null) continue; // ARCHIVE_ONLY : jamais notifié.
+    if (first === null) {
+      first = { id: event.id, notification };
+    } else {
+      deferred.push(event.id);
+    }
   }
 
-  log.info('Notifications event-driven', { envoyees: ordered.length, prises_en_charge: delivered.length });
-  return delivered;
+  if (first === null) {
+    return { attempted: [], delivered: [], deferred: [] };
+  }
+
+  const ok = await postNotification(first.notification, env, log);
+  const attempted = [first.id];
+  const delivered = ok ? [first.id] : [];
+
+  log.info('Notifications event-driven', {
+    envoyees: ordered.length,
+    tentees: attempted.length,
+    prises_en_charge: delivered.length,
+    differees: deferred.length,
+  });
+
+  return { attempted, delivered, deferred };
 }
 
 /**
@@ -1875,9 +1903,10 @@ async function dispatchActions(
     log.error('Création des alertes en échec', { reason: errorMessage(err) });
   }
 
-  // Seuls les événements EFFECTIVEMENT pris en charge sont marqués notifiés :
-  // un échec partiel laisse les autres à la sweep de réconciliation.
-  const delivered = await notifyAiEngine(
+  // Seuls les événements EFFECTIVEMENT pris en charge sont marqués notifiés.
+  // Au plus un événement est réellement TENTÉ par appel (garde-fou coût,
+  // XAU-V2-OPS-010) : les autres sont différés, jamais comptés en échec.
+  const { attempted, delivered, deferred } = await notifyAiEngine(
     actionable.map(({ event, id }) => ({
       id,
       action: event._computed.action,
@@ -1887,15 +1916,21 @@ async function dispatchActions(
     log,
   );
 
-  const ids = actionable.map((p) => p.id);
   if (delivered.length > 0) {
     await db.markNotified(delivered);
-    log.info('Moteur IA notifié', { events: delivered.length, sur: ids.length });
+    log.info('Comité notifié', { events: delivered.length, sur: actionable.length });
   }
-  if (delivered.length < ids.length) {
-    // Chemin direct en échec : la sweep de réconciliation prend le relais
-    // au prochain tick cron (dans 90s minimum, cf. v_news_pending_notification).
-    await db.bumpNotifyAttempts(ids);
+  const failedAttempts = attempted.filter((id) => !delivered.includes(id));
+  if (failedAttempts.length > 0) {
+    // Tentative réelle et non aboutie : la sweep de réconciliation prend le
+    // relais au prochain tick cron (dans 90s minimum, cf.
+    // v_news_pending_notification).
+    await db.bumpNotifyAttempts(failedAttempts);
+  }
+  if (deferred.length > 0) {
+    // Jamais tenté ce cycle-ci (garde-fou coût) : ni notifié, ni compté en
+    // échec. Reste éligible au prochain cycle NEWS ou à la sweep.
+    log.info('Notifications différées (garde-fou coût)', { count: deferred.length });
   }
 }
 
@@ -1925,8 +1960,10 @@ export async function reconcileNotifications(env: Env): Promise<{ swept: number;
     ids: pending.map((p) => p.id),
   });
 
-  const ids = pending.map((p) => p.id);
-  const delivered = await notifyAiEngine(
+  // Au plus un événement est réellement TENTÉ par appel (garde-fou coût,
+  // XAU-V2-OPS-010) : les autres sont DIFFÉRÉS, jamais comptés en échec, et
+  // resteront éligibles à la prochaine sweep (notify_attempts inchangé).
+  const { attempted, delivered, deferred } = await notifyAiEngine(
     pending.map((p) => ({ id: p.id, action: p.action, score: p.news_score })),
     env,
     log,
@@ -1936,13 +1973,14 @@ export async function reconcileNotifications(env: Env): Promise<{ swept: number;
     await db.markNotified(delivered);
     log.info('Sweep de réconciliation : notification rattrapée', { count: delivered.length });
   }
-  if (delivered.length < ids.length) {
-    const failed = ids.filter((id) => !delivered.includes(id));
-    await db.bumpNotifyAttempts(failed);
+
+  const failedAttempts = attempted.filter((id) => !delivered.includes(id));
+  if (failedAttempts.length > 0) {
+    await db.bumpNotifyAttempts(failedAttempts);
     // Un événement approchant le plafond de tentatives est un incident
     // opérationnel : le signaler comme alerte système plutôt que de le
     // laisser se réessayer silencieusement jusqu'à expiration.
-    const stuck = pending.filter((p) => p.news_score >= CONFIG.THRESHOLD_CRITICAL);
+    const stuck = pending.filter((p) => failedAttempts.includes(p.id) && p.news_score >= CONFIG.THRESHOLD_CRITICAL);
     if (stuck.length > 0) {
       await db.insertAlerts(stuck.map((p) => ({
         alert_type: 'system',
@@ -1956,7 +1994,12 @@ export async function reconcileNotifications(env: Env): Promise<{ swept: number;
       })));
     }
     log.error('Sweep de réconciliation : notification toujours en échec', {
-      count: ids.length - delivered.length,
+      count: failedAttempts.length,
+    });
+  }
+  if (deferred.length > 0) {
+    log.info('Sweep de réconciliation : événements différés (garde-fou coût)', {
+      count: deferred.length,
     });
   }
 
@@ -2520,8 +2563,9 @@ function readEnvFromProcess(): Env {
     SUPABASE_SERVICE_ROLE_KEY: required('SUPABASE_SERVICE_ROLE_KEY'),
     INGEST_TOKEN: required('INGEST_TOKEN'),
     NEWSAPI_KEY: source['NEWSAPI_KEY'],
-    AI_ENGINE_URL: source['AI_ENGINE_URL'],
-    AI_ENGINE_TOKEN: source['AI_ENGINE_TOKEN'],
+    ANTHROPIC_API_KEY: source['ANTHROPIC_API_KEY'],
+    MODEL_ANALYST: source['MODEL_ANALYST'],
+    MODEL_COMMITTEE: source['MODEL_COMMITTEE'],
     GDELT_TIMESPAN: source['GDELT_TIMESPAN'],
     LOG_LEVEL: source['LOG_LEVEL'],
   };
