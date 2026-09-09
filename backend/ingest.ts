@@ -1714,6 +1714,16 @@ export function buildNotification(
   };
 }
 
+/**
+ * Catégorie fixe dérivée du statut HTTP — jamais le corps ni les en-têtes
+ * de la réponse, uniquement le code lui-même classé par plage.
+ */
+function categorizeHttpFailure(status: number): 'client_error' | 'server_error' | 'unexpected' {
+  if (status >= 400 && status < 500) return 'client_error';
+  if (status >= 500) return 'server_error';
+  return 'unexpected';
+}
+
 async function postNotification(
   notification: CommitteeNotification,
   env: Env,
@@ -1751,6 +1761,14 @@ async function postNotification(
     // PROCESSED, ALREADY_PROCESSED et ALREADY_RUNNING répondent tous 200 :
     // dans les trois cas l'événement est pris en charge et ne doit pas être
     // rejoué indéfiniment.
+    if (!response.ok) {
+      // Observabilité uniquement : le code HTTP et sa catégorie, jamais le
+      // corps de réponse, les en-têtes, l'URL ou un quelconque jeton.
+      log.warn('Notification du moteur IA rejetée par le comité', {
+        http_status: response.status,
+        http_status_category: categorizeHttpFailure(response.status),
+      });
+    }
     return response.ok;
   } catch (err) {
     log.warn('Notification du moteur IA en échec', { reason: errorMessage(err) });
