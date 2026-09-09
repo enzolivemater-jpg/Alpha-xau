@@ -40,15 +40,31 @@ import { acquireLock, releaseLock, isUniqueViolation } from '../shared/run_lock.
 /*  1. ENVIRONNEMENT ET CONFIGURATION                                          */
 /* -------------------------------------------------------------------------- */
 
-export interface Env {
+/**
+ * Environnement minimal requis par le CŒUR du comité (runCommittee,
+ * handleCommitteeEvent, et tout ce qu'ils appellent) : Anthropic +
+ * Supabase, rien d'autre. NE dépend PAS de `COMMITTEE_TOKEN` — ce jeton
+ * n'est nécessaire qu'à la couche d'authentification HTTP externe
+ * (isAuthorized/handleRequest, ci-dessous). Correctif XAU-V2-OPS-010 :
+ * avant ce type, le comité entier était typé sur `Env` (avec
+ * COMMITTEE_TOKEN requis), ce qui aurait forcé le chemin interne
+ * news_engine -> handleCommitteeEvent (appel direct in-process, sans
+ * HTTP) à dépendre d'un jeton dont il n'a jamais eu l'usage.
+ */
+export interface CommitteeRuntimeEnv {
   readonly ANTHROPIC_API_KEY: string;
   readonly SUPABASE_URL: string;
   readonly SUPABASE_SERVICE_ROLE_KEY: string;
-  readonly COMMITTEE_TOKEN: string;
   /** Surcharge optionnelle des modèles. */
   readonly MODEL_ANALYST?: string;
   readonly MODEL_COMMITTEE?: string;
   readonly LOG_LEVEL?: string;
+}
+
+/** Environnement complet, pour la seule surface HTTP externe (ajoute le
+ *  jeton d'authentification `/committee`). */
+export interface Env extends CommitteeRuntimeEnv {
+  readonly COMMITTEE_TOKEN: string;
 }
 
 const CONFIG = {
@@ -417,7 +433,7 @@ async function callClaude(
   model: string,
   userContent: string,
   maxTokens: number,
-  env: Env,
+  env: CommitteeRuntimeEnv,
   log: Logger,
 ): Promise<{ json: unknown; latencyMs: number }> {
   const startedAt = Date.now();
@@ -839,7 +855,7 @@ class SupabaseClient {
   private readonly base: string;
   private readonly key: string;
 
-  constructor(env: Env, private readonly log: Logger) {
+  constructor(env: CommitteeRuntimeEnv, private readonly log: Logger) {
     if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error('Configuration Supabase incomplète.');
     }
@@ -996,7 +1012,7 @@ interface ActionableNewsRow {
   risk_level: string | null; ts: string;
 }
 
-async function loadContext(db: SupabaseClient, env: Env): Promise<{
+async function loadContext(db: SupabaseClient, env: CommitteeRuntimeEnv): Promise<{
   market: MarketContext;
   news: NewsContextItem[];
 }> {
@@ -1437,7 +1453,7 @@ export class CommitteeBusyError extends Error {
 }
 
 export async function runCommittee(
-  env: Env,
+  env: CommitteeRuntimeEnv,
   options: RunCommitteeOptions = {},
 ): Promise<CommitteeAnalysis> {
   const scope: RecalcScope = options.scope ?? 'FULL';
@@ -1495,7 +1511,7 @@ export async function runCommittee(
 
 /** Corps du comité, exécuté sous verrou. */
 async function runCommitteeLocked(
-  env: Env,
+  env: CommitteeRuntimeEnv,
   db: SupabaseClient,
   log: Logger,
   scope: RecalcScope,
@@ -2025,7 +2041,7 @@ async function closeTerminalSuccessOrFail(
  * la réclamation d'idempotence : `runCommittee` est donc appelée en mode
  * `alreadyLocked`.
  */
-export async function handleCommitteeEvent(raw: unknown, env: Env): Promise<EventResult> {
+export async function handleCommitteeEvent(raw: unknown, env: CommitteeRuntimeEnv): Promise<EventResult> {
   const startedAt = Date.now();
   const log = new Logger(env.LOG_LEVEL, 'event');
 

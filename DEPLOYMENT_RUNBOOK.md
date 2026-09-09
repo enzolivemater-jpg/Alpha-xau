@@ -24,7 +24,12 @@ avant de passer à la suivante. Les étapes marquées ⏸ **STOP** exigent votre
 | `FRED_API_KEY` | market_engine | **oui** | 32 car. FRED | US10Y, Real Yield, VIX, WTI → `UNAVAILABLE` |
 | `TWELVE_DATA_KEY` | market_engine | **oui** | clé Twelve Data | DXY → `UNAVAILABLE` (aucune substitution) |
 | `NEWSAPI_KEY` | news_engine | non | clé NewsAPI | Collecteur désactivé, GDELT seul |
-| `AI_ENGINE_TOKEN` | news_engine | **oui** | **= `COMMITTEE_TOKEN`** | 401 sur chaque notification |
+
+> `AI_ENGINE_URL` / `AI_ENGINE_TOKEN` n'existent plus (XAU-V2-OPS-010) : la
+> notification event-driven news → comité est un appel direct in-process
+> (`handleCommitteeEvent`), jamais un aller-retour HTTP. `ANTHROPIC_API_KEY`
+> ci-dessus suffit ; ce chemin ne dépend pas de `COMMITTEE_TOKEN`, réservé à
+> la surface HTTP externe `/committee`.
 
 ### 2. Credentials CI/CD
 
@@ -48,12 +53,6 @@ avant de passer à la suivante. Les étapes marquées ⏸ **STOP** exigent votre
 `LOG_LEVEL` (=`info`), `GDELT_TIMESPAN` (=`60min`) — dans `wrangler.toml [vars]`.
 `MODEL_ANALYST`, `MODEL_COMMITTEE`, `STOOQ_BASE_URL`, `FRED_BASE_URL`,
 `TWELVE_DATA_BASE_URL` — surcharges de test, valeurs par défaut dans le code.
-
-### 5. Variable dérivée après déploiement
-
-| Variable | Valeur exacte | Vérifié dans le code |
-|---|---|---|
-| `AI_ENGINE_URL` | `https://<URL_WORKER>/committee` | `ingest.ts:1727` appelle `fetch(env.AI_ENGINE_URL)` **sans ajouter de chemin** ; `worker.ts:120` route sur `path.startsWith('/committee')`. Le suffixe `/committee` est donc **obligatoire dans la variable**. |
 
 ---
 
@@ -79,9 +78,6 @@ openssl rand -hex 32   # -> COMMITTEE_TOKEN
 ```
 
 - `INGEST_TOKEN` : générer une **seconde** valeur, **différente** de `COMMITTEE_TOKEN`.
-- `AI_ENGINE_TOKEN` : **strictement identique** à `COMMITTEE_TOKEN` — ce sont les deux
-  extrémités du même canal (`ingest.ts` émet `Bearer <AI_ENGINE_TOKEN>`,
-  `committee_orchestrator.ts:1924` compare à `COMMITTEE_TOKEN`).
 
 Conservez ces valeurs dans un gestionnaire de mots de passe. **Ne les collez jamais
 dans un fichier du dépôt ni dans une conversation.**
@@ -250,18 +246,12 @@ npx wrangler secret list                      # vérifie les NOMS, jamais les va
 
 ---
 
-## 8. SECONDE PASSE — `AI_ENGINE_URL`
+## 8. SECONDE PASSE
 
-```bash
-npx wrangler secret put AI_ENGINE_URL
-# valeur EXACTE : https://alpha-xau.<sous-domaine>.workers.dev/committee
-#                                                            ^^^^^^^^^^ obligatoire
-
-npx wrangler secret put AI_ENGINE_TOKEN
-# valeur : STRICTEMENT la même que COMMITTEE_TOKEN
-
-npx wrangler deploy          # second déploiement pour charger les secrets
-```
+Retirée (XAU-V2-OPS-010) : la notification event-driven news → comité est
+un appel direct in-process (`handleCommitteeEvent`), plus un aller-retour
+HTTP vers l'URL du Worker lui-même. Un seul déploiement suffit désormais —
+il n'y a plus de secret à poser après coup une fois l'URL connue.
 
 ---
 

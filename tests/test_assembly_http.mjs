@@ -1,14 +1,35 @@
 /**
- * TEST D'ASSEMBLAGE — jonction News -> HTTP -> Worker -> Committee.
+ * TEST D'ASSEMBLAGE — surface HTTP EXTERNE `/committee` (déclenchement
+ * manuel/ops, authentifié par COMMITTEE_TOKEN), contre PostgreSQL RÉEL.
  *
- * Ce qui est REELLEMENT exercé :
- *   - le vrai `buildNotification` du news_engine ;
+ * XAU-V2-OPS-010 : le transport interne news_engine -> comité n'est PLUS
+ * un aller-retour HTTP (self-fetch retiré, cf. audit XAU-V2-OPS-007) —
+ * c'est un appel direct in-process (`handleCommitteeEvent`), qui ne passe
+ * jamais par ce serveur HTTP ni par la moindre variable d'environnement
+ * dédiée à ce canal (ces variables ont toutes été retirées). Ce fichier
+ * ne teste donc QUE la route HTTP externe `worker.fetch` -> `handleRequest`
+ * -> `/committee`, telle qu'un opérateur l'appellerait manuellement — pas
+ * le déclenchement event-driven du news_engine.
+ *
+ * Le transport interne (news_engine -> handleCommitteeEvent direct,
+ * garde-fou de coût NotifyBudget, mapping EventResult.status ->
+ * acquittement) est couvert par tests/test_committee_internal_transport.mjs.
+ * L'idempotence/reprise CAS (claimEvent, OPS-009) est couverte en détail,
+ * fonction par fonction, par tests/test_committee_event_retry_idempotency.mjs.
+ *
+ * Ce qui est RÉELLEMENT exercé ICI :
+ *   - le vrai `buildNotification` du news_engine (forme du payload
+ *     event-driven, utilisée pour construire des requêtes HTTP de test) ;
  *   - un vrai serveur HTTP montant le vrai `handleRequest` du worker ;
- *   - le vrai routage event-driven du comité ;
- *   - le vrai verrou et la vraie idempotence, contre PostgreSQL RÉEL.
+ *   - le vrai routage et la vraie authentification HTTP de `/committee` ;
+ *   - le vrai verrou et la vraie reprise CAS d'un événement FAILED,
+ *     contre PostgreSQL RÉEL.
  *
  * Ce qui reste MOCKÉ (et donc NON prouvé) :
- *   - l'API Anthropic (aucune clé) ;
+ *   - l'API Anthropic (aucune clé) — toute analyse retombe donc en FAILED,
+ *     jamais en PROCESSED : un rejeu ne peut ici prouver que la reprise
+ *     (FAILED -> reclamée -> retentée -> FAILED à nouveau), jamais un
+ *     authentique ALREADY_PROCESSED (qui exigerait un premier succès réel) ;
  *   - PostgREST (pont vers SQL local).
  */
 import http from 'node:http';
@@ -22,6 +43,29 @@ const firstRow=o=>o.split('\n').filter(l=>l.trim()&&!/^(INSERT|UPDATE|DELETE) \d
 
 // --- Pont PostgREST -> SQL reel ---
 const q=v=>v===null||v===undefined?'NULL':(typeof v==='string'?`'${v.replace(/'/g,"''")}'`:String(v));
+// Filtres PostgREST generiques (eq./in.()) sur plusieurs colonnes a la
+// fois : le contrat OPS-009 (claimEvent, reprise CAS d'un evenement
+// FAILED/DATA_UNAVAILABLE ou RUNNING orphelin) envoie des PATCH
+// conditionnes sur plusieurs colonnes simultanement -- un simple
+// UPDATE...WHERE event_id=X ne suffit plus a simuler le CAS reel.
+const parseFilters=(qs)=>{
+  const params=new URLSearchParams(qs||'');
+  const filters=[];
+  for(const [col,raw] of params.entries()){
+    if(col==='select'||col==='order'||col==='limit') continue;
+    filters.push([col,raw]);
+  }
+  return filters;
+};
+const sqlWhere=(filters)=>{
+  if(filters.length===0) return '';
+  const clauses=filters.map(([col,raw])=>{
+    if(raw.startsWith('in.(')) return `${col} IN (${raw.slice(4,-1).split(',').map(q).join(',')})`;
+    if(raw.startsWith('eq.')) return `${col}=${q(raw.slice(3))}`;
+    throw new Error('filtre non supporte par le mock: '+raw);
+  });
+  return 'WHERE '+clauses.join(' AND ');
+};
 const rest=http.createServer((req,res)=>{
   let b=''; req.on('data',c=>b+=c);
   req.on('end',()=>{
@@ -42,8 +86,22 @@ const rest=http.createServer((req,res)=>{
           // code la confondrait avec un doublon deja traite.
           if(/duplicate key|23505/.test(m)) return send(409,{code:'23505',message:'duplicate key value violates unique constraint'});
           return send(400,{code:'23503',message:m.slice(0,200)});}}
-      if(req.method==='PATCH'&&path.startsWith('ai_events')){const id=decodeURIComponent(path.split('event_id=eq.')[1]);const j=JSON.parse(b);
-        psql(`UPDATE ai_events SET status='${j.status}',finished_at=now(),duration_ms=${j.duration_ms},error=${q(j.error)} WHERE event_id='${id}';`);return send(204,[]);}
+      if(req.method==='GET'&&path.startsWith('ai_events')){
+        const [,qs]=path.split('?');
+        const where=sqlWhere(parseFilters(qs));
+        return send(200,JSON.parse(psql(`SELECT coalesce(json_agg(t),'[]') FROM (SELECT event_id,status,started_at,analysis_id FROM ai_events ${where}) t;`)));}
+      if(req.method==='PATCH'&&path.startsWith('ai_events')){
+        const [,qs]=path.split('?');
+        const where=sqlWhere(parseFilters(qs));
+        const j=JSON.parse(b);
+        const sets=Object.entries(j).map(([k,v])=>`${k}=${q(v)}`).join(',');
+        // Prefer: return=representation (utilise par claimEvent pour un
+        // vrai CAS) : ne renvoyer la ligne QUE si le WHERE l'a reellement
+        // matchee -- un tableau vide signifie "le CAS a ete perdu",
+        // exactement la semantique PostgREST reelle.
+        if((req.headers['prefer']||'').includes('return=representation')){
+          return send(200,JSON.parse(psql(`WITH updated AS (UPDATE ai_events SET ${sets} ${where} RETURNING event_id) SELECT coalesce(json_agg(t),'[]') FROM updated t;`)));}
+        psql(`UPDATE ai_events SET ${sets} ${where};`);return send(204,[]);}
       if(req.method==='GET'&&path.startsWith('v_market_latest'))
         return send(200,JSON.parse(psql("SELECT coalesce(json_agg(t),'[]') FROM (SELECT symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds FROM v_market_latest) t;")));
       if(req.method==='GET'&&path.startsWith('v_news_actionable')) return send(200,[]);
@@ -56,8 +114,10 @@ const REST=`http://127.0.0.1:${rest.address().port}`;
 
 // --- Vrai serveur HTTP montant le vrai worker.fetch ---
 const TOKEN='staging-token-de-test-non-secret';
+// Le transport interne (XAU-V2-OPS-010) n'authentifie rien : il appelle
+// handleCommitteeEvent() directement, sans jeton dédié.
 const ENV={SUPABASE_URL:REST,SUPABASE_SERVICE_ROLE_KEY:'svc',ANTHROPIC_API_KEY:'',
-  COMMITTEE_TOKEN:TOKEN,INGEST_TOKEN:TOKEN,AI_ENGINE_TOKEN:TOKEN,LOG_LEVEL:'warn'};
+  COMMITTEE_TOKEN:TOKEN,INGEST_TOKEN:TOKEN,LOG_LEVEL:'warn'};
 const wsrv=http.createServer(async(req,res)=>{
   const chunks=[]; for await (const c of req) chunks.push(c);
   const body=Buffer.concat(chunks);
@@ -67,7 +127,9 @@ const wsrv=http.createServer(async(req,res)=>{
 });
 await new Promise(r=>wsrv.listen(0,'127.0.0.1',r));
 const WORKER=`http://127.0.0.1:${wsrv.address().port}`;
-ENV.AI_ENGINE_URL=`${WORKER}/committee`;
+// Aucune variable de canal event-driven à poser ici (XAU-V2-OPS-010,
+// self-fetch retiré) : ce serveur HTTP n'est appelé que par les requêtes
+// de test ci-dessous, jamais par le news_engine lui-même.
 
 let p=0,f=0; const t=(n,c,x='')=>{c?(p++,console.log(`  OK  ${n}`)):(f++,console.log(`  FAIL ${n} ${x}`))};
 psql("DELETE FROM ai_events; UPDATE ingestion_runs SET status='failed',finished_at=now() WHERE status='running';");
@@ -143,10 +205,27 @@ ev=psql("SELECT status||'|'||coalesce(news_event_id::text,'-')||'|'||coalesce(ne
 t('news_event_id et news_score persistes', ev.includes(NEWS_ID)&&ev.includes('86.20'), ev);
 t('verrou libere apres echec', Number(psql("SELECT count(*) FROM ingestion_runs WHERE engine='ai_committee' AND status='running';"))===0);
 
-console.log('--- Idempotence sur le vrai canal HTTP ---');
+console.log('--- Rejeu OPS-009 : un FAILED est repris et retente, JAMAIS faussement acquitte ---');
+// A ce point, la derniere ecriture pour `notif` (ligne precedente) est un
+// FAILED (Anthropic injoignable dans cet environnement de test). Avant
+// OPS-009, claimEvent() traitait TOUTE violation d'unicite sur event_id
+// comme un doublon "deja traite" et renvoyait 200 ALREADY_PROCESSED — quel
+// que soit le statut reel de la ligne existante. C'etait le bug meme
+// audite par XAU-V2-OPS-008 : une news dont le comite n'avait jamais
+// abouti se retrouvait acquittee en silence, hors de portee de la sweep de
+// reconciliation. Le contrat correct : un FAILED est RECLAME (CAS
+// atomique) et RETENTE — jamais suppose "deja traite" par la seule
+// presence d'une ligne. Sans cle Anthropic reelle, la nouvelle tentative
+// echoue elle aussi : on ne peut PAS fabriquer ici un authentique
+// ALREADY_PROCESSED (qui exigerait un premier succes reel) — ce cas est
+// deja couvert par tests/test_committee_event_retry_idempotency.mjs.
 r=await post(notif); j=await r.json();
-t('rejeu -> 200 ALREADY_PROCESSED', r.status===200 && j.status==='ALREADY_PROCESSED', `${r.status} ${j.status}`);
-t('toujours 1 seule ligne ai_events', Number(psql("SELECT count(*) FROM ai_events;"))===1);
+t('rejeu d\'un FAILED -> reclame et retente -> HTTP 500 FAILED (jamais 200 ALREADY_PROCESSED)',
+  r.status===500 && j.status==='FAILED', `${r.status} ${j.status}`);
+t('toujours 1 seule ligne ai_events pour ce event_id (reclamee, pas dupliquee)',
+  Number(psql("SELECT count(*) FROM ai_events;"))===1);
+ev=psql("SELECT status FROM ai_events;");
+t('la ligne reste FAILED/rejouable, jamais PROCESSED ni ALREADY_PROCESSED', ev==='FAILED', ev);
 
 console.log('--- REEVALUATE_H3 : portee distincte ---');
 const n3=buildNotification('22222222-2222-4222-8222-222222222222','REEVALUATE_H3',72.5);
