@@ -115,6 +115,19 @@ class Logger {
 }
 
 class CommitteeBusyError extends Error {}
+// Stub minimal (XAU-V2-OPS-015) : ce test ne porte pas sur la classification
+// fournisseur (couverte par test_anthropic_failure_classification.mjs), mais
+// handleCommitteeEvent() réel référence désormais AnthropicError dans son
+// catch pour peupler EventResult.providerFailure. Aucun des scénarios levés
+// ici n'est une instance de cette classe : le test instanceof reste faux,
+// providerFailure reste undefined, comportement inchangé pour ce fichier.
+class AnthropicError extends Error {
+  constructor(message, status, retryable, retryAfterMs, failureKind) {
+    super(message);
+    this.status = status; this.retryable = retryable;
+    this.retryAfterMs = retryAfterMs; this.failureKind = failureKind;
+  }
+}
 
 let __lockAcquired = true;
 const __releaseLockCalls = [];
@@ -413,6 +426,50 @@ const results = {};
   results.close_fail_integration = { result, row: { ...db.rows.get('E-CLOSEFAIL') }, httpStatus: httpRes.status };
 }
 
+// 17. XAU-V2-OPS-015 (P0-B), DETECTION INITIALE : runCommittee lève une
+//     AnthropicError structurellement classée ACCOUNT_BLOCKED -> EventResult
+//     la reporte (providerFailure), ET releaseLock persiste l'état durable
+//     dans providers.anthropic.failure_kind -- seule trace exploitable par
+//     le circuit fournisseur de notifyAiEngine() (backend/ingest.ts).
+{
+  const db = new FakeDb();
+  const env = makeEnv(db);
+  __releaseLockCalls.length = 0;
+  __runCommitteeImpl = async () => { throw new AnthropicError('compte bloqué (simulé)', 400, false, undefined, 'ACCOUNT_BLOCKED'); };
+  const result = await handleCommitteeEvent(committeeEventBody('E-ACCOUNTBLOCKED'), env);
+  results.account_blocked_first_detection = {
+    result, row: { ...db.rows.get('E-ACCOUNTBLOCKED') },
+    release: __releaseLockCalls[__releaseLockCalls.length - 1],
+  };
+}
+
+// 18. Même contrat pour TEMPORARILY_UNAVAILABLE (429/5xx/529/réseau).
+{
+  const db = new FakeDb();
+  const env = makeEnv(db);
+  __releaseLockCalls.length = 0;
+  __runCommitteeImpl = async () => { throw new AnthropicError('indisponible (simulé)', 503, true, undefined, 'TEMPORARILY_UNAVAILABLE'); };
+  const result = await handleCommitteeEvent(committeeEventBody('E-TEMPUNAVAIL'), env);
+  results.temporarily_unavailable_first_detection = {
+    result, row: { ...db.rows.get('E-TEMPUNAVAIL') },
+    release: __releaseLockCalls[__releaseLockCalls.length - 1],
+  };
+}
+
+// 19. Un run RÉUSSI relâche TOUJOURS providers:{} -- jamais d'état résiduel
+//     d'un échec fournisseur précédent sur une ligne de succès (ce qui ferme
+//     le circuit dès le prochain passage du cron horaire).
+{
+  const db = new FakeDb();
+  const env = makeEnv(db);
+  __releaseLockCalls.length = 0;
+  __runCommitteeImpl = async () => ({ meta: { execution_status: 'VALID_SETUP', analysis_id: 'analysis-clean', validation_errors: [] } });
+  const result = await handleCommitteeEvent(committeeEventBody('E-CLEANSUCCESS'), env);
+  results.success_clears_provider_state = {
+    result, release: __releaseLockCalls[__releaseLockCalls.length - 1],
+  };
+}
+
 process.stdout.write(JSON.stringify({ results }));
 `;
 
@@ -499,6 +556,29 @@ console.log('--- ECHEC DE CLOTURE (INTEGRATION) -> FAILED MALGRE UNE ANALYSE VAL
 t('clôture PROCESSED en échec -> status FAILED renvoyé (jamais PROCESSED)', results.close_fail_integration.result.status === 'FAILED');
 t('clôture en échec -> ligne ai_events reste RUNNING (récupérable comme orpheline)', results.close_fail_integration.row.status === 'RUNNING');
 t('clôture en échec -> HTTP 500 (jamais 200) : news non acquittée', results.close_fail_integration.httpStatus === 500);
+
+console.log('--- P0-B : DETECTION INITIALE D\'UNE PANNE FOURNISSEUR GLOBALE ---');
+{
+  const r = results.account_blocked_first_detection;
+  t('ACCOUNT_BLOCKED -> EventResult.status = FAILED', r.result.status === 'FAILED');
+  t('ACCOUNT_BLOCKED -> EventResult.providerFailure = ACCOUNT_BLOCKED', r.result.providerFailure === 'ACCOUNT_BLOCKED');
+  t('ACCOUNT_BLOCKED -> ai_events.status = FAILED (rejouable, jamais un état EXPIRED)', r.row.status === 'FAILED');
+  t('ACCOUNT_BLOCKED -> releaseLock persiste providers.anthropic.failure_kind = ACCOUNT_BLOCKED',
+    r.release?.providers?.anthropic?.failure_kind === 'ACCOUNT_BLOCKED');
+}
+{
+  const r = results.temporarily_unavailable_first_detection;
+  t('TEMPORARILY_UNAVAILABLE -> EventResult.status = FAILED', r.result.status === 'FAILED');
+  t('TEMPORARILY_UNAVAILABLE -> EventResult.providerFailure = TEMPORARILY_UNAVAILABLE', r.result.providerFailure === 'TEMPORARILY_UNAVAILABLE');
+  t('TEMPORARILY_UNAVAILABLE -> releaseLock persiste providers.anthropic.failure_kind = TEMPORARILY_UNAVAILABLE',
+    r.release?.providers?.anthropic?.failure_kind === 'TEMPORARILY_UNAVAILABLE');
+}
+{
+  const r = results.success_clears_provider_state;
+  t('run réussi -> EventResult.status = PROCESSED', r.result.status === 'PROCESSED');
+  t('run réussi -> releaseLock relâche providers:{} (aucun état résiduel d\'un échec précédent)',
+    r.release && Object.keys(r.release.providers ?? { x: 1 }).length === 0);
+}
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);

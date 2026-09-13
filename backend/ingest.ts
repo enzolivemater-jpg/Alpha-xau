@@ -1640,12 +1640,27 @@ class SupabaseClient {
 
   /** Événements actionnables jamais acquittés au-delà de la fenêtre de grâce. */
   async fetchPendingNotifications(): Promise<Array<{
-    id: string; title: string; action: NewsAction; news_score: number;
+    id: string; title: string; action: NewsAction; news_score: number; ts: string;
   }>> {
-    return this.select<{ id: string; title: string; action: NewsAction; news_score: number }>(
+    return this.select<{ id: string; title: string; action: NewsAction; news_score: number; ts: string }>(
       'v_news_pending_notification',
-      'id,title,action,news_score',
+      'id,title,action,news_score,ts',
     );
+  }
+
+  /**
+   * Ligne ingestion_runs(engine='ai_committee') la plus récente, quel que
+   * soit son déclencheur (cron horaire ou event-driven) — source durable
+   * du circuit fournisseur Anthropic (XAU-V2-OPS-015, P0-B). Lecture
+   * seule, jamais d'écriture depuis notifyAiEngine().
+   */
+  async getLatestCommitteeRun(): Promise<LatestCommitteeRun | null> {
+    const rows = await this.select<LatestCommitteeRun>(
+      'ingestion_runs',
+      'started_at,status,providers',
+      'engine=eq.ai_committee&order=started_at.desc&limit=1',
+    );
+    return rows[0] ?? null;
   }
 }
 
@@ -1727,6 +1742,24 @@ export function buildNotification(
 }
 
 /**
+ * Classification du résultat d'UNE tentative de notification, distincte
+ * du booléen d'origine (XAU-V2-OPS-015, P0-B) : un simple `delivered:
+ * boolean` ne peut pas dire à l'appelant SI l'échec est de la faute de cet
+ * événement précis (et doit donc charger notify_attempts) ou d'une
+ * condition fournisseur globale (et ne doit jamais charger cet événement
+ * précis pour la faute d'un tiers). La distinction s'appuie sur
+ * EventResult.providerFailure (committee_orchestrator.ts), lui-même
+ * dérivé UNE SEULE FOIS à la source (AnthropicError.failureKind) — aucun
+ * nouveau pattern-matching sur message d'erreur ici.
+ */
+type DeliveryOutcome =
+  | { readonly kind: 'DELIVERED' }
+  | { readonly kind: 'EVENT_FAILED'; readonly status: string }
+  | { readonly kind: 'PROVIDER_TEMPORARILY_UNAVAILABLE' }
+  | { readonly kind: 'PROVIDER_ACCOUNT_BLOCKED' }
+  | { readonly kind: 'IN_PROGRESS' };
+
+/**
  * Notifie le comité pour UN événement, par appel direct in-process.
  *
  * XAU-V2-OPS-010 : plus de fetch() HTTP. news_engine et le comité
@@ -1748,14 +1781,18 @@ async function postNotification(
   notification: CommitteeNotification,
   env: Env,
   log: Logger,
-): Promise<boolean> {
+): Promise<DeliveryOutcome> {
   if (!env.ANTHROPIC_API_KEY) {
     // BLOCKER #3 (préservé) : niveau `warn` et non `debug`. Avec
     // LOG_LEVEL=info par défaut, un `debug` était invisible : le chemin
     // event-driven mourait sans laisser la moindre trace.
+    //
+    // Configuration manquante : hors du périmètre P0-B (condition locale
+    // au déploiement, jamais observée en production où la clé est
+    // toujours posée), reste chargeable comme avant ce correctif.
     log.warn('ANTHROPIC_API_KEY non configurée : notification event-driven IGNORÉE. '
       + 'Le comité ne réagira qu\'au cron horaire.');
-    return false;
+    return { kind: 'EVENT_FAILED', status: 'FAILED' };
   }
 
   const committeeEnv: CommitteeRuntimeEnv = {
@@ -1769,25 +1806,50 @@ async function postNotification(
 
   try {
     const result = await handleCommitteeEvent(notification, committeeEnv);
-    const delivered = result.status === 'PROCESSED' || result.status === 'ALREADY_PROCESSED';
-    if (!delivered) {
-      // Observabilité uniquement : le statut event-driven, jamais le
-      // contenu de l'analyse ni un quelconque secret.
-      log.warn('Notification du comité non délivrée', { status: result.status });
+
+    if (result.status === 'PROCESSED' || result.status === 'ALREADY_PROCESSED') {
+      return { kind: 'DELIVERED' };
     }
-    return delivered;
+    if (result.status === 'ALREADY_RUNNING') {
+      // Non-chargeable : aucun comité n'a été exécuté pour CET événement,
+      // un autre run détient déjà le verrou (XAU-V2-OPS-009/015).
+      log.warn('Notification du comité non délivrée', { status: result.status });
+      return { kind: 'IN_PROGRESS' };
+    }
+    if (result.status === 'FAILED' && result.providerFailure === 'ACCOUNT_BLOCKED') {
+      log.warn('Notification du comité non délivrée : fournisseur bloqué (compte)', {
+        status: result.status,
+      });
+      return { kind: 'PROVIDER_ACCOUNT_BLOCKED' };
+    }
+    if (result.status === 'FAILED' && result.providerFailure === 'TEMPORARILY_UNAVAILABLE') {
+      log.warn('Notification du comité non délivrée : fournisseur temporairement indisponible', {
+        status: result.status,
+      });
+      return { kind: 'PROVIDER_TEMPORARILY_UNAVAILABLE' };
+    }
+    // FAILED événement-spécifique (y compris INVALID_REQUEST fournisseur,
+    // qui ne rejouerait pas différemment) / DATA_UNAVAILABLE / INVALID_EVENT.
+    log.warn('Notification du comité non délivrée', { status: result.status });
+    return { kind: 'EVENT_FAILED', status: result.status };
   } catch (err) {
     log.warn('Notification du comité en échec (exception)', { reason: errorMessage(err) });
-    return false;
+    return { kind: 'EVENT_FAILED', status: 'FAILED' };
   }
 }
 
 /** Résultat d'un cycle de notification : distingue ce qui a été tenté, ce
- *  qui a été livré, et ce qui a été volontairement différé. */
+ *  qui a été livré, ce qui a été volontairement différé, et — parmi les
+ *  tentatives non délivrées — lesquelles imputent réellement l'événement
+ *  (XAU-V2-OPS-015 : ne plus dériver ce dernier ensemble comme un simple
+ *  `attempted - delivered`, trop grossier pour distinguer un échec
+ *  événement-spécifique d'une condition fournisseur globale). */
 export interface NotifyOutcome {
   readonly attempted: readonly string[];
   readonly delivered: readonly string[];
   readonly deferred: readonly string[];
+  /** Sous-ensemble de `attempted` dont l'échec doit charger notify_attempts. */
+  readonly chargeableFailed: readonly string[];
 }
 
 /**
@@ -1815,6 +1877,83 @@ export function createNotifyBudget(): NotifyBudget {
 }
 
 /**
+ * Horizon de validité d'une notification (XAU-V2-OPS-014/015, P0-A) —
+ * DISTINCT de CONFIG.MAX_ARTICLE_AGE_MS (48h, validité d'INGESTION d'un
+ * article). Passé cet horizon, recalculer les scénarios de l'action
+ * déclenchée n'a plus de rapport avec un marché qui a déjà évolué.
+ * Bornes INCLUSES : un événement exactement à l'horizon reste éligible.
+ */
+const NOTIFICATION_HORIZON_MS: Readonly<Record<'RECALC_H1_H2' | 'REEVALUATE_H3', number>> = {
+  RECALC_H1_H2: 4 * 60 * 60 * 1000,
+  REEVALUATE_H3: 24 * 60 * 60 * 1000,
+};
+
+/**
+ * Vrai si `action` reste notifiable à `nowMs`, compte tenu de son âge.
+ * ARCHIVE_ONLY n'est jamais notifiable (cohérent avec buildNotification).
+ *
+ * SEUL endroit du code qui connaît ces bornes : v_news_pending_notification
+ * (migration 0011) applique la RÊME règle côté SQL pour la sweep de
+ * réconciliation ; cette fonction protège en plus le dispatch direct, qui
+ * ne passe jamais par cette vue.
+ */
+export function isNotificationWithinHorizon(
+  action: NewsAction,
+  ts: string,
+  nowMs: number = Date.now(),
+): boolean {
+  if (action === 'ARCHIVE_ONLY') return false;
+  const ageMs = nowMs - Date.parse(ts);
+  return ageMs <= NOTIFICATION_HORIZON_MS[action];
+}
+
+/**
+ * Circuit fournisseur Anthropic (XAU-V2-OPS-015, P0-B) — durable, dérivé
+ * de la ligne ingestion_runs(engine='ai_committee') la plus récente,
+ * jamais d'état mémoire/module (un isolat Worker ne survit pas de façon
+ * fiable entre deux ticks cron, cf. audit XAU-V2-OPS-014 §8).
+ *
+ * Une ligne RÉUSSIE écrit toujours providers:{} (voir
+ * committee_orchestrator.ts, releaseLock) : sa seule présence en tête
+ * ferme donc le circuit sans condition supplémentaire.
+ *
+ * Fenêtres de recharge :
+ *   ACCOUNT_BLOCKED         75 min — le cron horaire du comité sonde déjà
+ *     la reprise ; 75 min laisse ~15 min de tolérance d'ordonnancement à
+ *     ce cron avant qu'un probe event-driven ne soit autorisé à son tour
+ *     (jamais de blocage permanent si le cron horaire est lui-même manqué).
+ *   TEMPORARILY_UNAVAILABLE 20 min — suppresses les retenues immédiates
+ *     (15 min) sans retarder indûment une reprise réellement transitoire.
+ */
+const CIRCUIT_COOLDOWN_MS: Readonly<Record<'ACCOUNT_BLOCKED' | 'TEMPORARILY_UNAVAILABLE', number>> = {
+  ACCOUNT_BLOCKED: 75 * 60 * 1000,
+  TEMPORARILY_UNAVAILABLE: 20 * 60 * 1000,
+};
+
+export interface LatestCommitteeRun {
+  readonly started_at: string;
+  readonly status: string;
+  readonly providers: Record<string, unknown> | null;
+}
+
+/**
+ * Vrai si le circuit fournisseur est OUVERT (aucune tentative ne doit
+ * partir) à `nowMs`, d'après la ligne ai_committee la plus récente.
+ * Fonction pure, testable sans base : `latest` est une simple donnée.
+ */
+export function isProviderCircuitOpen(
+  latest: LatestCommitteeRun | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!latest) return false;
+  const anthropic = (latest.providers as { anthropic?: { failure_kind?: string } } | null)?.anthropic;
+  const kind = anthropic?.failure_kind;
+  if (kind !== 'ACCOUNT_BLOCKED' && kind !== 'TEMPORARILY_UNAVAILABLE') return false;
+  const ageMs = nowMs - Date.parse(latest.started_at);
+  return ageMs < CIRCUIT_COOLDOWN_MS[kind];
+}
+
+/**
  * Notifie le comité pour AU PLUS UN événement actionnable par appel, ET
  * seulement si le budget de cycle partagé le permet encore.
  *
@@ -1835,16 +1974,38 @@ export function createNotifyBudget(): NotifyBudget {
  * est sur le point d'être tenté : un lot vide ou entièrement ARCHIVE_ONLY
  * ne consomme jamais le slot, laissant l'autre chemin du même cycle
  * (dispatch direct ou réconciliation) l'utiliser.
+ *
+ * SEUL point d'application de l'horizon (P0-A) ET du circuit fournisseur
+ * (P0-B) pour les DEUX chemins appelants (dispatch direct, réconciliation)
+ * — XAU-V2-OPS-015 exige explicitement une règle unique, jamais dupliquée
+ * dans dispatchActions()/reconcileNotifications().
  */
 async function notifyAiEngine(
-  events: ReadonlyArray<{ id: string; action: NewsAction; score: number }>,
+  events: ReadonlyArray<{ id: string; action: NewsAction; score: number; ts: string }>,
   env: Env,
   log: Logger,
   budget: NotifyBudget,
+  db: SupabaseClient,
 ): Promise<NotifyOutcome> {
-  // Le plus fort score d'abord : c'est cet événement qui doit consommer
-  // l'unique tentative de ce cycle.
-  const ordered = [...events].sort((a, b) => b.score - a.score);
+  const nowMs = Date.now();
+
+  // 1. Retirer d'abord les candidats hors horizon : jamais tentés, jamais
+  //    comptés, jamais capables d'évincer un candidat plus frais (P0-A).
+  const eligible: Array<{ id: string; action: NewsAction; score: number; ts: string }> = [];
+  let expiredCount = 0;
+  for (const event of events) {
+    if (isNotificationWithinHorizon(event.action, event.ts, nowMs)) {
+      eligible.push(event);
+    } else {
+      expiredCount++;
+    }
+  }
+  if (expiredCount > 0) {
+    log.info('Notifications horizon-expirées : jamais tentées', { count: expiredCount });
+  }
+
+  // 2. Le plus fort score d'abord, parmi les seuls candidats éligibles.
+  const ordered = [...eligible].sort((a, b) => b.score - a.score);
 
   let first: { id: string; notification: CommitteeNotification } | null = null;
   const deferred: string[] = [];
@@ -1859,7 +2020,7 @@ async function notifyAiEngine(
   }
 
   if (first === null) {
-    return { attempted: [], delivered: [], deferred: [] };
+    return { attempted: [], delivered: [], deferred: [], chargeableFailed: [] };
   }
 
   if (budget.remaining <= 0) {
@@ -1867,22 +2028,43 @@ async function notifyAiEngine(
     // direct ou réconciliation) : cet événement, pourtant éligible, est
     // différé — jamais marqué en échec, jamais compté dans notify_attempts.
     log.info('Notification différée : budget de cycle épuisé', { event_id: first.id });
-    return { attempted: [], delivered: [], deferred: [first.id, ...deferred] };
+    return { attempted: [], delivered: [], deferred: [first.id, ...deferred], chargeableFailed: [] };
   }
+
+  // 3. Circuit fournisseur (P0-B) : uniquement vérifié quand une tentative
+  //    réelle serait sinon lancée (budget disponible) — jamais de lecture
+  //    ingestion_runs superflue quand le budget est de toute façon épuisé.
+  const latestCommitteeRun = await db.getLatestCommitteeRun();
+  if (isProviderCircuitOpen(latestCommitteeRun, nowMs)) {
+    log.warn('Circuit fournisseur Anthropic OUVERT : notification suspendue', {
+      event_id: first.id,
+      provider_state: latestCommitteeRun?.providers ?? null,
+      latest_started_at: latestCommitteeRun?.started_at ?? null,
+    });
+    return { attempted: [], delivered: [], deferred: [first.id, ...deferred], chargeableFailed: [] };
+  }
+
   budget.remaining -= 1;
 
-  const ok = await postNotification(first.notification, env, log);
+  const outcome = await postNotification(first.notification, env, log);
   const attempted = [first.id];
-  const delivered = ok ? [first.id] : [];
+  const delivered = outcome.kind === 'DELIVERED' ? [first.id] : [];
+  // XAU-V2-OPS-015 (P0-B) : seul un échec RÉELLEMENT imputable à cet
+  // événement charge notify_attempts. ALREADY_RUNNING et les deux
+  // catégories fournisseur en sont explicitement exclues — y compris la
+  // toute première détection d'une panne globale, qui ne doit pas non
+  // plus consommer le budget de retry de l'événement qui l'a découverte.
+  const chargeableFailed = outcome.kind === 'EVENT_FAILED' ? [first.id] : [];
 
   log.info('Notifications event-driven', {
     envoyees: ordered.length,
     tentees: attempted.length,
     prises_en_charge: delivered.length,
     differees: deferred.length,
+    resultat: outcome.kind,
   });
 
-  return { attempted, delivered, deferred };
+  return { attempted, delivered, deferred, chargeableFailed };
 }
 
 /**
@@ -1949,31 +2131,34 @@ async function dispatchActions(
   // budget de cycle (partagé avec reconcileNotifications) le permet encore
   // (garde-fou coût, XAU-V2-OPS-010) : les autres sont différés, jamais
   // comptés en échec.
-  const { attempted, delivered, deferred } = await notifyAiEngine(
+  const { delivered, deferred, chargeableFailed } = await notifyAiEngine(
     actionable.map(({ event, id }) => ({
       id,
       action: event._computed.action,
       score: event._computed.newsScore,
+      ts: event.ts,
     })),
     env,
     log,
     budget,
+    db,
   );
 
   if (delivered.length > 0) {
     await db.markNotified(delivered);
     log.info('Comité notifié', { events: delivered.length, sur: actionable.length });
   }
-  const failedAttempts = attempted.filter((id) => !delivered.includes(id));
-  if (failedAttempts.length > 0) {
-    // Tentative réelle et non aboutie : la sweep de réconciliation prend le
-    // relais au prochain tick cron (dans 90s minimum, cf.
-    // v_news_pending_notification).
-    await db.bumpNotifyAttempts(failedAttempts);
+  if (chargeableFailed.length > 0) {
+    // Tentative réelle, événement-spécifique et non aboutie : la sweep de
+    // réconciliation prend le relais au prochain tick cron (dans 90s
+    // minimum, cf. v_news_pending_notification). N'inclut JAMAIS un échec
+    // fournisseur global ni un ALREADY_RUNNING (XAU-V2-OPS-015).
+    await db.bumpNotifyAttempts(chargeableFailed);
   }
   if (deferred.length > 0) {
-    // Jamais tenté ce cycle-ci (garde-fou coût) : ni notifié, ni compté en
-    // échec. Reste éligible au prochain cycle NEWS ou à la sweep.
+    // Jamais tenté ce cycle-ci (garde-fou coût, circuit fournisseur ou
+    // horizon) : ni notifié, ni compté en échec. Reste éligible au
+    // prochain cycle NEWS ou à la sweep, sous réserve de son horizon.
     log.info('Notifications différées (garde-fou coût)', { count: deferred.length });
   }
 }
@@ -2018,12 +2203,16 @@ export async function reconcileNotifications(
   // Au plus un événement est réellement TENTÉ par appel, sous réserve du
   // budget de cycle partagé (garde-fou coût, XAU-V2-OPS-010) : les autres
   // sont DIFFÉRÉS, jamais comptés en échec, et resteront éligibles à la
-  // prochaine sweep (notify_attempts inchangé).
-  const { attempted, delivered, deferred } = await notifyAiEngine(
-    pending.map((p) => ({ id: p.id, action: p.action, score: p.news_score })),
+  // prochaine sweep (notify_attempts inchangé). notifyAiEngine() applique
+  // en plus, pour CE lot déjà filtré par la vue, une seconde vérification
+  // d'horizon (défense en profondeur si la vue n'est pas encore migrée)
+  // et le circuit fournisseur (XAU-V2-OPS-015).
+  const { delivered, deferred, chargeableFailed } = await notifyAiEngine(
+    pending.map((p) => ({ id: p.id, action: p.action, score: p.news_score, ts: p.ts })),
     env,
     log,
     budget,
+    db,
   );
 
   if (delivered.length > 0) {
@@ -2031,13 +2220,12 @@ export async function reconcileNotifications(
     log.info('Sweep de réconciliation : notification rattrapée', { count: delivered.length });
   }
 
-  const failedAttempts = attempted.filter((id) => !delivered.includes(id));
-  if (failedAttempts.length > 0) {
-    await db.bumpNotifyAttempts(failedAttempts);
+  if (chargeableFailed.length > 0) {
+    await db.bumpNotifyAttempts(chargeableFailed);
     // Un événement approchant le plafond de tentatives est un incident
     // opérationnel : le signaler comme alerte système plutôt que de le
     // laisser se réessayer silencieusement jusqu'à expiration.
-    const stuck = pending.filter((p) => failedAttempts.includes(p.id) && p.news_score >= CONFIG.THRESHOLD_CRITICAL);
+    const stuck = pending.filter((p) => chargeableFailed.includes(p.id) && p.news_score >= CONFIG.THRESHOLD_CRITICAL);
     if (stuck.length > 0) {
       await db.insertAlerts(stuck.map((p) => ({
         alert_type: 'system',
@@ -2051,7 +2239,7 @@ export async function reconcileNotifications(
       })));
     }
     log.error('Sweep de réconciliation : notification toujours en échec', {
-      count: failedAttempts.length,
+      count: chargeableFailed.length,
     });
   }
   if (deferred.length > 0) {

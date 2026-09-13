@@ -92,6 +92,12 @@ const postNotificationSrc = extractBlock(ingestSource, /async function postNotif
 const notifyAiEngineSrc = extractBlock(ingestSource, /async function notifyAiEngine\(/);
 const buildNotificationSrc = extractBlock(ingestSource, /export function buildNotification\(/);
 const createNotifyBudgetSrc = extractBlock(ingestSource, /export function createNotifyBudget\(\)/);
+// XAU-V2-OPS-015 (P0-A/P0-B) : horizon + circuit fournisseur, seul point
+// d'application dans notifyAiEngine().
+const notificationHorizonMsSrc = extractBlock(ingestSource, /const NOTIFICATION_HORIZON_MS: /);
+const isNotificationWithinHorizonSrc = extractBlock(ingestSource, /export function isNotificationWithinHorizon\(/);
+const circuitCooldownMsSrc = extractBlock(ingestSource, /const CIRCUIT_COOLDOWN_MS: /);
+const isProviderCircuitOpenSrc = extractBlock(ingestSource, /export function isProviderCircuitOpen\(/);
 const secretKeyPatternMatch = /const SECRET_KEY_PATTERN = .*;/.exec(ingestSource);
 if (!secretKeyPatternMatch) throw new Error('SECRET_KEY_PATTERN introuvable.');
 const redactStringSrc = extractBlock(ingestSource, /function redactString\(value: string\)/);
@@ -108,15 +114,19 @@ console.log('--- postNotification() : aucun fetch() ne subsiste dans ce chemin -
   t('committeeEnv ne transmet jamais COMMITTEE_TOKEN', !/COMMITTEE_TOKEN/.test(postNotificationSrc));
 }
 
-console.log('--- COMPTABILITE notify_attempts : jamais sur les événements différés ---');
+console.log('--- COMPTABILITE notify_attempts : jamais sur les événements différés ou non imputables ---');
 {
   const dispatchActionsSrc = extractBlock(ingestSource, /async function dispatchActions\(/);
   const reconcileNotificationsSrc = extractBlock(ingestSource, /export async function reconcileNotifications\(/);
   for (const [name, src] of [['dispatchActions', dispatchActionsSrc], ['reconcileNotifications', reconcileNotificationsSrc]]) {
-    t(`${name}() calcule failedAttempts = attempted.filter(id => !delivered.includes(id))`,
-      /failedAttempts = attempted\.filter\(\(id\) => !delivered\.includes\(id\)\)/.test(src));
-    t(`${name}() appelle bumpNotifyAttempts(failedAttempts) — jamais avec deferred`,
-      /bumpNotifyAttempts\(failedAttempts\)/.test(src) && !/bumpNotifyAttempts\(deferred\)/.test(src));
+    // XAU-V2-OPS-015 : failedAttempts = attempted - delivered a été retiré,
+    // trop grossier pour distinguer un échec événement-spécifique d'une
+    // panne fournisseur globale. notifyAiEngine() calcule désormais
+    // directement chargeableFailed ; les appelants ne recalculent plus rien.
+    t(`${name}() ne recalcule plus failedAttempts = attempted - delivered`,
+      !/failedAttempts = attempted\.filter/.test(src));
+    t(`${name}() appelle bumpNotifyAttempts(chargeableFailed) — jamais avec deferred`,
+      /bumpNotifyAttempts\(chargeableFailed\)/.test(src) && !/bumpNotifyAttempts\(deferred\)/.test(src));
     t(`${name}() appelle markNotified(delivered) — jamais avec attempted ou deferred`,
       /markNotified\(delivered\)/.test(src) && !/markNotified\(attempted\)/.test(src) && !/markNotified\(deferred\)/.test(src));
   }
@@ -128,6 +138,23 @@ console.log('--- COMPTABILITE notify_attempts : jamais sur les événements diff
       const workerSource = readFileSync(new URL('../backend/worker.ts', import.meta.url), 'utf8');
       return /const budget = createNotifyBudget\(\);\s*\n\s*await runNewsIngestion\(env, 'cron', budget\);\s*\n\s*await reconcileNotifications\(env, budget\);/.test(workerSource);
     })());
+}
+
+console.log('--- REGLE UNIQUE : horizon et circuit appliqués UNIQUEMENT dans notifyAiEngine() ---');
+{
+  const dispatchActionsSrc = extractBlock(ingestSource, /async function dispatchActions\(/);
+  const reconcileNotificationsSrc = extractBlock(ingestSource, /export async function reconcileNotifications\(/);
+  for (const [name, src] of [['dispatchActions', dispatchActionsSrc], ['reconcileNotifications', reconcileNotificationsSrc]]) {
+    t(`${name}() ne réimplémente pas la règle d'horizon elle-même`,
+      !/NOTIFICATION_HORIZON_MS/.test(src) && !/isNotificationWithinHorizon/.test(src.replace(/notifyAiEngine\([^)]*\)/, '')));
+    t(`${name}() ne réimplémente pas le circuit fournisseur lui-même`,
+      !/CIRCUIT_COOLDOWN_MS/.test(src) && !/isProviderCircuitOpen/.test(src));
+  }
+  const notifyAiEngineSig = extractBlock(ingestSource, /async function notifyAiEngine\(/);
+  t('isNotificationWithinHorizon() est bien appelée depuis notifyAiEngine()',
+    /isNotificationWithinHorizon\(/.test(notifyAiEngineSig));
+  t('isProviderCircuitOpen() est bien appelée depuis notifyAiEngine()',
+    /isProviderCircuitOpen\(/.test(notifyAiEngineSig));
 }
 
 console.log('--- EXECUTION REELLE (fonctions extraites verbatim, handleCommitteeEvent mocké) ---');
@@ -143,6 +170,10 @@ ${redactSrc}
 ${errorMessageSrc}
 ${buildNotificationSrc}
 ${createNotifyBudgetSrc}
+${notificationHorizonMsSrc}
+${isNotificationWithinHorizonSrc}
+${circuitCooldownMsSrc}
+${isProviderCircuitOpenSrc}
 
 const calls = [];
 function makeLog() {
@@ -161,6 +192,18 @@ async function handleCommitteeEvent(notification, committeeEnv) {
   __lastCommitteeEnvSeen = committeeEnv;
   return __handleCommitteeEventImpl(notification, committeeEnv);
 }
+
+// Circuit fournisseur (XAU-V2-OPS-015, P0-B) : source unique de vérité
+// durable pour notifyAiEngine(), simulée ici via une ligne ingestion_runs
+// contrôlable par test. null = aucun run connu -> circuit fermé.
+let __latestCommitteeRun = null;
+let __getLatestCommitteeRunCallCount = 0;
+const fakeDb = {
+  async getLatestCommitteeRun() {
+    __getLatestCommitteeRunCallCount++;
+    return __latestCommitteeRun;
+  },
+};
 
 ${postNotificationSrc}
 ${notifyAiEngineSrc}
@@ -191,6 +234,17 @@ for (const status of ['PROCESSED', 'ALREADY_PROCESSED', 'ALREADY_RUNNING', 'FAIL
   results['status_' + status] = { ok, calls: JSON.parse(JSON.stringify(calls)) };
 }
 
+// 7bis. FAILED + providerFailure -> DeliveryOutcome distingue ACCOUNT_BLOCKED
+//       de TEMPORARILY_UNAVAILABLE (XAU-V2-OPS-015, P0-B), jamais confondus
+//       avec un EVENT_FAILED événement-spécifique ordinaire.
+for (const kind of ['ACCOUNT_BLOCKED', 'TEMPORARILY_UNAVAILABLE']) {
+  calls.length = 0;
+  __handleCommitteeEventImpl = async () => ({ status: 'FAILED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: null, errors: ['simulé'], providerFailure: kind });
+  const log = makeLog();
+  const ok = await postNotification(buildNotification('news-provider', 'RECALC_H1_H2', 90), baseEnv, log);
+  results['provider_failure_' + kind] = { ok };
+}
+
 // 8. Exception levée par le comité -> non livré, pas de fuite de détail brut.
 {
   calls.length = 0;
@@ -211,14 +265,16 @@ for (const status of ['PROCESSED', 'ALREADY_PROCESSED', 'ALREADY_RUNNING', 'FAIL
 //     le reste différé (jamais échoué), succès -> délivré.
 {
   __handleCommitteeEventCallCount = 0;
+  __latestCommitteeRun = null;
   __handleCommitteeEventImpl = async (notification) => ({ status: 'PROCESSED', event_id: notification.event_id, event_type: notification.event_type, scope: 'H1_H2', horizons_recalculated: [], analysis_id: 'a-only', errors: [] });
   const log = makeLog();
+  const now = new Date().toISOString();
   const events = [
-    { id: 'low', action: 'REEVALUATE_H3', score: 65 },
-    { id: 'high', action: 'RECALC_H1_H2', score: 95 },
-    { id: 'mid', action: 'RECALC_H1_H2', score: 80 },
+    { id: 'low', action: 'REEVALUATE_H3', score: 65, ts: now },
+    { id: 'high', action: 'RECALC_H1_H2', score: 95, ts: now },
+    { id: 'mid', action: 'RECALC_H1_H2', score: 80, ts: now },
   ];
-  const outcome = await notifyAiEngine(events, baseEnv, log, createNotifyBudget());
+  const outcome = await notifyAiEngine(events, baseEnv, log, createNotifyBudget(), fakeDb);
   results.cost_guard = { outcome, callCount: __handleCommitteeEventCallCount };
 }
 
@@ -226,13 +282,15 @@ for (const status of ['PROCESSED', 'ALREADY_PROCESSED', 'ALREADY_RUNNING', 'FAIL
 //     le reste toujours différé (jamais confondu avec un échec).
 {
   __handleCommitteeEventCallCount = 0;
+  __latestCommitteeRun = null;
   __handleCommitteeEventImpl = async () => ({ status: 'FAILED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: null, errors: ['simulé'] });
   const log = makeLog();
+  const now = new Date().toISOString();
   const events = [
-    { id: 'best', action: 'RECALC_H1_H2', score: 90 },
-    { id: 'second', action: 'RECALC_H1_H2', score: 85 },
+    { id: 'best', action: 'RECALC_H1_H2', score: 90, ts: now },
+    { id: 'second', action: 'RECALC_H1_H2', score: 85, ts: now },
   ];
-  const outcome = await notifyAiEngine(events, baseEnv, log, createNotifyBudget());
+  const outcome = await notifyAiEngine(events, baseEnv, log, createNotifyBudget(), fakeDb);
   results.cost_guard_failed = { outcome, callCount: __handleCommitteeEventCallCount };
 }
 
@@ -241,13 +299,15 @@ for (const status of ['PROCESSED', 'ALREADY_PROCESSED', 'ALREADY_RUNNING', 'FAIL
 //     appel handleCommitteeEvent au total pour les DEUX appels combinés.
 {
   __handleCommitteeEventCallCount = 0;
+  __latestCommitteeRun = null;
   __handleCommitteeEventImpl = async () => ({ status: 'PROCESSED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: 'a-direct', errors: [] });
   const log = makeLog();
+  const now = new Date().toISOString();
   const sharedBudget = createNotifyBudget();
-  const directEvents = [{ id: 'direct-1', action: 'RECALC_H1_H2', score: 95 }];
-  const reconcileEvents = [{ id: 'reconcile-1', action: 'RECALC_H1_H2', score: 90 }, { id: 'reconcile-2', action: 'REEVALUATE_H3', score: 70 }];
-  const directOutcome = await notifyAiEngine(directEvents, baseEnv, log, sharedBudget);
-  const reconcileOutcome = await notifyAiEngine(reconcileEvents, baseEnv, log, sharedBudget);
+  const directEvents = [{ id: 'direct-1', action: 'RECALC_H1_H2', score: 95, ts: now }];
+  const reconcileEvents = [{ id: 'reconcile-1', action: 'RECALC_H1_H2', score: 90, ts: now }, { id: 'reconcile-2', action: 'REEVALUATE_H3', score: 70, ts: now }];
+  const directOutcome = await notifyAiEngine(directEvents, baseEnv, log, sharedBudget, fakeDb);
+  const reconcileOutcome = await notifyAiEngine(reconcileEvents, baseEnv, log, sharedBudget, fakeDb);
   results.shared_budget_direct_wins = {
     directOutcome, reconcileOutcome, totalCommitteeCalls: __handleCommitteeEventCallCount,
   };
@@ -257,11 +317,13 @@ for (const status of ['PROCESSED', 'ALREADY_PROCESSED', 'ALREADY_RUNNING', 'FAIL
 //     ne consomme PAS le slot -> la réconciliation peut ensuite l'utiliser.
 {
   __handleCommitteeEventCallCount = 0;
+  __latestCommitteeRun = null;
   __handleCommitteeEventImpl = async () => ({ status: 'PROCESSED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: 'a-reconcile', errors: [] });
   const log = makeLog();
+  const now = new Date().toISOString();
   const sharedBudget = createNotifyBudget();
-  const directOutcome = await notifyAiEngine([], baseEnv, log, sharedBudget);
-  const reconcileOutcome = await notifyAiEngine([{ id: 'reconcile-only', action: 'RECALC_H1_H2', score: 88 }], baseEnv, log, sharedBudget);
+  const directOutcome = await notifyAiEngine([], baseEnv, log, sharedBudget, fakeDb);
+  const reconcileOutcome = await notifyAiEngine([{ id: 'reconcile-only', action: 'RECALC_H1_H2', score: 88, ts: now }], baseEnv, log, sharedBudget, fakeDb);
   results.shared_budget_direct_empty = {
     directOutcome, reconcileOutcome, totalCommitteeCalls: __handleCommitteeEventCallCount,
   };
@@ -272,14 +334,159 @@ for (const status of ['PROCESSED', 'ALREADY_PROCESSED', 'ALREADY_RUNNING', 'FAIL
 //     événement doit être différé, jamais tenté une seconde fois.
 {
   __handleCommitteeEventCallCount = 0;
+  __latestCommitteeRun = null;
   __handleCommitteeEventImpl = async () => ({ status: 'FAILED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: null, errors: ['simulé'] });
   const log = makeLog();
+  const now = new Date().toISOString();
   const sharedBudget = createNotifyBudget();
-  const directOutcome = await notifyAiEngine([{ id: 'direct-fails', action: 'RECALC_H1_H2', score: 95 }], baseEnv, log, sharedBudget);
-  const reconcileOutcome = await notifyAiEngine([{ id: 'reconcile-blocked', action: 'RECALC_H1_H2', score: 90 }], baseEnv, log, sharedBudget);
+  const directOutcome = await notifyAiEngine([{ id: 'direct-fails', action: 'RECALC_H1_H2', score: 95, ts: now }], baseEnv, log, sharedBudget, fakeDb);
+  const reconcileOutcome = await notifyAiEngine([{ id: 'reconcile-blocked', action: 'RECALC_H1_H2', score: 90, ts: now }], baseEnv, log, sharedBudget, fakeDb);
   results.shared_budget_direct_fails = {
     directOutcome, reconcileOutcome, totalCommitteeCalls: __handleCommitteeEventCallCount,
   };
+}
+
+// 16. HORIZON (XAU-V2-OPS-015, P0-A) : bornes exactement à 4h/24h restent
+//     éligibles ; au-delà, expirées -- jamais tentées, jamais différées,
+//     jamais comptées, et ne peuvent jamais évincer un candidat plus frais.
+{
+  __handleCommitteeEventCallCount = 0;
+  __latestCommitteeRun = null;
+  __handleCommitteeEventImpl = async (notification) => ({ status: 'PROCESSED', event_id: notification.event_id, event_type: notification.event_type, scope: 'H1_H2', horizons_recalculated: [], analysis_id: 'a-horizon', errors: [] });
+  const log = makeLog();
+  const nowMs = Date.now();
+  const iso = (ms) => new Date(nowMs - ms).toISOString();
+  const HOUR = 3600 * 1000;
+
+  // H1/H2 : exactement 4h -> éligible (seul candidat, doit être délivré).
+  {
+    const outcome = await notifyAiEngine(
+      [{ id: 'h12-exact-4h', action: 'RECALC_H1_H2', score: 50, ts: iso(4 * HOUR) }],
+      baseEnv, log, createNotifyBudget(), fakeDb,
+    );
+    results.horizon_h12_exact_4h = outcome;
+  }
+  // H1/H2 : 4h + 1s -> expirée, jamais tentée/différée.
+  {
+    const outcome = await notifyAiEngine(
+      [{ id: 'h12-over-4h', action: 'RECALC_H1_H2', score: 50, ts: iso(4 * HOUR + 1000) }],
+      baseEnv, log, createNotifyBudget(), fakeDb,
+    );
+    results.horizon_h12_over_4h = outcome;
+  }
+  // H3 : exactement 24h -> éligible.
+  {
+    const outcome = await notifyAiEngine(
+      [{ id: 'h3-exact-24h', action: 'REEVALUATE_H3', score: 50, ts: iso(24 * HOUR) }],
+      baseEnv, log, createNotifyBudget(), fakeDb,
+    );
+    results.horizon_h3_exact_24h = outcome;
+  }
+  // H3 : 24h + 1s -> expirée.
+  {
+    const outcome = await notifyAiEngine(
+      [{ id: 'h3-over-24h', action: 'REEVALUATE_H3', score: 50, ts: iso(24 * HOUR + 1000) }],
+      baseEnv, log, createNotifyBudget(), fakeDb,
+    );
+    results.horizon_h3_over_24h = outcome;
+  }
+  // Un événement expiré ne peut PAS évincer un candidat frais, même avec un
+  // score bien plus élevé : il est retiré AVANT le tri par score.
+  {
+    __handleCommitteeEventCallCount = 0;
+    const outcome = await notifyAiEngine(
+      [
+        { id: 'stale-high-score', action: 'RECALC_H1_H2', score: 99, ts: iso(4 * HOUR + 1000) },
+        { id: 'fresh-low-score', action: 'RECALC_H1_H2', score: 10, ts: iso(HOUR) },
+      ],
+      baseEnv, log, createNotifyBudget(), fakeDb,
+    );
+    results.horizon_stale_cannot_evict_fresh = { outcome, callCount: __handleCommitteeEventCallCount };
+  }
+  // Un lot ENTIÈREMENT expiré ne consomme jamais le budget de cycle : l'autre
+  // chemin du même cycle (direct ou réconciliation) doit pouvoir l'utiliser.
+  {
+    __handleCommitteeEventCallCount = 0;
+    const sharedBudget = createNotifyBudget();
+    const allExpiredOutcome = await notifyAiEngine(
+      [{ id: 'all-expired', action: 'REEVALUATE_H3', score: 90, ts: iso(24 * HOUR + 1000) }],
+      baseEnv, log, sharedBudget, fakeDb,
+    );
+    const otherPathOutcome = await notifyAiEngine(
+      [{ id: 'other-path-fresh', action: 'RECALC_H1_H2', score: 60, ts: iso(HOUR) }],
+      baseEnv, log, sharedBudget, fakeDb,
+    );
+    results.horizon_expired_never_consumes_budget = {
+      allExpiredOutcome, otherPathOutcome, callCount: __handleCommitteeEventCallCount,
+    };
+  }
+}
+
+// 17. CIRCUIT FOURNISSEUR (XAU-V2-OPS-015, P0-B) : dérivé de la ligne
+//     ingestion_runs(engine='ai_committee') la plus récente, jamais d'état
+//     mémoire. Vérifié uniquement quand une tentative réelle serait sinon
+//     lancée (budget disponible, candidat éligible).
+{
+  const log = makeLog();
+  const nowMs = Date.now();
+  const iso = (ms) => new Date(nowMs - ms).toISOString();
+  const MIN = 60 * 1000;
+  __handleCommitteeEventImpl = async (notification) => ({ status: 'PROCESSED', event_id: notification.event_id, event_type: notification.event_type, scope: 'H1_H2', horizons_recalculated: [], analysis_id: 'a-circuit', errors: [] });
+  const oneEvent = () => [{ id: 'circuit-probe', action: 'RECALC_H1_H2', score: 77, ts: new Date().toISOString() }];
+
+  // ACCOUNT_BLOCKED, 74 min (< 75 min) -> circuit OUVERT, tout différé.
+  {
+    __handleCommitteeEventCallCount = 0;
+    __latestCommitteeRun = { started_at: iso(74 * MIN), status: 'failed', providers: { anthropic: { failure_kind: 'ACCOUNT_BLOCKED' } } };
+    const outcome = await notifyAiEngine(oneEvent(), baseEnv, log, createNotifyBudget(), fakeDb);
+    results.circuit_account_blocked_recent = { outcome, callCount: __handleCommitteeEventCallCount };
+  }
+  // ACCOUNT_BLOCKED, exactement 75 min -> recharge : une tentative normale autorisée.
+  {
+    __handleCommitteeEventCallCount = 0;
+    __latestCommitteeRun = { started_at: iso(75 * MIN), status: 'failed', providers: { anthropic: { failure_kind: 'ACCOUNT_BLOCKED' } } };
+    const outcome = await notifyAiEngine(oneEvent(), baseEnv, log, createNotifyBudget(), fakeDb);
+    results.circuit_account_blocked_expired = { outcome, callCount: __handleCommitteeEventCallCount };
+  }
+  // TEMPORARILY_UNAVAILABLE, 19 min (< 20 min) -> circuit OUVERT, tout différé.
+  {
+    __handleCommitteeEventCallCount = 0;
+    __latestCommitteeRun = { started_at: iso(19 * MIN), status: 'failed', providers: { anthropic: { failure_kind: 'TEMPORARILY_UNAVAILABLE' } } };
+    const outcome = await notifyAiEngine(oneEvent(), baseEnv, log, createNotifyBudget(), fakeDb);
+    results.circuit_temp_unavailable_recent = { outcome, callCount: __handleCommitteeEventCallCount };
+  }
+  // TEMPORARILY_UNAVAILABLE, exactement 20 min -> recharge : probe autorisé.
+  {
+    __handleCommitteeEventCallCount = 0;
+    __latestCommitteeRun = { started_at: iso(20 * MIN), status: 'failed', providers: { anthropic: { failure_kind: 'TEMPORARILY_UNAVAILABLE' } } };
+    const outcome = await notifyAiEngine(oneEvent(), baseEnv, log, createNotifyBudget(), fakeDb);
+    results.circuit_temp_unavailable_expired = { outcome, callCount: __handleCommitteeEventCallCount };
+  }
+  // Dernière ligne ai_committee RÉUSSIE (providers:{}) -> circuit FERMÉ,
+  // même très récente.
+  {
+    __handleCommitteeEventCallCount = 0;
+    __latestCommitteeRun = { started_at: iso(1 * MIN), status: 'success', providers: {} };
+    const outcome = await notifyAiEngine(oneEvent(), baseEnv, log, createNotifyBudget(), fakeDb);
+    results.circuit_closed_after_success = { outcome, callCount: __handleCommitteeEventCallCount };
+  }
+  // Circuit OUVERT : le budget de cycle n'est JAMAIS consommé par le
+  // déferrement -- l'autre chemin du même cycle peut encore l'utiliser.
+  {
+    __handleCommitteeEventCallCount = 0;
+    __latestCommitteeRun = { started_at: iso(1 * MIN), status: 'failed', providers: { anthropic: { failure_kind: 'ACCOUNT_BLOCKED' } } };
+    const sharedBudget = createNotifyBudget();
+    const blockedOutcome = await notifyAiEngine(oneEvent(), baseEnv, log, sharedBudget, fakeDb);
+    __latestCommitteeRun = null; // l'autre chemin relit la même vérité durable.
+    const otherPathOutcome = await notifyAiEngine(
+      [{ id: 'other-path-after-circuit', action: 'RECALC_H1_H2', score: 60, ts: new Date().toISOString() }],
+      baseEnv, log, sharedBudget, fakeDb,
+    );
+    results.circuit_deferral_does_not_consume_budget = {
+      blockedOutcome, otherPathOutcome, callCount: __handleCommitteeEventCallCount,
+    };
+  }
+  __latestCommitteeRun = null;
 }
 
 // 12. committeeEnv ne porte jamais COMMITTEE_TOKEN, même si présent sur env.
@@ -311,7 +518,7 @@ try {
 const { results, FAKE_ANTHROPIC_KEY } = output;
 
 console.log('--- CONFIGURATION MANQUANTE : DEGRADATION PROPRE ---');
-t('ANTHROPIC_API_KEY absente -> non délivré', results.no_anthropic_key.ok === false);
+t('ANTHROPIC_API_KEY absente -> non délivré', results.no_anthropic_key.ok.kind !== 'DELIVERED');
 t('ANTHROPIC_API_KEY absente -> handleCommitteeEvent jamais appelé', results.no_anthropic_key.callCount === 0);
 t('ANTHROPIC_API_KEY absente -> avertissement journalisé', results.no_anthropic_key.calls.some((c) => c.level === 'warn'));
 
@@ -319,11 +526,18 @@ console.log('--- MAPPING STATUT -> ACQUITTEMENT (jamais un proxy HTTP) ---');
 const expectDelivered = { PROCESSED: true, ALREADY_PROCESSED: true, ALREADY_RUNNING: false, FAILED: false, DATA_UNAVAILABLE: false, INVALID_EVENT: false };
 for (const [status, expected] of Object.entries(expectDelivered)) {
   const r = results['status_' + status];
-  t(`${status} -> ${expected ? 'délivré' : 'NON délivré'}`, r.ok === expected, `got ${r.ok}`);
+  const delivered = r.ok.kind === 'DELIVERED';
+  t(`${status} -> ${expected ? 'délivré' : 'NON délivré'}`, delivered === expected, `got kind=${r.ok.kind}`);
 }
+t('ALREADY_RUNNING -> DeliveryOutcome.kind = IN_PROGRESS (non-chargeable)', results.status_ALREADY_RUNNING.ok.kind === 'IN_PROGRESS');
+t('FAILED événement-spécifique -> DeliveryOutcome.kind = EVENT_FAILED', results.status_FAILED.ok.kind === 'EVENT_FAILED');
+
+console.log('--- CLASSIFICATION FOURNISSEUR (P0-B) : ACCOUNT_BLOCKED / TEMPORARILY_UNAVAILABLE JAMAIS CONFONDUS AVEC UN ECHEC ORDINAIRE ---');
+t('providerFailure=ACCOUNT_BLOCKED -> DeliveryOutcome.kind = PROVIDER_ACCOUNT_BLOCKED', results.provider_failure_ACCOUNT_BLOCKED.ok.kind === 'PROVIDER_ACCOUNT_BLOCKED');
+t('providerFailure=TEMPORARILY_UNAVAILABLE -> DeliveryOutcome.kind = PROVIDER_TEMPORARILY_UNAVAILABLE', results.provider_failure_TEMPORARILY_UNAVAILABLE.ok.kind === 'PROVIDER_TEMPORARILY_UNAVAILABLE');
 
 console.log('--- EXCEPTION COMITE : NON DELIVRE, AUCUNE FUITE ---');
-t('exception levée -> non délivré', results.thrown.ok === false);
+t('exception levée -> non délivré', results.thrown.ok.kind !== 'DELIVERED');
 t('exception levée -> avertissement journalisé', results.thrown.calls.some((c) => c.level === 'warn'));
 {
   const serialized = JSON.stringify(results.thrown.calls);
@@ -368,6 +582,45 @@ console.log('--- BUDGET DE CYCLE PARTAGE : ECHEC DIRECT -> PAS DE 2E COMITE DANS
   t('le dispatch direct tente (et échoue) -- le slot est consommé par la TENTATIVE, pas par le succès', r.directOutcome.attempted.includes('direct-fails') && !r.directOutcome.delivered.includes('direct-fails'));
   t('la réconciliation NE retente PAS un second comité : son événement est différé', r.reconcileOutcome.attempted.length === 0 && r.reconcileOutcome.deferred.includes('reconcile-blocked'));
   t('un seul appel handleCommitteeEvent pour tout le cycle, même en échec', r.totalCommitteeCalls === 1);
+}
+
+console.log('--- HORIZON (P0-A) : BORNES EXACTES 4H/24H, EXPIRATION, NON-EVICTION, BUDGET ---');
+{
+  t('H1/H2 exactement 4h -> éligible, délivré', results.horizon_h12_exact_4h.delivered.includes('h12-exact-4h'));
+  t('H1/H2 4h+1s -> expiré, jamais tenté ni différé', !results.horizon_h12_over_4h.attempted.includes('h12-over-4h') && !results.horizon_h12_over_4h.deferred.includes('h12-over-4h'));
+  t('H3 exactement 24h -> éligible, délivré', results.horizon_h3_exact_24h.delivered.includes('h3-exact-24h'));
+  t('H3 24h+1s -> expiré, jamais tenté ni différé', !results.horizon_h3_over_24h.attempted.includes('h3-over-24h') && !results.horizon_h3_over_24h.deferred.includes('h3-over-24h'));
+  t('un événement expiré à score élevé ne peut pas évincer un candidat frais à score faible',
+    results.horizon_stale_cannot_evict_fresh.outcome.delivered.includes('fresh-low-score')
+    && !results.horizon_stale_cannot_evict_fresh.outcome.attempted.includes('stale-high-score')
+    && !results.horizon_stale_cannot_evict_fresh.outcome.deferred.includes('stale-high-score'));
+  t('un lot entièrement expiré ne consomme JAMAIS le budget de cycle : l\'autre chemin peut encore l\'utiliser',
+    results.horizon_expired_never_consumes_budget.otherPathOutcome.delivered.includes('other-path-fresh')
+    && results.horizon_expired_never_consumes_budget.callCount === 1);
+}
+
+console.log('--- CIRCUIT FOURNISSEUR (P0-B) : FENETRES DE RECHARGE 75MIN / 20MIN ---');
+{
+  t('ACCOUNT_BLOCKED < 75 min -> circuit OUVERT, tout différé, AUCUN appel comité',
+    results.circuit_account_blocked_recent.callCount === 0
+    && results.circuit_account_blocked_recent.outcome.deferred.includes('circuit-probe')
+    && results.circuit_account_blocked_recent.outcome.attempted.length === 0);
+  t('ACCOUNT_BLOCKED >= 75 min -> circuit rechargé, une tentative normale autorisée',
+    results.circuit_account_blocked_expired.callCount === 1
+    && results.circuit_account_blocked_expired.outcome.attempted.includes('circuit-probe'));
+  t('TEMPORARILY_UNAVAILABLE < 20 min -> circuit OUVERT, tout différé, AUCUN appel comité',
+    results.circuit_temp_unavailable_recent.callCount === 0
+    && results.circuit_temp_unavailable_recent.outcome.deferred.includes('circuit-probe'));
+  t('TEMPORARILY_UNAVAILABLE >= 20 min -> circuit rechargé, une tentative normale autorisée',
+    results.circuit_temp_unavailable_expired.callCount === 1
+    && results.circuit_temp_unavailable_expired.outcome.attempted.includes('circuit-probe'));
+  t('dernière ligne ai_committee RÉUSSIE -> circuit FERMÉ, tentative normale autorisée',
+    results.circuit_closed_after_success.callCount === 1
+    && results.circuit_closed_after_success.outcome.attempted.includes('circuit-probe'));
+  t('déferrement circuit -> ne consomme JAMAIS le budget de cycle : l\'autre chemin peut encore l\'utiliser',
+    results.circuit_deferral_does_not_consume_budget.blockedOutcome.attempted.length === 0
+    && results.circuit_deferral_does_not_consume_budget.otherPathOutcome.delivered.includes('other-path-after-circuit')
+    && results.circuit_deferral_does_not_consume_budget.callCount === 1);
 }
 
 console.log('--- SEPARATION DES ENVIRONNEMENTS (pas de COMMITTEE_TOKEN interne) ---');
