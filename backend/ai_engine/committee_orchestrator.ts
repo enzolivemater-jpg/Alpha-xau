@@ -406,9 +406,54 @@ function isFinitePositive(value: unknown): value is number {
 /*  5. CLIENT ANTHROPIC                                                        */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Classification STRUCTURELLE d'un échec Anthropic (XAU-V2-OPS-015,
+ * P0-B) — jamais déduite en aval par un nouveau pattern-matching sur un
+ * message d'erreur : ce module est le SEUL endroit où le corps de
+ * réponse brut est inspecté pour en tirer une catégorie.
+ *
+ *   TEMPORARILY_UNAVAILABLE : infrastructure (429/408/5xx/529) — un
+ *     nouvel essai a de bonnes chances d'aboutir rapidement.
+ *   ACCOUNT_BLOCKED : condition de facturation/compte (crédit épuisé),
+ *     globale — indépendante de tout événement news précis, ne
+ *     s'améliore pas avec un nouvel essai immédiat.
+ *   INVALID_REQUEST : 4xx déterministe résiduel (ni rate-limit, ni
+ *     facturation) — rejouer sans changement ne changerait rien.
+ */
+export type AnthropicFailureKind =
+  | 'TEMPORARILY_UNAVAILABLE'
+  | 'ACCOUNT_BLOCKED'
+  | 'INVALID_REQUEST';
+
+/**
+ * Signature EXACTE observée en production (audit XAU-V2-OPS-012) pour le
+ * blocage de compte : HTTP 400, error.type = invalid_request_error,
+ * message évoquant un solde de crédit insuffisant. Isolée ici, seul
+ * endroit du fichier où elle est comparée.
+ */
+function classifyAnthropicHttpFailure(bodyText: string): AnthropicFailureKind {
+  try {
+    const parsed = JSON.parse(bodyText) as { error?: { type?: string; message?: string } };
+    const type = parsed.error?.type;
+    const message = parsed.error?.message ?? '';
+    if (type === 'invalid_request_error' && /credit balance is too low|insufficient credit/i.test(message)) {
+      return 'ACCOUNT_BLOCKED';
+    }
+  } catch {
+    // Corps non-JSON ou de forme inattendue : jamais supposé ACCOUNT_BLOCKED
+    // sans preuve structurelle — reste une requête invalide générique.
+  }
+  return 'INVALID_REQUEST';
+}
+
+/**
+ * `status` porte le code HTTP réellement reçu, SAUF sentinelle `0` : aucune
+ * réponse HTTP n'a été reçue (timeout local, échec de transport réseau) —
+ * jamais un code HTTP inventé pour ces cas (callClaude, catch du fetch).
+ */
 class AnthropicError extends Error {
   constructor(message: string, readonly status: number, readonly retryable: boolean,
-              readonly retryAfterMs?: number) {
+              readonly retryAfterMs?: number, readonly failureKind?: AnthropicFailureKind) {
     super(message);
     this.name = 'AnthropicError';
   }
@@ -483,15 +528,21 @@ async function callClaude(
 
       if (response.status === 429) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
-        throw new AnthropicError(`${agent}: rate limited`, 429, true, retryAfter ?? undefined);
+        throw new AnthropicError(
+          `${agent}: rate limited`, 429, true, retryAfter ?? undefined, 'TEMPORARILY_UNAVAILABLE',
+        );
       }
       if (response.status >= 500 || response.status === 408 || response.status === 529) {
-        throw new AnthropicError(`${agent}: HTTP ${response.status}`, response.status, true);
+        throw new AnthropicError(
+          `${agent}: HTTP ${response.status}`, response.status, true, undefined, 'TEMPORARILY_UNAVAILABLE',
+        );
       }
       if (!response.ok) {
-        const body = (await response.text().catch(() => '')).slice(0, 300);
+        const bodyText = await response.text().catch(() => '');
+        const failureKind = classifyAnthropicHttpFailure(bodyText);
         throw new AnthropicError(
-          `${agent}: HTTP ${response.status} ${redactString(body)}`, response.status, false,
+          `${agent}: HTTP ${response.status} ${redactString(bodyText.slice(0, 300))}`,
+          response.status, false, undefined, failureKind,
         );
       }
 
@@ -544,13 +595,40 @@ async function callClaude(
       }
     } catch (err) {
       clearTimeout(timer);
-      lastError = err;
 
       const isAbort = err instanceof Error && err.name === 'AbortError';
-      if (isAbort) lastError = new Error(`${agent}: timeout après ${CONFIG.HTTP_TIMEOUT_MS}ms`);
-
       const isApi = err instanceof AnthropicError;
-      const retryable = isAbort || !isApi || (err as AnthropicError).retryable;
+      // XAU-V2-OPS-015 (P0-B), BLOCKER 1 : un abandon local par timeout et un
+      // échec de transport fetch (TypeError -- la spec WHATWG fetch impose
+      // qu'une "network error" rejette TOUJOURS avec un TypeError, jamais un
+      // autre type de valeur) sont des pannes fournisseur au même titre
+      // qu'un 429/5xx/529. Avant ce correctif, ils s'échappaient comme une
+      // Error générique (le timeout) ou l'exception brute non typée (le
+      // réseau) : `err instanceof AnthropicError` était alors faux après
+      // épuisement des tentatives, EventResult.providerFailure restait
+      // undefined, et postNotification() classait à tort l'événement
+      // EVENT_FAILED -- chargeant son notify_attempts pour une panne
+      // globale, en violation de P0-B. Jamais élargi à une exception
+      // applicative/de programmation quelconque : seuls ces deux signaux
+      // structurels précis (nom 'AbortError', TypeError natif de fetch)
+      // déclenchent cette classification. `status` porte le sentinel 0
+      // (documenté : aucune réponse HTTP n'a été reçue), jamais un code HTTP
+      // inventé (ex. 408, qui désignerait à tort une réponse serveur reçue).
+      const isNetworkTransport = !isApi && !isAbort && err instanceof TypeError;
+
+      if (isAbort) {
+        lastError = new AnthropicError(
+          `${agent}: timeout après ${CONFIG.HTTP_TIMEOUT_MS}ms`, 0, true, undefined, 'TEMPORARILY_UNAVAILABLE',
+        );
+      } else if (isNetworkTransport) {
+        lastError = new AnthropicError(
+          `${agent}: échec réseau (${errorMessage(err)})`, 0, true, undefined, 'TEMPORARILY_UNAVAILABLE',
+        );
+      } else {
+        lastError = err;
+      }
+
+      const retryable = isAbort || isNetworkTransport || !isApi || (err as AnthropicError).retryable;
       if (!retryable || attempt === CONFIG.MAX_RETRIES) break;
 
       const suggested = isApi ? (err as AnthropicError).retryAfterMs : undefined;
@@ -1487,22 +1565,36 @@ export async function runCommittee(
   // Cloudflare (`wrangler tail`, capturé par le `catch` de `runJob` dans
   // worker.ts), jamais dans Supabase — deux mécanismes d'enregistrement
   // désynchronisés. Le statut réel est maintenant capturé avant relâche.
-  let outcome: { status: 'success' | 'failed'; errors: readonly string[] } =
-    { status: 'success', errors: [] };
+  let outcome: {
+    status: 'success' | 'failed';
+    errors: readonly string[];
+    providerFailure?: AnthropicFailureKind;
+  } = { status: 'success', errors: [] };
   try {
     const result = await runCommitteeLocked(env, db, log, scope, startedAt, agents);
     return result;
   } catch (err) {
-    outcome = { status: 'failed', errors: [errorMessage(err)] };
+    const providerFailure = err instanceof AnthropicError ? err.failureKind : undefined;
+    outcome = { status: 'failed', errors: [errorMessage(err)], providerFailure };
     throw err;
   } finally {
     // Libération inconditionnelle : succès, erreur ou exception. Un verrou
     // non relâché bloquerait le comité jusqu'à la récupération stale.
     // Le statut relâché reflète désormais l'issue réelle capturée ci-dessus.
+    //
+    // providers.anthropic.failure_kind (XAU-V2-OPS-015, P0-B) : seule trace
+    // structurelle, dans ingestion_runs, qu'un run ai_committee a échoué
+    // pour une raison fournisseur globale plutôt qu'événement-spécifique.
+    // Un run RÉUSSI écrit toujours providers:{} — jamais de state résiduel
+    // d'un échec précédent sur une ligne de succès (le cron horaire, en
+    // particulier, referme ainsi le circuit dès son prochain passage réussi).
     await releaseLock(db, lock.runRowId, {
       status: outcome.status,
       durationMs: Date.now() - startedAt,
       errors: outcome.errors,
+      providers: outcome.providerFailure
+        ? { anthropic: { failure_kind: outcome.providerFailure } }
+        : {},
     }).catch((err: unknown) => {
       log.error('Libération du verrou comité en échec', { reason: errorMessage(err) });
     });
@@ -1830,6 +1922,15 @@ export interface EventResult {
   readonly horizons_recalculated: readonly Horizon[];
   readonly analysis_id: string | null;
   readonly errors: readonly string[];
+  /**
+   * Additif (XAU-V2-OPS-015, P0-B) : présent UNIQUEMENT quand status
+   * === 'FAILED' et que l'échec est structurellement identifié comme
+   * un problème fournisseur (jamais pour un FAILED event-spécifique
+   * ordinaire). Ne modifie ni ne remplace le contrat EventStatus
+   * existant — un consommateur qui l'ignore retrouve exactement le
+   * comportement OPS-009/OPS-010 d'avant ce correctif.
+   */
+  readonly providerFailure?: AnthropicFailureKind;
 }
 
 /**
@@ -2092,8 +2193,11 @@ export async function handleCommitteeEvent(raw: unknown, env: CommitteeRuntimeEn
   // DATA_UNAVAILABLE de FAILED, mais cette information n'atteignait jamais
   // `releaseLock`. Capturée maintenant via `outcome`, mise à jour avant
   // chaque retour du `try` et dans le `catch`.
-  let outcome: { status: 'success' | 'failed'; errors: readonly string[] } =
-    { status: 'success', errors: [] };
+  let outcome: {
+    status: 'success' | 'failed';
+    errors: readonly string[];
+    providerFailure?: AnthropicFailureKind;
+  } = { status: 'success', errors: [] };
   try {
     // 3. IDEMPOTENCE (avec reprise CAS des états rejouables/orphelins).
     const claim = await claimEvent(db, event, log);
@@ -2177,22 +2281,37 @@ export async function handleCommitteeEvent(raw: unknown, env: CommitteeRuntimeEn
     const message = errorMessage(err);
     // Contexte marché insuffisant : statut distinct d'un échec technique.
     const isDataIssue = /DATA_UNAVAILABLE/i.test(message);
-    outcome = { status: 'failed', errors: [message] };
+    // XAU-V2-OPS-015 (P0-B) : jamais un problème fournisseur quand
+    // isDataIssue est vrai (le message DATA_UNAVAILABLE n'est jamais
+    // levé par callClaude/AnthropicError) — les deux restent mutuellement
+    // exclusifs par construction.
+    const providerFailure = !isDataIssue && err instanceof AnthropicError ? err.failureKind : undefined;
+    outcome = { status: 'failed', errors: [message], providerFailure };
     await closeEvent(
       db, event.event_id, isDataIssue ? 'DATA_UNAVAILABLE' : 'FAILED',
       startedAt, null, message,
     );
-    log.error(isDataIssue ? 'DATA_UNAVAILABLE' : 'FAILED', { reason: message });
+    log.error(isDataIssue ? 'DATA_UNAVAILABLE' : 'FAILED', { reason: message, provider_failure: providerFailure });
     return {
       ...base,
       status: isDataIssue ? 'DATA_UNAVAILABLE' : 'FAILED',
       analysis_id: null,
       errors: [message],
+      ...(providerFailure ? { providerFailure } : {}),
     };
   } finally {
     // Libération inconditionnelle du verrou. Statut réel capturé ci-dessus.
+    // providers.anthropic.failure_kind : voir le commentaire équivalent
+    // dans runCommittee() ci-dessus — même contrat, même circuit lu par
+    // notifyAiEngine() (backend/ingest.ts), quel que soit le propriétaire
+    // du verrou qui a produit la ligne ingestion_runs la plus récente.
     await releaseLock(db, lock.runRowId, {
-      status: outcome.status, durationMs: Date.now() - startedAt, errors: outcome.errors,
+      status: outcome.status,
+      durationMs: Date.now() - startedAt,
+      errors: outcome.errors,
+      providers: outcome.providerFailure
+        ? { anthropic: { failure_kind: outcome.providerFailure } }
+        : {},
     }).catch(() => undefined);
   }
 }
