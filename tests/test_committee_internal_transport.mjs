@@ -346,9 +346,35 @@ for (const kind of ['ACCOUNT_BLOCKED', 'TEMPORARILY_UNAVAILABLE']) {
   };
 }
 
-// 16. HORIZON (XAU-V2-OPS-015, P0-A) : bornes exactement à 4h/24h restent
-//     éligibles ; au-delà, expirées -- jamais tentées, jamais différées,
-//     jamais comptées, et ne peuvent jamais évincer un candidat plus frais.
+// 16a. HORIZON — HELPER PUR isNotificationWithinHorizon(), BORNES EXACTES,
+//      100% DÉTERMINISTE (XAU-V2-OPS-015 PR review, BLOCKER 2) : le MÊME
+//      nowMs fixe et arbitraire (jamais Date.now()) sert à calculer le ts
+//      ET à appeler la fonction -- aucune fenêtre d'horloge entre les deux,
+//      contrairement à un test qui passerait par notifyAiEngine() (lequel
+//      rappelle Date.now() en interne : une borne "exactement 4h" calculée
+//      via Date.now() côté test peut alors basculer de quelques millisecondes
+//      avant l'évaluation interne et rendre le test intermittent).
+{
+  const fixedNowMs = 1_800_000_000_000; // horodatage arbitraire fixe.
+  const HOUR = 3600 * 1000;
+  const isoAt = (ageMs) => new Date(fixedNowMs - ageMs).toISOString();
+  results.horizon_pure_boundaries = {
+    h12_exact_4h: isNotificationWithinHorizon('RECALC_H1_H2', isoAt(4 * HOUR), fixedNowMs),
+    h12_over_4h_by_1ms: isNotificationWithinHorizon('RECALC_H1_H2', isoAt(4 * HOUR + 1), fixedNowMs),
+    h3_exact_24h: isNotificationWithinHorizon('REEVALUATE_H3', isoAt(24 * HOUR), fixedNowMs),
+    h3_over_24h_by_1ms: isNotificationWithinHorizon('REEVALUATE_H3', isoAt(24 * HOUR + 1), fixedNowMs),
+  };
+}
+
+// 16b. HORIZON — INTÉGRATION notifyAiEngine() (XAU-V2-OPS-015, P0-A) :
+//      événements éligibles/expirés jamais tentés/différés/comptés à tort,
+//      jamais capables d'évincer un candidat plus frais. notifyAiEngine()
+//      relit Date.now() en interne (P0-A défense en profondeur, cf.
+//      isNotificationWithinHorizon appelée SANS nowMs explicite) : les bornes
+//      testées ici utilisent donc une MARGE de sécurité de 1s de part et
+//      d'autre de l'horizon (jamais la valeur exacte, réservée au test pur
+//      16a ci-dessus) pour rester déterministes quelle que soit la charge de
+//      la machine.
 {
   __handleCommitteeEventCallCount = 0;
   __latestCommitteeRun = null;
@@ -357,38 +383,39 @@ for (const kind of ['ACCOUNT_BLOCKED', 'TEMPORARILY_UNAVAILABLE']) {
   const nowMs = Date.now();
   const iso = (ms) => new Date(nowMs - ms).toISOString();
   const HOUR = 3600 * 1000;
+  const MARGIN = 1000; // 1s -- absorbe l'écart entre le nowMs de ce test et celui relu par notifyAiEngine().
 
-  // H1/H2 : exactement 4h -> éligible (seul candidat, doit être délivré).
+  // H1/H2 : 4h - 1s (marge de sécurité côté éligible) -> éligible, délivré.
   {
     const outcome = await notifyAiEngine(
-      [{ id: 'h12-exact-4h', action: 'RECALC_H1_H2', score: 50, ts: iso(4 * HOUR) }],
+      [{ id: 'h12-eligible-margin', action: 'RECALC_H1_H2', score: 50, ts: iso(4 * HOUR - MARGIN) }],
       baseEnv, log, createNotifyBudget(), fakeDb,
     );
-    results.horizon_h12_exact_4h = outcome;
+    results.horizon_h12_eligible_margin = outcome;
   }
-  // H1/H2 : 4h + 1s -> expirée, jamais tentée/différée.
+  // H1/H2 : 4h + 1s (marge de sécurité côté expiré) -> expirée, jamais tentée/différée.
   {
     const outcome = await notifyAiEngine(
-      [{ id: 'h12-over-4h', action: 'RECALC_H1_H2', score: 50, ts: iso(4 * HOUR + 1000) }],
+      [{ id: 'h12-expired-margin', action: 'RECALC_H1_H2', score: 50, ts: iso(4 * HOUR + MARGIN) }],
       baseEnv, log, createNotifyBudget(), fakeDb,
     );
-    results.horizon_h12_over_4h = outcome;
+    results.horizon_h12_expired_margin = outcome;
   }
-  // H3 : exactement 24h -> éligible.
+  // H3 : 24h - 1s -> éligible.
   {
     const outcome = await notifyAiEngine(
-      [{ id: 'h3-exact-24h', action: 'REEVALUATE_H3', score: 50, ts: iso(24 * HOUR) }],
+      [{ id: 'h3-eligible-margin', action: 'REEVALUATE_H3', score: 50, ts: iso(24 * HOUR - MARGIN) }],
       baseEnv, log, createNotifyBudget(), fakeDb,
     );
-    results.horizon_h3_exact_24h = outcome;
+    results.horizon_h3_eligible_margin = outcome;
   }
   // H3 : 24h + 1s -> expirée.
   {
     const outcome = await notifyAiEngine(
-      [{ id: 'h3-over-24h', action: 'REEVALUATE_H3', score: 50, ts: iso(24 * HOUR + 1000) }],
+      [{ id: 'h3-expired-margin', action: 'REEVALUATE_H3', score: 50, ts: iso(24 * HOUR + MARGIN) }],
       baseEnv, log, createNotifyBudget(), fakeDb,
     );
-    results.horizon_h3_over_24h = outcome;
+    results.horizon_h3_expired_margin = outcome;
   }
   // Un événement expiré ne peut PAS évincer un candidat frais, même avec un
   // score bien plus élevé : il est retiré AVANT le tri par score.
@@ -396,7 +423,7 @@ for (const kind of ['ACCOUNT_BLOCKED', 'TEMPORARILY_UNAVAILABLE']) {
     __handleCommitteeEventCallCount = 0;
     const outcome = await notifyAiEngine(
       [
-        { id: 'stale-high-score', action: 'RECALC_H1_H2', score: 99, ts: iso(4 * HOUR + 1000) },
+        { id: 'stale-high-score', action: 'RECALC_H1_H2', score: 99, ts: iso(4 * HOUR + MARGIN) },
         { id: 'fresh-low-score', action: 'RECALC_H1_H2', score: 10, ts: iso(HOUR) },
       ],
       baseEnv, log, createNotifyBudget(), fakeDb,
@@ -409,7 +436,7 @@ for (const kind of ['ACCOUNT_BLOCKED', 'TEMPORARILY_UNAVAILABLE']) {
     __handleCommitteeEventCallCount = 0;
     const sharedBudget = createNotifyBudget();
     const allExpiredOutcome = await notifyAiEngine(
-      [{ id: 'all-expired', action: 'REEVALUATE_H3', score: 90, ts: iso(24 * HOUR + 1000) }],
+      [{ id: 'all-expired', action: 'REEVALUATE_H3', score: 90, ts: iso(24 * HOUR + MARGIN) }],
       baseEnv, log, sharedBudget, fakeDb,
     );
     const otherPathOutcome = await notifyAiEngine(
@@ -489,6 +516,26 @@ for (const kind of ['ACCOUNT_BLOCKED', 'TEMPORARILY_UNAVAILABLE']) {
   __latestCommitteeRun = null;
 }
 
+// 18. TRANSPORT/RESEAU (XAU-V2-OPS-015 PR review, BLOCKER 1) : au niveau
+//     notifyAiEngine(), une panne fournisseur de transport (abort local ou
+//     échec réseau côté callClaude, classée TEMPORARILY_UNAVAILABLE comme
+//     n'importe quel 429/5xx -- la distinction transport/HTTP n'existe plus
+//     une fois EventResult.providerFailure peuplé) est tentée UNE fois
+//     (consomme le budget de cycle), mais reste NON chargeable : jamais dans
+//     chargeableFailed, donc jamais de bump de notify_attempts côté appelant
+//     (dispatchActions/reconcileNotifications).
+{
+  __handleCommitteeEventCallCount = 0;
+  __latestCommitteeRun = null;
+  __handleCommitteeEventImpl = async () => ({ status: 'FAILED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: null, errors: ['échec réseau (simulé)'], providerFailure: 'TEMPORARILY_UNAVAILABLE' });
+  const log = makeLog();
+  const outcome = await notifyAiEngine(
+    [{ id: 'transport-failure', action: 'RECALC_H1_H2', score: 80, ts: new Date().toISOString() }],
+    baseEnv, log, createNotifyBudget(), fakeDb,
+  );
+  results.notify_transport_failure = { outcome, callCount: __handleCommitteeEventCallCount };
+}
+
 // 12. committeeEnv ne porte jamais COMMITTEE_TOKEN, même si présent sur env.
 {
   __handleCommitteeEventImpl = async () => ({ status: 'PROCESSED', event_id: 'x', event_type: 'RECALC_H1_H2', scope: 'H1_H2', horizons_recalculated: [], analysis_id: 'a', errors: [] });
@@ -558,6 +605,8 @@ console.log('--- GARDE-FOU COUT : ECHEC DE LA TENTATIVE UNIQUE ---');
 t('un seul appel handleCommitteeEvent même en échec', results.cost_guard_failed.callCount === 1);
 t('tentative échouée -> attempted mais pas delivered', results.cost_guard_failed.outcome.attempted.includes('best') && !results.cost_guard_failed.outcome.delivered.includes('best'));
 t('événement jamais tenté -> différé, PAS confondu avec un échec', results.cost_guard_failed.outcome.deferred.includes('second') && !results.cost_guard_failed.outcome.attempted.includes('second'));
+t('échec événement-spécifique générique (sans providerFailure) -> reste chargeable (bump notify_attempts attendu, exactement une fois)',
+  results.cost_guard_failed.outcome.chargeableFailed.length === 1 && results.cost_guard_failed.outcome.chargeableFailed[0] === 'best');
 
 console.log('--- BUDGET DE CYCLE PARTAGE : DISPATCH DIRECT CONSOMME LE SLOT ---');
 {
@@ -584,12 +633,21 @@ console.log('--- BUDGET DE CYCLE PARTAGE : ECHEC DIRECT -> PAS DE 2E COMITE DANS
   t('un seul appel handleCommitteeEvent pour tout le cycle, même en échec', r.totalCommitteeCalls === 1);
 }
 
-console.log('--- HORIZON (P0-A) : BORNES EXACTES 4H/24H, EXPIRATION, NON-EVICTION, BUDGET ---');
+console.log('--- HORIZON (P0-A) : BORNES EXACTES 4H/24H, DÉTERMINISTE (helper pur, nowMs injecté) ---');
 {
-  t('H1/H2 exactement 4h -> éligible, délivré', results.horizon_h12_exact_4h.delivered.includes('h12-exact-4h'));
-  t('H1/H2 4h+1s -> expiré, jamais tenté ni différé', !results.horizon_h12_over_4h.attempted.includes('h12-over-4h') && !results.horizon_h12_over_4h.deferred.includes('h12-over-4h'));
-  t('H3 exactement 24h -> éligible, délivré', results.horizon_h3_exact_24h.delivered.includes('h3-exact-24h'));
-  t('H3 24h+1s -> expiré, jamais tenté ni différé', !results.horizon_h3_over_24h.attempted.includes('h3-over-24h') && !results.horizon_h3_over_24h.deferred.includes('h3-over-24h'));
+  const b = results.horizon_pure_boundaries;
+  t('H1/H2 exactement 4h -> éligible (isNotificationWithinHorizon, nowMs fixe)', b.h12_exact_4h === true);
+  t('H1/H2 4h + 1ms -> expiré', b.h12_over_4h_by_1ms === false);
+  t('H3 exactement 24h -> éligible', b.h3_exact_24h === true);
+  t('H3 24h + 1ms -> expiré', b.h3_over_24h_by_1ms === false);
+}
+
+console.log('--- HORIZON (P0-A) : INTEGRATION notifyAiEngine() (marge de sécurité, jamais la borne exacte) ---');
+{
+  t('H1/H2 éligible (4h - 1s) -> délivré', results.horizon_h12_eligible_margin.delivered.includes('h12-eligible-margin'));
+  t('H1/H2 expiré (4h + 1s) -> jamais tenté ni différé', !results.horizon_h12_expired_margin.attempted.includes('h12-expired-margin') && !results.horizon_h12_expired_margin.deferred.includes('h12-expired-margin'));
+  t('H3 éligible (24h - 1s) -> délivré', results.horizon_h3_eligible_margin.delivered.includes('h3-eligible-margin'));
+  t('H3 expiré (24h + 1s) -> jamais tenté ni différé', !results.horizon_h3_expired_margin.attempted.includes('h3-expired-margin') && !results.horizon_h3_expired_margin.deferred.includes('h3-expired-margin'));
   t('un événement expiré à score élevé ne peut pas évincer un candidat frais à score faible',
     results.horizon_stale_cannot_evict_fresh.outcome.delivered.includes('fresh-low-score')
     && !results.horizon_stale_cannot_evict_fresh.outcome.attempted.includes('stale-high-score')
@@ -621,6 +679,16 @@ console.log('--- CIRCUIT FOURNISSEUR (P0-B) : FENETRES DE RECHARGE 75MIN / 20MIN
     results.circuit_deferral_does_not_consume_budget.blockedOutcome.attempted.length === 0
     && results.circuit_deferral_does_not_consume_budget.otherPathOutcome.delivered.includes('other-path-after-circuit')
     && results.circuit_deferral_does_not_consume_budget.callCount === 1);
+}
+
+console.log('--- P0-B (BLOCKER 1) : PANNE TRANSPORT AU NIVEAU notifyAiEngine() -- TENTÉE UNE FOIS, NON CHARGEABLE ---');
+{
+  const r = results.notify_transport_failure;
+  t('panne transport (TEMPORARILY_UNAVAILABLE) -> tentée une fois (consomme le budget)',
+    r.callCount === 1 && r.outcome.attempted.includes('transport-failure'));
+  t('panne transport -> non délivrée', !r.outcome.delivered.includes('transport-failure'));
+  t('panne transport -> chargeableFailed VIDE (notify_attempts ne serait JAMAIS incrémenté)',
+    r.outcome.chargeableFailed.length === 0);
 }
 
 console.log('--- SEPARATION DES ENVIRONNEMENTS (pas de COMMITTEE_TOKEN interne) ---');

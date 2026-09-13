@@ -116,11 +116,13 @@ class Logger {
 
 class CommitteeBusyError extends Error {}
 // Stub minimal (XAU-V2-OPS-015) : ce test ne porte pas sur la classification
-// fournisseur (couverte par test_anthropic_failure_classification.mjs), mais
-// handleCommitteeEvent() réel référence désormais AnthropicError dans son
-// catch pour peupler EventResult.providerFailure. Aucun des scénarios levés
-// ici n'est une instance de cette classe : le test instanceof reste faux,
-// providerFailure reste undefined, comportement inchangé pour ce fichier.
+// fournisseur elle-même (couverte par tests/test_notification_horizon_provider_circuit.mjs),
+// mais handleCommitteeEvent() réel référence désormais AnthropicError dans
+// son catch pour peupler EventResult.providerFailure. La plupart des
+// scénarios levés ici n'en sont pas des instances : le test instanceof reste
+// faux, providerFailure reste undefined, comportement inchangé pour ces
+// cas. Les scénarios 17/18 (DETECTION INITIALE, plus bas) en construisent
+// délibérément une pour prouver la propagation providerFailure/releaseLock.
 class AnthropicError extends Error {
   constructor(message, status, retryable, retryAfterMs, failureKind) {
     super(message);
@@ -470,6 +472,26 @@ const results = {};
   };
 }
 
+// 20. XAU-V2-OPS-015 PR review, BLOCKER 1 : une panne de TRANSPORT
+//     (abort local / échec réseau côté callClaude, status = sentinel 0 --
+//     jamais un code HTTP reçu, cf. committee_orchestrator.ts) suit
+//     EXACTEMENT le même contrat que le cas HTTP #18 ci-dessus une fois
+//     classée par callClaude : EventResult.providerFailure la reporte, et
+//     releaseLock persiste providers.anthropic.failure_kind. Preuve que la
+//     distinction transport/HTTP disparaît correctement dès la frontière
+//     AnthropicError -- rien de spécifique à coder plus loin dans la chaîne.
+{
+  const db = new FakeDb();
+  const env = makeEnv(db);
+  __releaseLockCalls.length = 0;
+  __runCommitteeImpl = async () => { throw new AnthropicError('macro_analyst: timeout après 60000ms', 0, true, undefined, 'TEMPORARILY_UNAVAILABLE'); };
+  const result = await handleCommitteeEvent(committeeEventBody('E-TRANSPORTFAIL'), env);
+  results.transport_failure_first_detection = {
+    result, row: { ...db.rows.get('E-TRANSPORTFAIL') },
+    release: __releaseLockCalls[__releaseLockCalls.length - 1],
+  };
+}
+
 process.stdout.write(JSON.stringify({ results }));
 `;
 
@@ -578,6 +600,16 @@ console.log('--- P0-B : DETECTION INITIALE D\'UNE PANNE FOURNISSEUR GLOBALE ---'
   t('run réussi -> EventResult.status = PROCESSED', r.result.status === 'PROCESSED');
   t('run réussi -> releaseLock relâche providers:{} (aucun état résiduel d\'un échec précédent)',
     r.release && Object.keys(r.release.providers ?? { x: 1 }).length === 0);
+}
+
+console.log('--- P0-B (BLOCKER 1) : PANNE DE TRANSPORT (status=0) SUIT LE MEME CONTRAT QU\'UN 429/5xx ---');
+{
+  const r = results.transport_failure_first_detection;
+  t('panne transport -> EventResult.status = FAILED', r.result.status === 'FAILED');
+  t('panne transport -> EventResult.providerFailure = TEMPORARILY_UNAVAILABLE', r.result.providerFailure === 'TEMPORARILY_UNAVAILABLE');
+  t('panne transport -> ai_events.status = FAILED (rejouable)', r.row.status === 'FAILED');
+  t('panne transport -> releaseLock persiste providers.anthropic.failure_kind = TEMPORARILY_UNAVAILABLE',
+    r.release?.providers?.anthropic?.failure_kind === 'TEMPORARILY_UNAVAILABLE');
 }
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);

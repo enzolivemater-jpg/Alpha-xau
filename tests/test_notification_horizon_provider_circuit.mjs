@@ -16,7 +16,11 @@
 //     correctement chaque forme de corps HTTP 400 ;
 //   - callClaude() (globalThis.fetch remplacé par un stub synchrone,
 //     déterministe) construit l'AnthropicError avec le failureKind attendu
-//     pour 429 / 408 / 5xx / 529, et ne retente jamais un 400 déterministe.
+//     pour 429 / 408 / 5xx / 529, et ne retente jamais un 400 déterministe ;
+//   - XAU-V2-OPS-015 PR review, BLOCKER 1 : un abandon local (AbortError) ou
+//     un échec de transport fetch (TypeError) sont classés
+//     TEMPORARILY_UNAVAILABLE au même titre, jamais laissés fuir comme une
+//     Error générique non typée, ET le retry/backoff normal reste préservé.
 import { readFileSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -111,6 +115,12 @@ console.log('--- VIEW : garde-fou d\'horizon exact (RECALC_H1_H2 4h / REEVALUATE
  * ======================================================================== */
 const classifySrc = extractBlock(committeeSource, /function classifyAnthropicHttpFailure\(bodyText: string\)/);
 const callClaudeSrc = extractBlock(committeeSource, /async function callClaude\(/);
+// callClaude() appelle errorMessage() (message de log ET, depuis BLOCKER 1,
+// construction du message de l'AnthropicError classant une panne réseau) :
+// requis dans le harnais, sans quoi son absence lève une ReferenceError
+// interne au catch de callClaude, masquant le vrai test derrière un échec
+// non lié à la classification.
+const errorMessageSrc = extractBlock(committeeSource, /function errorMessage\(err: unknown\)/);
 // AnthropicError utilise des "parameter properties" TypeScript
 // (`constructor(message, readonly status, ...)`), syntaxe NON supportée par
 // le mode "strip-only" de Node (cf. test_committee_event_retry_idempotency.mjs,
@@ -192,6 +202,7 @@ const CONFIG = {
 const AGENT_PROMPTS = { macro_analyst: 'system prompt de test' };
 ${sleepMatch[0]}
 ${redactStringSrc}
+${errorMessageSrc}
 ${parseRetryAfterSrc}
 ${backoffDelaySrc}
 ${anthropicErrorClassSrc}
@@ -214,8 +225,24 @@ const RESPONSES = {
   credit_400: { status: 400, body: { error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Claude API. Please go to Plans & Billing to upgrade or purchase credits.' } } },
   other_400: { status: 400, body: { error: { type: 'invalid_request_error', message: 'max_tokens is too large' } } },
 };
+// XAU-V2-OPS-015 PR review, BLOCKER 1 : fetch() ne renvoie PAS une réponse
+// HTTP pour ces deux cas -- il REJETTE. AbortError provient de
+// controller.abort() (timeout local) ; TypeError est la valeur de rejet
+// IMPOSÉE par la spec WHATWG fetch pour toute "network error" (DNS,
+// connexion refusée, etc. -- jamais un autre type de valeur).
+const THROWERS = {
+  abort_error: () => {
+    const e = new Error('The operation was aborted.');
+    e.name = 'AbortError';
+    throw e;
+  },
+  network_type_error: () => { throw new TypeError('fetch failed'); },
+};
 let __fetchMode = null;
+let __fetchCallCount = 0;
 globalThis.fetch = async (_url, _opts) => {
+  __fetchCallCount++;
+  if (THROWERS[__fetchMode]) return THROWERS[__fetchMode]();
   const fixture = RESPONSES[__fetchMode];
   return new Response(JSON.stringify(fixture.body), {
     status: fixture.status,
@@ -242,6 +269,48 @@ for (const name of Object.keys(RESPONSES)) {
     };
   }
 }
+
+// AbortError / TypeError réseau : mêmes assertions, avec MAX_RETRIES=0 (le
+// premier échec suffit à prouver la classification).
+for (const name of Object.keys(THROWERS)) {
+  __fetchMode = name;
+  __fetchCallCount = 0;
+  try {
+    await callClaude('macro_analyst', 'claude-test', 'ping', 16, env, new Logger());
+    results[name] = { threw: false };
+  } catch (err) {
+    results[name] = {
+      threw: true,
+      status: err.status,
+      retryable: err.retryable,
+      failureKind: err.failureKind,
+      isAnthropicError: err.name === 'AnthropicError',
+      fetchCallCount: __fetchCallCount,
+    };
+  }
+}
+
+// Préserve le comportement normal de retry/backoff : une panne réseau
+// classée TEMPORARILY_UNAVAILABLE continue de réessayer MAX_RETRIES fois
+// avant d'abandonner (jamais un abandon immédiat introduit par ce correctif).
+{
+  __fetchMode = 'network_type_error';
+  __fetchCallCount = 0;
+  CONFIG.MAX_RETRIES = 2;
+  try {
+    await callClaude('macro_analyst', 'claude-test', 'ping', 16, env, new Logger());
+    results.network_retry_preserved = { threw: false };
+  } catch (err) {
+    results.network_retry_preserved = {
+      threw: true,
+      fetchCallCount: __fetchCallCount,
+      failureKind: err.failureKind,
+      isAnthropicError: err.name === 'AnthropicError',
+    };
+  }
+  CONFIG.MAX_RETRIES = 0;
+}
+
 process.stdout.write(JSON.stringify(results));
 process.exit(0);
 `;
@@ -277,6 +346,25 @@ t('400 déterministe SANS rapport avec le crédit -> failureKind=INVALID_REQUEST
   && callClaudeResults.other_400.failureKind === 'INVALID_REQUEST');
 t('tous les échecs restent des instances AnthropicError (jamais une exception générique)',
   Object.values(callClaudeResults).every((r) => r.isAnthropicError === true));
+
+console.log('--- PROVIDER CLASSIFICATION (BLOCKER 1) : ABORT / RESEAU RESTENT AnthropicError, TEMPORARILY_UNAVAILABLE ---');
+t('AbortError (timeout local) -> reste AnthropicError, failureKind=TEMPORARILY_UNAVAILABLE, status=0 (sentinel, aucune réponse HTTP)',
+  callClaudeResults.abort_error.threw
+  && callClaudeResults.abort_error.isAnthropicError === true
+  && callClaudeResults.abort_error.status === 0
+  && callClaudeResults.abort_error.retryable === true
+  && callClaudeResults.abort_error.failureKind === 'TEMPORARILY_UNAVAILABLE');
+t('TypeError réseau (fetch échoué) -> reste AnthropicError, failureKind=TEMPORARILY_UNAVAILABLE, status=0',
+  callClaudeResults.network_type_error.threw
+  && callClaudeResults.network_type_error.isAnthropicError === true
+  && callClaudeResults.network_type_error.status === 0
+  && callClaudeResults.network_type_error.retryable === true
+  && callClaudeResults.network_type_error.failureKind === 'TEMPORARILY_UNAVAILABLE');
+t('panne réseau -> le retry/backoff normal reste préservé (MAX_RETRIES=2 -> 3 tentatives fetch), échec final toujours classé',
+  callClaudeResults.network_retry_preserved.threw
+  && callClaudeResults.network_retry_preserved.fetchCallCount === 3
+  && callClaudeResults.network_retry_preserved.isAnthropicError === true
+  && callClaudeResults.network_retry_preserved.failureKind === 'TEMPORARILY_UNAVAILABLE');
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);

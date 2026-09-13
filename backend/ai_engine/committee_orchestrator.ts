@@ -446,6 +446,11 @@ function classifyAnthropicHttpFailure(bodyText: string): AnthropicFailureKind {
   return 'INVALID_REQUEST';
 }
 
+/**
+ * `status` porte le code HTTP réellement reçu, SAUF sentinelle `0` : aucune
+ * réponse HTTP n'a été reçue (timeout local, échec de transport réseau) —
+ * jamais un code HTTP inventé pour ces cas (callClaude, catch du fetch).
+ */
 class AnthropicError extends Error {
   constructor(message: string, readonly status: number, readonly retryable: boolean,
               readonly retryAfterMs?: number, readonly failureKind?: AnthropicFailureKind) {
@@ -590,13 +595,40 @@ async function callClaude(
       }
     } catch (err) {
       clearTimeout(timer);
-      lastError = err;
 
       const isAbort = err instanceof Error && err.name === 'AbortError';
-      if (isAbort) lastError = new Error(`${agent}: timeout après ${CONFIG.HTTP_TIMEOUT_MS}ms`);
-
       const isApi = err instanceof AnthropicError;
-      const retryable = isAbort || !isApi || (err as AnthropicError).retryable;
+      // XAU-V2-OPS-015 (P0-B), BLOCKER 1 : un abandon local par timeout et un
+      // échec de transport fetch (TypeError -- la spec WHATWG fetch impose
+      // qu'une "network error" rejette TOUJOURS avec un TypeError, jamais un
+      // autre type de valeur) sont des pannes fournisseur au même titre
+      // qu'un 429/5xx/529. Avant ce correctif, ils s'échappaient comme une
+      // Error générique (le timeout) ou l'exception brute non typée (le
+      // réseau) : `err instanceof AnthropicError` était alors faux après
+      // épuisement des tentatives, EventResult.providerFailure restait
+      // undefined, et postNotification() classait à tort l'événement
+      // EVENT_FAILED -- chargeant son notify_attempts pour une panne
+      // globale, en violation de P0-B. Jamais élargi à une exception
+      // applicative/de programmation quelconque : seuls ces deux signaux
+      // structurels précis (nom 'AbortError', TypeError natif de fetch)
+      // déclenchent cette classification. `status` porte le sentinel 0
+      // (documenté : aucune réponse HTTP n'a été reçue), jamais un code HTTP
+      // inventé (ex. 408, qui désignerait à tort une réponse serveur reçue).
+      const isNetworkTransport = !isApi && !isAbort && err instanceof TypeError;
+
+      if (isAbort) {
+        lastError = new AnthropicError(
+          `${agent}: timeout après ${CONFIG.HTTP_TIMEOUT_MS}ms`, 0, true, undefined, 'TEMPORARILY_UNAVAILABLE',
+        );
+      } else if (isNetworkTransport) {
+        lastError = new AnthropicError(
+          `${agent}: échec réseau (${errorMessage(err)})`, 0, true, undefined, 'TEMPORARILY_UNAVAILABLE',
+        );
+      } else {
+        lastError = err;
+      }
+
+      const retryable = isAbort || isNetworkTransport || !isApi || (err as AnthropicError).retryable;
       if (!retryable || attempt === CONFIG.MAX_RETRIES) break;
 
       const suggested = isApi ? (err as AnthropicError).retryAfterMs : undefined;
