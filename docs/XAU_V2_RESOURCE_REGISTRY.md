@@ -643,6 +643,25 @@ project's governance model. Stated once, here only:
 - Owner: Enzo
 - Next action: none
 
+### Massive
+- Category: H
+- Evidence State: AVAILABLE_TO_CONNECT
+- Architecture Disposition: TO_DECIDE
+- Criticality: NONE
+- Data Authority: TO_VERIFY
+- Current role: none — identified connector, not connected
+- Approved use: TO_VERIFY
+- Prohibited/discouraged use: TO_VERIFY
+- Capability/data provided: TO_VERIFY (identity known as a connector-directory entry, exact market-data product scope not verified)
+- Access/authentication model: TO_VERIFY
+- Cost/quota status: TO_VERIFY
+- Licensing/data-rights status: TO_VERIFY
+- Failure/dependency risk: none — not connected
+- Fallback/alternative: n/a
+- Evidence reference: connector directory listing (identity confirmed)
+- Owner: Enzo
+- Next action: none queued this task
+
 ---
 
 ## I. MACRO / OFFICIAL DATA
@@ -655,16 +674,54 @@ project's governance model. Stated once, here only:
 - Data Authority: PRIMARY_OFFICIAL
 - Current role: macro data source (real yields, rates) for market context
 - Approved use: macro data ingestion
-- Prohibited/discouraged use: TO_VERIFY
-- Capability/data provided: FRED series data
+- Prohibited/discouraged use: must not be treated as a single blanket public-domain grant — see rights note below
+- Capability/data provided: FRED series data, delivered via the Federal Reserve Bank of St. Louis's API/service
 - Access/authentication model: backend-only API credential
-- Cost/quota status: free, public US government data service
-- Licensing/data-rights status: US government public data is generally public-domain; not independently re-verified — TO_VERIFY for this registry's own formal record
+- Cost/quota status: free API access to the FRED service itself; TO_VERIFY whether any per-series or aggregate quota applies to current usage
+- Licensing/data-rights status: **institutional distinction, not a single blanket right.** The FRED API/service is operated by the Federal Reserve Bank of St. Louis, but individual FRED series are sourced from many original providers, some of which retain third-party ownership/copyright over that series' data even when redistributed through FRED. Storage, derived use, redistribution, commercial use, and attribution must be verified **per series/provider** where relevant, per the FRED API Terms of Use. This registry does not assert a favorable licensing conclusion for any series currently ingested by XAU V2 — current XAU V2 series rights = TO_VERIFY unless independently proven. See § Data Rights and Licensing.
 - Failure/dependency risk: TO_VERIFY
 - Fallback/alternative: TO_VERIFY
-- Evidence reference: backend-only API credential present in the deployed runtime's configuration
+- Evidence reference: backend-only API credential present in the deployed runtime's configuration; official FRED API Terms of Use (not independently re-read this review — cited as the authority to check, not as a confirmed-favorable source)
 - Owner: Enzo
-- Next action: none
+- Next action: verify per-series data rights for whichever FRED series XAU V2 actually ingests
+
+### BLS — Bureau of Labor Statistics (candidate)
+- Category: I
+- Evidence State: TO_VERIFY
+- Architecture Disposition: CANDIDATE
+- Criticality: NONE currently
+- Data Authority: PRIMARY_OFFICIAL
+- Current role: not integrated
+- Approved use: none currently — candidate role is official labor/inflation releases relevant to CPI, employment/NFP, and other US macro-event truth
+- Prohibited/discouraged use: n/a — nothing connected to restrict; no API entitlement, quota, or licensing claim is made unless verified
+- Capability/data provided: TO_VERIFY
+- Access/authentication model: TO_VERIFY
+- Cost/quota status: TO_VERIFY
+- Licensing/data-rights status: TO_VERIFY — see § Data Rights and Licensing
+- Failure/dependency risk: none — not connected
+- Fallback/alternative: n/a
+- Evidence reference: none — candidate only, not evaluated
+- Owner: Enzo
+- Next action: evaluate as a future official macro-event source; not implemented by this task
+
+### BEA — Bureau of Economic Analysis (candidate)
+- Category: I
+- Evidence State: TO_VERIFY
+- Architecture Disposition: CANDIDATE
+- Criticality: NONE currently
+- Data Authority: PRIMARY_OFFICIAL
+- Current role: not integrated
+- Approved use: none currently — candidate role is official US economic releases relevant to PCE, GDP, and related macro-event truth
+- Prohibited/discouraged use: n/a — nothing connected to restrict; no API entitlement, quota, or licensing claim is made unless verified
+- Capability/data provided: TO_VERIFY
+- Access/authentication model: TO_VERIFY
+- Cost/quota status: TO_VERIFY
+- Licensing/data-rights status: TO_VERIFY — see § Data Rights and Licensing
+- Failure/dependency risk: none — not connected
+- Fallback/alternative: n/a
+- Evidence reference: none — candidate only, not evaluated
+- Owner: Enzo
+- Next action: evaluate as a future official macro-event source; not implemented by this task
 
 ### Federal Reserve (official RAW source)
 - Category: I
@@ -841,6 +898,25 @@ project's governance model. Stated once, here only:
 - Owner: Enzo
 - Next action: verify entitlement/API/data rights (Action Queue)
 
+### Public Equity Investing
+- Category: J
+- Evidence State: AVAILABLE_TO_CONNECT
+- Architecture Disposition: TO_DECIDE
+- Criticality: NONE
+- Data Authority: TO_VERIFY
+- Current role: none — identified connector, not connected
+- Approved use: TO_VERIFY
+- Prohibited/discouraged use: TO_VERIFY
+- Capability/data provided: TO_VERIFY (identity known as a connector-directory entry, exact financial-research product scope not verified)
+- Access/authentication model: TO_VERIFY
+- Cost/quota status: TO_VERIFY
+- Licensing/data-rights status: TO_VERIFY
+- Failure/dependency risk: none — not connected
+- Fallback/alternative: n/a
+- Evidence reference: connector directory listing (identity confirmed)
+- Owner: Enzo
+- Next action: none queued this task
+
 ---
 
 ## K. GOLD-SPECIFIC / POSITIONING
@@ -848,19 +924,38 @@ project's governance model. Stated once, here only:
 No resource in this category is currently connected — an open gap
 requiring evaluation, not a decision already made.
 
-### CME (future gold-positioning source)
+### CME / COMEX (future gold-positioning source)
 - Category: K
 - Evidence State: TO_VERIFY
 - Architecture Disposition: CANDIDATE
 - Criticality: NONE currently
-- Data Authority: TO_VERIFY (would plausibly be PRIMARY_MARKET for COT/futures positioning, not asserted as fact)
+- Data Authority: TO_VERIFY (would plausibly be PRIMARY_MARKET for GC/MGC futures/options market structure, not asserted as fact)
 - Current role: none — not integrated, not yet designed
 - Approved use: none currently
 - Prohibited/discouraged use: n/a — nothing connected to restrict
-- Capability/data provided: TO_VERIFY
+- Capability/data provided: TO_VERIFY — candidate role is GC/MGC gold futures/options market structure, volume, open interest, and settlements/derivatives-market information where licensed. **CME is not the primary authority for Commitments of Traders (COT) positioning data** — CFTC is (see its own entry below); CME may expose tools built from CFTC COT data, but is not the original authority for that dataset.
 - Access/authentication model: TO_VERIFY
 - Cost/quota status: TO_VERIFY
 - Licensing/data-rights status: TO_VERIFY — see § Data Rights and Licensing
+- Failure/dependency risk: none — not connected
+- Fallback/alternative: n/a
+- Evidence reference: none — named because a future gold-positioning capability is anticipated, not because any access exists
+- Owner: Enzo
+- Next action: evaluate future value/licensing separately, when gold-positioning analysis becomes a stated goal
+
+### CFTC — Commitments of Traders (future gold-positioning source)
+- Category: K
+- Evidence State: TO_VERIFY
+- Architecture Disposition: CANDIDATE
+- Criticality: NONE currently
+- Data Authority: PRIMARY_OFFICIAL
+- Current role: none — not integrated
+- Approved use: none currently — potential future approved use is official Gold/COMEX positioning, including trader-category positioning and open-interest context, sourced from the Commitments of Traders (COT) report
+- Prohibited/discouraged use: n/a — nothing connected to restrict
+- Capability/data provided: TO_VERIFY. **The CFTC is the source authority for Commitments of Traders data** — this is distinct from CME/COMEX above, which is a market-structure/futures venue and not the original authority for COT positioning even where it exposes tools built on CFTC COT data.
+- Access/authentication model: TO_VERIFY
+- Cost/quota status: TO_VERIFY
+- Licensing/data-rights status: TO_VERIFY — see § Data Rights and Licensing; all rights TO_VERIFY until official terms are evaluated
 - Failure/dependency risk: none — not connected
 - Fallback/alternative: n/a
 - Evidence reference: none — named because a future gold-positioning capability is anticipated, not because any access exists
@@ -915,10 +1010,29 @@ them.
 
 ## L. QUANT / VALIDATION / BACKTEST
 
-Python and AJV (Category B) are the only resources currently serving a
-validation role. No dedicated backtest engine, quant research platform,
-or reproducible-dataset pipeline exists yet — an open gap, not a queued
+Python and AJV (Category B) are the only established resources currently
+serving a validation role. No dedicated backtest engine or
+reproducible-dataset pipeline exists yet — an open gap, not a queued
 action this task.
+
+### Data
+- Category: L
+- Evidence State: AVAILABLE_TO_CONNECT
+- Architecture Disposition: TO_DECIDE
+- Criticality: NONE
+- Data Authority: TO_VERIFY
+- Current role: none — identified connector, not connected
+- Approved use: TO_VERIFY
+- Prohibited/discouraged use: TO_VERIFY
+- Capability/data provided: TO_VERIFY (identity known as a connector-directory entry, exact quant/analytics product scope not verified)
+- Access/authentication model: TO_VERIFY
+- Cost/quota status: TO_VERIFY
+- Licensing/data-rights status: TO_VERIFY
+- Failure/dependency risk: none — not connected
+- Fallback/alternative: n/a
+- Evidence reference: connector directory listing (identity confirmed)
+- Owner: Enzo
+- Next action: none queued this task
 
 ---
 
@@ -961,63 +1075,6 @@ action this task.
 - Evidence reference: repo file; confirmed the production-migration procedure is manual — directly informed a BLOCKED task determination in the OPS task series when no automated path existed
 - Owner: Enzo
 - Next action: none this task
-
-### Data
-- Category: M
-- Evidence State: AVAILABLE_TO_CONNECT
-- Architecture Disposition: TO_DECIDE
-- Criticality: NONE
-- Data Authority: TO_VERIFY
-- Current role: none — identified connector, not connected
-- Approved use: TO_VERIFY
-- Prohibited/discouraged use: TO_VERIFY
-- Capability/data provided: TO_VERIFY (identity known as a connector-directory entry, exact product scope not verified)
-- Access/authentication model: TO_VERIFY
-- Cost/quota status: TO_VERIFY
-- Licensing/data-rights status: TO_VERIFY
-- Failure/dependency risk: none — not connected
-- Fallback/alternative: n/a
-- Evidence reference: connector directory listing (identity confirmed)
-- Owner: Enzo
-- Next action: none queued this task
-
-### Massive
-- Category: M
-- Evidence State: AVAILABLE_TO_CONNECT
-- Architecture Disposition: TO_DECIDE
-- Criticality: NONE
-- Data Authority: TO_VERIFY
-- Current role: none — identified connector, not connected
-- Approved use: TO_VERIFY
-- Prohibited/discouraged use: TO_VERIFY
-- Capability/data provided: TO_VERIFY (identity known as a connector-directory entry, exact product scope not verified)
-- Access/authentication model: TO_VERIFY
-- Cost/quota status: TO_VERIFY
-- Licensing/data-rights status: TO_VERIFY
-- Failure/dependency risk: none — not connected
-- Fallback/alternative: n/a
-- Evidence reference: connector directory listing (identity confirmed)
-- Owner: Enzo
-- Next action: none queued this task
-
-### Public Equity Investing
-- Category: M
-- Evidence State: AVAILABLE_TO_CONNECT
-- Architecture Disposition: TO_DECIDE
-- Criticality: NONE
-- Data Authority: TO_VERIFY
-- Current role: none — identified connector, not connected
-- Approved use: TO_VERIFY
-- Prohibited/discouraged use: TO_VERIFY
-- Capability/data provided: TO_VERIFY (identity known as a connector-directory entry, exact product scope not verified)
-- Access/authentication model: TO_VERIFY
-- Cost/quota status: TO_VERIFY
-- Licensing/data-rights status: TO_VERIFY
-- Failure/dependency risk: none — not connected
-- Fallback/alternative: n/a
-- Evidence reference: connector directory listing (identity confirmed)
-- Owner: Enzo
-- Next action: none queued this task
 
 ---
 
@@ -1198,11 +1255,15 @@ evidence; no plan tier or quota is assumed unless verified.
 | Twelve Data | TO_VERIFY | currently stored (market-data table) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | repo schema (storage fact only) | this review |
 | NewsAPI | TO_VERIFY | currently stored (legacy news table) | TO_VERIFY | TO_VERIFY — flagged risk: NewsAPI's public Developer-plan terms restrict production/commercial redistribution; not resolved here | TO_VERIFY | TO_VERIFY | TO_VERIFY | repo code comment (free-plan behavior); NewsAPI's own public plan terms not independently re-read this review | this review |
 | GDELT | TO_VERIFY (public API, no key) | currently stored (legacy news table) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | repo schema (storage fact only) | this review |
+| FRED | TO_VERIFY — per-series, not a blanket right (FRED aggregates many original providers; some series retain third-party ownership/copyright even when served through FRED) | currently stored (macro data, not persisted verbatim historically at this time) | TO_VERIFY per series | TO_VERIFY per series | TO_VERIFY per series | TO_VERIFY per series | TO_VERIFY | official FRED API Terms of Use (not independently re-read this review — cited as the authority to check) | this review |
 | Federal Reserve | TO_VERIFY | currently stored (RAW table, append-only) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | append-only, never deleted/updated by design — effectively indefinite absent a future policy | repo schema (storage fact only) | this review |
 | ECB | TO_VERIFY | currently stored (RAW table) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | same as above | repo schema | this review |
 | US Treasury | TO_VERIFY | currently stored (RAW table) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | same as above | repo schema | this review |
 | OFAC | TO_VERIFY | currently stored (RAW table) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | same as above | repo schema | this review |
-| Future CME | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
+| BLS (candidate) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
+| BEA (candidate) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
+| Future CME/COMEX | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
+| Future CFTC (Commitments of Traders) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated; CFTC is the source authority for COT data, distinct from CME/COMEX | — |
 | Future LBMA | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
 | Future WGC | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
 
@@ -1294,7 +1355,8 @@ OFAC (archival today)
 CockroachDB, Prisma
 
 **CANDIDATE (not yet decided):** Gemini/Google AI Pro, Context7, Codex
-Security, Datadog, Bigdata.com, LSEG, S&P Global, CME, LBMA, WGC
+Security, Datadog, Bigdata.com, LSEG, S&P Global, CME/COMEX, CFTC, LBMA,
+WGC, BLS, BEA
 
 Everything else in this registry remains `TO_DECIDE` or `TO_VERIFY` on
 one or more axes — assigning a firmer classification to an unverified or
@@ -1305,7 +1367,9 @@ registry does not do.
 
 ## Near-Term Action Queue
 
-Ordered; none of these actions is performed by this task.
+Ordered; none of these actions is performed by this task. Reflects the
+latest validated project decision on sequencing: Resource Registry →
+Daily Operating Model → OPS-023 implementation planning.
 
 1. Verify exact Google AI Pro / Gemini capabilities available to Enzo
 2. Verify LSEG entitlement / API / data rights
@@ -1317,5 +1381,14 @@ Ordered; none of these actions is performed by this task.
 8. Design a mandatory GitHub Actions CI quality gate (fixing the missing
    `tsconfig.json` is a prerequisite)
 9. Design a staging architecture
-10. Resume the RAW event-clustering architecture work (OPS-023) once this
-    governance baseline is settled
+10. **Create `docs/XAU_V2_DAILY_OPERATING_MODEL.md`** — defines how the
+    production terminal operates every day, end to end: data sources →
+    quality/freshness → RAW observation → event cluster → event version
+    → novelty/confirmation/correction/reversal → event impact → gold
+    transmission → market pricing/positioning/regime → H1-H5 → AI
+    committee → portfolio manager → risk committee → abstention/action
+    → command center → alerts/audit trail. Documentation/architecture
+    only — **not created by this task.**
+11. Resume the RAW event-clustering architecture work (OPS-023
+    implementation planning) only after the Daily Operating Model above
+    exists — not before it
