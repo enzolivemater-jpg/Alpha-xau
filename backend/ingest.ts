@@ -413,6 +413,17 @@ class HttpError extends Error {
     readonly status: number,
     readonly retryable: boolean,
     readonly retryAfterMs?: number,
+    /**
+     * XAU-V2-OPS-020 (correctif de revue) : nombre de tentatives DÉJÀ
+     * effectuées (backoff compris) avant cet échec final — c'est-à-dire la
+     * valeur de la boucle `attempt` de fetchJsonWithRetry() au moment du
+     * throw. Optionnel : seul le 429 le peuple aujourd'hui (voir
+     * collectGdelt), les autres statuts n'en ont pas l'usage. Sans ce
+     * champ, un appelant qui veut rapporter le nombre RÉEL de retries sur
+     * un échec final n'a aucun moyen de le distinguer d'un échec survenu
+     * dès la première tentative.
+     */
+    readonly retriesBeforeFailure?: number,
   ) {
     super(message);
     this.name = 'HttpError';
@@ -455,10 +466,31 @@ function backoffDelay(attempt: number): number {
 }
 
 /**
+ * Politique de retry optionnelle, spécifique à un appel. Défaut : identique
+ * au comportement historique (tout est retryable selon les règles
+ * habituelles ci-dessous) — un appelant qui ne la fournit pas ne voit
+ * aucun changement.
+ */
+interface RetryPolicy {
+  /**
+   * XAU-V2-OPS-020 : GDELT applique un quota strict par IP (§683) — un 429
+   * y est un état NORMAL de fonctionnement, pas une panne transitoire.
+   * Le retenter dans le même cycle (quelques secondes/minutes) ne laisse
+   * pas le temps à un quota par IP de se libérer et ne fait qu'ajouter des
+   * requêtes contre un service qui vient de signaler son plafond. La
+   * cadence cron (15 min) est déjà le mécanisme de nouvel essai adapté.
+   * Par défaut `true` : ne change RIEN pour les appelants existants
+   * (NewsAPI notamment, dont le 429 reste transitoire et retryable).
+   */
+  readonly retryOn429?: boolean;
+}
+
+/**
  * GET JSON avec timeout, retry exponentiel et respect du rate limit.
  *
  * Politique de retry :
- *   - 429 : retry, en respectant Retry-After s'il est présent et raisonnable ;
+ *   - 429 : retry par défaut, en respectant Retry-After s'il est présent et
+ *     raisonnable — SAUF si `policy.retryOn429 === false` (voir RetryPolicy) ;
  *   - 5xx : retry (indisponibilité transitoire) ;
  *   - 408 : retry (timeout côté serveur) ;
  *   - réseau / timeout : retry ;
@@ -472,6 +504,7 @@ async function fetchJsonWithRetry<T>(
   log: Logger,
   label: string,
   timeoutMs: number = CONFIG.HTTP_TIMEOUT_MS,
+  policy: RetryPolicy = {},
 ): Promise<FetchResult<T>> {
   let lastError: unknown;
 
@@ -486,7 +519,11 @@ async function fetchJsonWithRetry<T>(
 
       if (response.status === 429) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
-        throw new HttpError(`${label} rate limited`, 429, true, retryAfter ?? undefined);
+        const retryOn429 = policy.retryOn429 ?? true;
+        // `attempt` est le nombre de tentatives déjà effectuées avant celle-ci
+        // (0 = première tentative, aucun retry encore fait) : c'est
+        // exactement retriesBeforeFailure si CE 429 devient l'échec final.
+        throw new HttpError(`${label} rate limited`, 429, retryOn429, retryAfter ?? undefined, attempt);
       }
 
       if (response.status >= 500 || response.status === 408) {
@@ -703,6 +740,10 @@ async function collectGdelt(env: Env, log: Logger): Promise<{
       log,
       'GDELT',
       CONFIG.GDELT_TIMEOUT_MS,
+      // XAU-V2-OPS-020 : un 429 GDELT est un quota normal, jamais rejoué
+      // dans le même cycle (voir RetryPolicy). 5xx/408/réseau/timeout/JSON
+      // invalide restent retryables comme avant, inchangé.
+      { retryOn429: false },
     );
 
     const articles: NormalizedArticle[] = [];
@@ -733,12 +774,23 @@ async function collectGdelt(env: Env, log: Logger): Promise<{
     // Dégradation partielle : l'échec d'un collecteur ne doit pas
     // interrompre l'ingestion de l'autre.
     log.error('GDELT en échec', { reason: errorMessage(err) });
+    // XAU-V2-OPS-020 : un 429 est désormais non-retryable pour GDELT
+    // (retryOn429: false ci-dessus) -> DÈS QU'IL SURVIENT, il termine la
+    // séquence. Mais il ne survient pas forcément à la première tentative :
+    // un 500/408/réseau/timeout retryable a pu précéder (ex. 500 puis 429 ->
+    // 1 retry réellement effectué). `retriesBeforeFailure` (peuplé par
+    // fetchJsonWithRetry au moment précis du throw 429, voir HttpError)
+    // porte ce compte réel ; rapporter 0 ou CONFIG.MAX_RETRIES sans le lire
+    // mentirait dans les deux cas sur le nombre de tentatives effectuées.
+    const retries = err instanceof HttpError && err.status === 429
+      ? err.retriesBeforeFailure ?? 0
+      : CONFIG.MAX_RETRIES;
     return {
       articles: [],
       report: {
         ok: false,
         count: 0,
-        retries: CONFIG.MAX_RETRIES,
+        retries,
         duration_ms: Date.now() - startedAt,
         error: errorMessage(err),
       },
