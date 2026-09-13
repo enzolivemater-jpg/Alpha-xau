@@ -74,6 +74,12 @@ console.log('--- CONTRAT STATIQUE (lecture de source) ---');
     !/retryOn429/.test(collectNewsApiSrc));
   t('la branche 5xx/408 ne référence jamais retryOn429 (seul le 429 est concerné)',
     !/response\.status >= 500[\s\S]{0,150}retryOn429/.test(ingestSource));
+  t('le throw HttpError du 429 peuple retriesBeforeFailure avec `attempt` (correctif de revue)',
+    /throw new HttpError\(`\$\{label\} rate limited`, 429, retryOn429, retryAfter \?\? undefined, attempt\);/.test(ingestSource));
+  t('collectGdelt() lit err.retriesBeforeFailure pour le 429 (jamais un 0/MAX_RETRIES codé en dur sans le lire)',
+    /err instanceof HttpError && err\.status === 429\s*\n\s*\?\s*err\.retriesBeforeFailure \?\? 0/.test(ingestSource));
+  t('les branches 5xx/408 ne peuplent jamais retriesBeforeFailure (seul le 429 en a l\'usage)',
+    !/response\.status >= 500[\s\S]{0,200}retriesBeforeFailure/.test(ingestSource));
   const rawCollectorFiles = [
     '../backend/news_sources/federal_reserve.ts',
     '../backend/news_sources/ecb.ts',
@@ -156,10 +162,11 @@ ${backoffDelaySrc}
 // JS plate équivalente, jamais extraite verbatim pour cette seule raison
 // mécanique (même contrainte que AnthropicError, cf. OPS-015).
 class HttpError extends Error {
-  constructor(message, status, retryable, retryAfterMs) {
+  constructor(message, status, retryable, retryAfterMs, retriesBeforeFailure) {
     super(message);
     this.name = 'HttpError';
     this.status = status; this.retryable = retryable; this.retryAfterMs = retryAfterMs;
+    this.retriesBeforeFailure = retriesBeforeFailure;
   }
 }
 class TimeoutError extends Error {
@@ -198,12 +205,27 @@ function jsonResponse(status, body, headers = {}) {
 
 const results = {};
 
-// 1. GDELT 429 -> UNE seule tentative, AUCUN retry, report.ok=false, retries=0.
+// 1. GDELT 429 immédiat -> UNE seule tentative, AUCUN retry, report.ok=false,
+//    retries=0 (aucun retry n'a eu lieu AVANT ce 429 -- borne basse du
+//    correctif de revue XAU-V2-OPS-020 : retriesBeforeFailure=0).
 {
   __fetchCallCount = 0;
   __fetchScenario = () => jsonResponse(429, { error: 'rate limited' });
   const { report } = await collectGdelt({}, new Logger());
   results.gdelt_429 = { report, fetchCallCount: __fetchCallCount };
+}
+
+// 1bis. XAU-V2-OPS-020 (correctif de revue) : GDELT 500 PUIS 429 -> le 429
+//       termine la séquence (non-retryable), mais 1 retry a RÉELLEMENT eu
+//       lieu avant lui (le 500). report.retries doit refléter ce compte
+//       réel (1), ni 0 (ce qui mentirait sur le 500 initial) ni
+//       CONFIG.MAX_RETRIES (ce qui mentirait sur l'arrêt au 429). Aucun
+//       appel fetch() après le 429 : celui-ci reste bien non-retryable.
+{
+  __fetchCallCount = 0;
+  __fetchScenario = () => (__fetchCallCount === 1 ? jsonResponse(500, { error: 'internal' }) : jsonResponse(429, { error: 'rate limited' }));
+  const { report } = await collectGdelt({}, new Logger());
+  results.gdelt_500_then_429 = { report, fetchCallCount: __fetchCallCount };
 }
 
 // 2. GDELT 500 -> comportement de retry HISTORIQUE préservé (MAX_RETRIES s'applique).
@@ -277,6 +299,18 @@ console.log('--- GDELT 429 : UNE SEULE TENTATIVE, AUCUN RETRY (XAU-V2-OPS-020) -
   t('report.ok = false', r.report.ok === false);
   t('report.retries = 0 (jamais un faux compte de tentatives)', r.report.retries === 0, `got ${r.report.retries}`);
   t('report.error mentionne le rate limit', /rate limited/i.test(r.report.error ?? ''));
+}
+
+console.log('--- GDELT 500 PUIS 429 : LE COMPTE DE RETRIES REEL EST PRESERVE (correctif de revue) ---');
+{
+  const r = output.gdelt_500_then_429;
+  t('exactement 2 appels fetch() (1 tentative initiale + 1 retry sur le 500, PUIS arrêt au 429)',
+    r.fetchCallCount === 2, `got ${r.fetchCallCount}`);
+  t('report.ok = false', r.report.ok === false);
+  t('report.retries = 1 (le retry sur le 500 a RÉELLEMENT eu lieu -- ni 0, ni CONFIG.MAX_RETRIES)',
+    r.report.retries === 1, `got ${r.report.retries}`);
+  t('report.error mentionne le rate limit (le 429 est bien l\'échec final rapporté)',
+    /rate limited/i.test(r.report.error ?? ''));
 }
 
 console.log('--- GDELT 500 : RETRY HISTORIQUE PRESERVE ---');

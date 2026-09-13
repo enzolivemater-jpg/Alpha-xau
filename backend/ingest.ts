@@ -413,6 +413,17 @@ class HttpError extends Error {
     readonly status: number,
     readonly retryable: boolean,
     readonly retryAfterMs?: number,
+    /**
+     * XAU-V2-OPS-020 (correctif de revue) : nombre de tentatives DÉJÀ
+     * effectuées (backoff compris) avant cet échec final — c'est-à-dire la
+     * valeur de la boucle `attempt` de fetchJsonWithRetry() au moment du
+     * throw. Optionnel : seul le 429 le peuple aujourd'hui (voir
+     * collectGdelt), les autres statuts n'en ont pas l'usage. Sans ce
+     * champ, un appelant qui veut rapporter le nombre RÉEL de retries sur
+     * un échec final n'a aucun moyen de le distinguer d'un échec survenu
+     * dès la première tentative.
+     */
+    readonly retriesBeforeFailure?: number,
   ) {
     super(message);
     this.name = 'HttpError';
@@ -509,7 +520,10 @@ async function fetchJsonWithRetry<T>(
       if (response.status === 429) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
         const retryOn429 = policy.retryOn429 ?? true;
-        throw new HttpError(`${label} rate limited`, 429, retryOn429, retryAfter ?? undefined);
+        // `attempt` est le nombre de tentatives déjà effectuées avant celle-ci
+        // (0 = première tentative, aucun retry encore fait) : c'est
+        // exactement retriesBeforeFailure si CE 429 devient l'échec final.
+        throw new HttpError(`${label} rate limited`, 429, retryOn429, retryAfter ?? undefined, attempt);
       }
 
       if (response.status >= 500 || response.status === 408) {
@@ -761,10 +775,16 @@ async function collectGdelt(env: Env, log: Logger): Promise<{
     // interrompre l'ingestion de l'autre.
     log.error('GDELT en échec', { reason: errorMessage(err) });
     // XAU-V2-OPS-020 : un 429 est désormais non-retryable pour GDELT
-    // (retryOn429: false ci-dessus) -> il échoue TOUJOURS dès la première
-    // tentative. Rapporter CONFIG.MAX_RETRIES ici mentirait sur le nombre
-    // réel de tentatives effectuées (0 retry, pas 3).
-    const retries = err instanceof HttpError && err.status === 429 ? 0 : CONFIG.MAX_RETRIES;
+    // (retryOn429: false ci-dessus) -> DÈS QU'IL SURVIENT, il termine la
+    // séquence. Mais il ne survient pas forcément à la première tentative :
+    // un 500/408/réseau/timeout retryable a pu précéder (ex. 500 puis 429 ->
+    // 1 retry réellement effectué). `retriesBeforeFailure` (peuplé par
+    // fetchJsonWithRetry au moment précis du throw 429, voir HttpError)
+    // porte ce compte réel ; rapporter 0 ou CONFIG.MAX_RETRIES sans le lire
+    // mentirait dans les deux cas sur le nombre de tentatives effectuées.
+    const retries = err instanceof HttpError && err.status === 429
+      ? err.retriesBeforeFailure ?? 0
+      : CONFIG.MAX_RETRIES;
     return {
       articles: [],
       report: {
