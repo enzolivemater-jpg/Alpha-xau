@@ -84,7 +84,7 @@ not a numbered horizon.
 | Command Center (existing frontend shell) | `CURRENT`/`PARTIAL` — a real Command Center panel, Macro Driver Matrix, Scenario Tree, NO VALID SETUP presentation, invalidations list, and AI bias/conviction/market-regime/execution-status fields already exist in the frontend today |
 | Enriched institutional Command Center (this document's target) | `NOT_IMPLEMENTED`/`PARTIAL` by capability — event cluster/version, pricing, positioning, full source confidence, and state-change explanation are not yet part of it — see § 15 |
 | Portfolio Manager / Risk Committee concepts | `PARTIAL` — real, deterministically-enforced roles exist inside the Committee's LLM pipeline; the target defense-in-depth sequencing (a distinct pre-PM gate and a distinct post-PM final-action gate) does not — see § 10 |
-| Automatic broker execution | `NOT_IMPLEMENTED` (and not a near-term goal — see § 16) |
+| Automatic broker execution | `NOT_IMPLEMENTED` (and not a near-term goal — see § 19) |
 
 ---
 
@@ -429,7 +429,7 @@ AI COMMITTEE
   soft-pedals a veto is not acceptable.
 
 **LLM output alone can never activate a live broker action.** (There is
-no broker action to activate today — see § 16 — but this constraint is
+no broker action to activate today — see § 19 — but this constraint is
 stated now, before one exists, so it is never an afterthought.)
 
 **Current state, precisely:** today's real Committee pipeline already has
