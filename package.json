@@ -5,6 +5,7 @@
   "type": "module",
   "description": "ALPHA-XAU Institutional Terminal — moteurs serverless et terminal statique.",
   "scripts": {
+    "test": "node scripts/run_ci_tests.mjs",
     "typecheck": "tsc --noEmit",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
