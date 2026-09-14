@@ -235,6 +235,89 @@ COMMENT ON COLUMN event_observation_memberships.editorial_origin_key IS
   'Fait de lignage BRUT (identifiant d''organisation éditoriale résolu, si connu). provider/source_code/source_domain (news_articles) ne prouvent JAMAIS à eux seuls l''indépendance éditoriale — cette détermination relationnelle est calculée et figée au niveau EVENT VERSION à partir de l''ensemble des preuves, jamais stockée comme conclusion sur cette ligne.';
 
 -- ---------------------------------------------------------------------
+-- 2bis. VALIDATION SÉMANTIQUE DE LA CHAÎNE DE SUPERSESSION
+--    Invariant DB, pas seulement applicatif (la future RPC ne doit pas
+--    être le seul rempart) :
+--      ASSIGN  -> supersedes_decision_id IS NULL (ouverture fraîche)
+--      AMEND/RETRACT -> supersedes_decision_id IS NOT NULL, la décision
+--        antérieure référencée existe, porte sur la MÊME observation ET
+--        la MÊME relation logique (observation, cluster).
+--
+--    relation_key est une colonne GENERATED : dans un trigger BEFORE
+--    INSERT, PostgreSQL ne l'a pas encore calculée pour NEW (les
+--    colonnes générées sont produites APRÈS les triggers BEFORE ROW) —
+--    NEW.relation_key n'est donc pas fiable ici. On recalcule la même
+--    expression déterministe à partir de NEW.observation_id/
+--    NEW.cluster_id (colonnes ordinaires, disponibles dès BEFORE INSERT)
+--    et on la compare à la valeur RÉELLEMENT matérialisée de la décision
+--    antérieure (déjà commitée, donc fiable en lecture).
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_check_membership_decision_supersession()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_predecessor              RECORD;
+  v_expected_relation_key    TEXT;
+BEGIN
+  IF NEW.decision_type = 'ASSIGN' THEN
+    IF NEW.supersedes_decision_id IS NOT NULL THEN
+      RAISE EXCEPTION
+        'ASSIGN % ne peut pas référencer supersedes_decision_id (%) : une ouverture fraîche ne corrige rien — utiliser AMEND/RETRACT pour corriger une décision existante.',
+        NEW.decision_id, NEW.supersedes_decision_id;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- Seules valeurs restantes possibles ici : AMEND, RETRACT (garanti par
+  -- le CHECK decision_type de la table).
+  IF NEW.supersedes_decision_id IS NULL THEN
+    RAISE EXCEPTION
+      '% % doit référencer la décision qu''elle corrige/clôture : supersedes_decision_id ne peut pas être NULL.',
+      NEW.decision_type, NEW.decision_id;
+  END IF;
+
+  SELECT observation_id, relation_key
+    INTO v_predecessor
+    FROM event_observation_memberships
+    WHERE decision_id = NEW.supersedes_decision_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION
+      '% % référence une décision antérieure introuvable (supersedes_decision_id=%).',
+      NEW.decision_type, NEW.decision_id, NEW.supersedes_decision_id;
+  END IF;
+
+  IF v_predecessor.observation_id <> NEW.observation_id THEN
+    RAISE EXCEPTION
+      '% % : la décision antérieure référencée porte sur une observation différente (attendu %, trouvé %) — une correction ne peut porter que sur la MÊME observation.',
+      NEW.decision_type, NEW.decision_id, NEW.observation_id, v_predecessor.observation_id;
+  END IF;
+
+  v_expected_relation_key := encode(
+    extensions.digest(NEW.observation_id::text || chr(31) || NEW.cluster_id::text, 'sha256'),
+    'hex'
+  );
+
+  IF v_predecessor.relation_key <> v_expected_relation_key THEN
+    RAISE EXCEPTION
+      '% % : la décision antérieure référencée porte sur une relation logique différente (relation_key antérieure %, relation_key attendue %) — une correction ne peut porter que sur la MÊME relation (observation, cluster).',
+      NEW.decision_type, NEW.decision_id, v_predecessor.relation_key, v_expected_relation_key;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION fn_check_membership_decision_supersession IS
+  'Invariant DB (pas seulement RPC) sur event_observation_memberships : ASSIGN ne supersède jamais rien ; AMEND/RETRACT doivent référencer une décision antérieure existante, portant sur la même observation ET la même relation logique (observation, cluster). relation_key est recalculée depuis NEW.observation_id/NEW.cluster_id, jamais lue depuis NEW.relation_key (colonne GENERATED, non encore calculée en trigger BEFORE INSERT).';
+
+DROP TRIGGER IF EXISTS trg_membership_decision_supersession ON event_observation_memberships;
+CREATE TRIGGER trg_membership_decision_supersession
+  BEFORE INSERT ON event_observation_memberships
+  FOR EACH ROW EXECUTE FUNCTION fn_check_membership_decision_supersession();
+
+-- ---------------------------------------------------------------------
 -- 3. EVENT_VERSIONS
 --    Instantané immuable de l'état de connaissance matériel d'un
 --    cluster à un instant T. N'avance QUE sur changement sémantique
@@ -344,6 +427,70 @@ COMMENT ON TABLE event_version_evidence IS
   'Gèle EXACTEMENT l''ensemble de preuves vivantes (decision_id, pas observation_id directement) utilisé par chaque EVENT VERSION matérielle, au moment de sa création (OPS-023). Aucun contenu d''article dupliqué. Une version ultérieure du même cluster prend un nouvel instantané complet des preuves alors vivantes — cette table n''implique jamais qu''une version antérieure ait connu une preuve arrivée après elle.';
 
 -- ---------------------------------------------------------------------
+-- 4bis. VALIDATION CLUSTER/TYPE DE L'EVIDENCE
+--    Invariant DB, pas seulement applicatif : la version et la décision
+--    référencées doivent exister, porter sur le MÊME cluster, et la
+--    décision doit être d'un type actif comme preuve d'appartenance
+--    (ASSIGN ou AMEND). Une RETRACT ne peut jamais être citée comme
+--    preuve — elle atteste au contraire que l'observation N'appartient
+--    PLUS au cluster à cet instant. Aucun chemin UPDATE n'est requis :
+--    la table est append-only (voir §8), donc BEFORE INSERT suffit.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_check_event_version_evidence()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_version_cluster_id   UUID;
+  v_membership           RECORD;
+BEGIN
+  SELECT cluster_id
+    INTO v_version_cluster_id
+    FROM event_versions
+    WHERE id = NEW.event_version_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION
+      'event_version_evidence : event_version_id % introuvable.',
+      NEW.event_version_id;
+  END IF;
+
+  SELECT cluster_id, decision_type
+    INTO v_membership
+    FROM event_observation_memberships
+    WHERE decision_id = NEW.decision_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION
+      'event_version_evidence : decision_id % introuvable.',
+      NEW.decision_id;
+  END IF;
+
+  IF v_membership.cluster_id <> v_version_cluster_id THEN
+    RAISE EXCEPTION
+      'event_version_evidence : incohérence de cluster — event_version % porte sur le cluster %, decision % porte sur le cluster % (une preuve ne peut appartenir qu''au même cluster que la version qu''elle étaye).',
+      NEW.event_version_id, v_version_cluster_id, NEW.decision_id, v_membership.cluster_id;
+  END IF;
+
+  IF v_membership.decision_type NOT IN ('ASSIGN', 'AMEND') THEN
+    RAISE EXCEPTION
+      'event_version_evidence : decision % n''est pas une preuve valide (decision_type=%, attendu ASSIGN ou AMEND) — une RETRACT ne peut jamais être citée comme preuve d''appartenance : elle atteste au contraire que l''observation n''appartient plus au cluster.',
+      NEW.decision_id, v_membership.decision_type;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION fn_check_event_version_evidence IS
+  'Invariant DB (pas seulement RPC) sur event_version_evidence : la version et la décision référencées doivent exister, porter sur le même cluster, et la décision doit être ASSIGN ou AMEND (jamais RETRACT, qui atteste une non-appartenance).';
+
+DROP TRIGGER IF EXISTS trg_event_version_evidence_validation ON event_version_evidence;
+CREATE TRIGGER trg_event_version_evidence_validation
+  BEFORE INSERT ON event_version_evidence
+  FOR EACH ROW EXECUTE FUNCTION fn_check_event_version_evidence();
+
+-- ---------------------------------------------------------------------
 -- 5. EVENT_CLUSTER_RELATION_OPERATIONS + EVENT_CLUSTER_RELATION_EDGES
 --    Une décision MERGE/SPLIT = UNE opération atomique (en-tête +
 --    arêtes), jamais des faits de relation isolés. Le modèle en-tête +
@@ -445,6 +592,8 @@ $$;
 COMMENT ON FUNCTION fn_check_cluster_relation_operation_cardinality IS
   'Contrôle différé (COMMIT) de la cardinalité MERGE/SPLIT, ancré sur event_cluster_relation_operations (en-tête), pas sur les arêtes — ferme le trou "opération à zéro arête" qu''un trigger ancré sur les arêtes manquerait par construction (aucune ligne = aucun déclenchement).';
 
+DROP TRIGGER IF EXISTS trg_cluster_relation_operation_cardinality
+  ON event_cluster_relation_operations;
 CREATE CONSTRAINT TRIGGER trg_cluster_relation_operation_cardinality
   AFTER INSERT ON event_cluster_relation_operations
   DEFERRABLE INITIALLY DEFERRED
@@ -640,8 +789,14 @@ COMMIT;
 --
 --   SELECT tgname FROM pg_trigger
 --     WHERE tgrelid::regclass::text LIKE 'event_%' ORDER BY tgname;
---   -- attendu : 7 triggers *_append_only (BEFORE) + 1 trigger différé
---   -- trg_cluster_relation_operation_cardinality (AFTER, DEFERRABLE)
+--   -- attendu : 7 triggers *_append_only (BEFORE UPDATE OR DELETE)
+--   --         + 1 trg_membership_decision_supersession (BEFORE INSERT,
+--   --           event_observation_memberships)
+--   --         + 1 trg_event_version_evidence_validation (BEFORE INSERT,
+--   --           event_version_evidence)
+--   --         + 1 trg_cluster_relation_operation_cardinality (AFTER
+--   --           INSERT, DEFERRABLE INITIALLY DEFERRED,
+--   --           event_cluster_relation_operations)
 --
 --   SELECT grantee, table_name, privilege_type
 --     FROM information_schema.role_table_grants

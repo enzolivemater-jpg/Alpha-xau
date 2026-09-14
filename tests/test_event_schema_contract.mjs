@@ -169,6 +169,54 @@ t('la fonction de cardinalité rejette SPLIT avec plus d\'1 source ou moins de 2
 t('la fonction de cardinalité interroge l\'agrégat sans dépendre de la présence d\'une arête (SELECT count ... WHERE operation_id = ...)',
   /SELECT count\(DISTINCT from_cluster_id\), count\(DISTINCT to_cluster_id\)/.test(liveSource));
 
+// Rejeu de la migration (idempotence réelle) : DROP TRIGGER IF EXISTS
+// doit précéder CREATE CONSTRAINT TRIGGER, exactement comme pour les
+// sept triggers append-only — sinon une seconde application échoue avec
+// "trigger already exists".
+t('DROP TRIGGER IF EXISTS précède CREATE CONSTRAINT TRIGGER (rejeu sûr de la migration)',
+  /DROP TRIGGER IF EXISTS trg_cluster_relation_operation_cardinality\s*\n\s*ON event_cluster_relation_operations;\s*\nCREATE CONSTRAINT TRIGGER trg_cluster_relation_operation_cardinality/.test(liveSource));
+
+// ---------------------------------------------------------------------
+// 7bis. Invariants DB de la chaîne de supersession du registre de
+//    membership (pas seulement délégués à la future RPC) :
+//      ASSIGN -> supersedes_decision_id IS NULL
+//      AMEND/RETRACT -> supersedes_decision_id IS NOT NULL, décision
+//        antérieure existante, même observation_id, même relation_key.
+// ---------------------------------------------------------------------
+t('fonction de validation de supersession de membership définie',
+  /CREATE OR REPLACE FUNCTION fn_check_membership_decision_supersession\(\)/.test(liveSource));
+t('trigger de supersession de membership : DROP IF EXISTS puis CREATE, BEFORE INSERT',
+  /DROP TRIGGER IF EXISTS trg_membership_decision_supersession ON event_observation_memberships;\s*\nCREATE TRIGGER trg_membership_decision_supersession\s*\n\s*BEFORE INSERT ON event_observation_memberships/.test(liveSource));
+t('ASSIGN rejeté si supersedes_decision_id est renseigné',
+  /decision_type = 'ASSIGN' THEN[\s\S]{0,150}NEW\.supersedes_decision_id IS NOT NULL THEN[\s\S]{0,50}RAISE EXCEPTION/.test(liveSource));
+t('AMEND/RETRACT rejeté si supersedes_decision_id est NULL',
+  /NEW\.supersedes_decision_id IS NULL THEN[\s\S]{0,80}RAISE EXCEPTION/.test(liveSource));
+t('la décision antérieure référencée doit exister (NOT FOUND -> RAISE EXCEPTION)',
+  /WHERE decision_id = NEW\.supersedes_decision_id;[\s\S]{0,80}IF NOT FOUND THEN[\s\S]{0,80}RAISE EXCEPTION/.test(liveSource));
+t('même observation_id exigé entre la décision antérieure et NEW',
+  /v_predecessor\.observation_id <> NEW\.observation_id THEN/.test(liveSource));
+t('même relation_key exigée (recalculée depuis NEW, jamais lue depuis la colonne GENERATED en BEFORE INSERT)',
+  /v_predecessor\.relation_key <> v_expected_relation_key THEN/.test(liveSource)
+  && /v_expected_relation_key := encode\(/.test(liveSource));
+
+// ---------------------------------------------------------------------
+// 7ter. Invariants DB de event_version_evidence (pas seulement délégués
+//    à la future RPC) : version et décision référencées existantes,
+//    même cluster, decision_type actif (ASSIGN/AMEND) — jamais RETRACT.
+// ---------------------------------------------------------------------
+t('fonction de validation cluster/type de l\'evidence définie',
+  /CREATE OR REPLACE FUNCTION fn_check_event_version_evidence\(\)/.test(liveSource));
+t('trigger de validation d\'evidence : DROP IF EXISTS puis CREATE, BEFORE INSERT',
+  /DROP TRIGGER IF EXISTS trg_event_version_evidence_validation ON event_version_evidence;\s*\nCREATE TRIGGER trg_event_version_evidence_validation\s*\n\s*BEFORE INSERT ON event_version_evidence/.test(liveSource));
+t('event_version_id référencé doit exister (NOT FOUND -> RAISE EXCEPTION)',
+  /WHERE id = NEW\.event_version_id;[\s\S]{0,80}IF NOT FOUND THEN[\s\S]{0,80}RAISE EXCEPTION/.test(liveSource));
+t('decision_id référencé doit exister (NOT FOUND -> RAISE EXCEPTION)',
+  /WHERE decision_id = NEW\.decision_id;[\s\S]{0,80}IF NOT FOUND THEN[\s\S]{0,80}RAISE EXCEPTION/.test(liveSource));
+t('cluster de la décision doit correspondre au cluster de la version (v_membership.cluster_id <> v_version_cluster_id)',
+  /v_membership\.cluster_id <> v_version_cluster_id THEN/.test(liveSource));
+t('seules ASSIGN/AMEND sont des preuves valides ; RETRACT est explicitement rejetée',
+  /v_membership\.decision_type NOT IN \('ASSIGN', 'AMEND'\) THEN/.test(liveSource));
+
 // ---------------------------------------------------------------------
 // 8. RLS / grants : posture identique à news_articles (migration 0009)
 // ---------------------------------------------------------------------
