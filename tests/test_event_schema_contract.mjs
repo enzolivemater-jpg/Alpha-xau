@@ -8,9 +8,18 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_PATH = path.join(__dirname, '..', 'database', 'migrations', '0012_event_cluster_version_foundation.sql');
+const HARDENING_MIGRATION_PATH = path.join(__dirname, '..', 'database', 'migrations', '0013_event_function_search_path_hardening.sql');
+
+// Empreinte du contenu EXACT de la migration 0012 tel que fusionné
+// (OPS-023 Phase 1 + son correctif de garde-fous DB) : la migration 0012
+// est historique/immuable — toute PR ultérieure (dont le durcissement
+// search_path, migration 0013) doit la laisser strictement inchangée.
+const MIGRATION_0012_EXPECTED_SHA256 =
+  '4d339f2f1a1e674a05ff11a204cc5caaf468639abb88ade84e379760046ee4ee';
 
 let p = 0, f = 0;
 const t = (n, c, x = '') => { c ? (p++, console.log(`  OK  ${n}`)) : (f++, console.log(`  FAIL ${n} ${x}`)); };
@@ -18,6 +27,14 @@ const t = (n, c, x = '') => { c ? (p++, console.log(`  OK  ${n}`)) : (f++, conso
 t('migration 0012 existe', existsSync(MIGRATION_PATH));
 
 const source = existsSync(MIGRATION_PATH) ? readFileSync(MIGRATION_PATH, 'utf8') : '';
+
+// Migration 0012 = historique immuable : son contenu exact (donc son
+// intention/comportement) ne doit jamais changer, y compris à
+// l'occasion d'une PR de durcissement sécurité (migration 0013).
+const migration0012Sha256 = source.length > 0 ? createHash('sha256').update(source).digest('hex') : '';
+t('migration 0012 reste inchangée dans son intention (empreinte SHA-256 identique)',
+  migration0012Sha256 === MIGRATION_0012_EXPECTED_SHA256,
+  `attendu ${MIGRATION_0012_EXPECTED_SHA256}, trouvé ${migration0012Sha256}`);
 
 // Code SQL réellement exécuté : lignes de commentaire ('--...') retirées,
 // pour ne jamais faire correspondre du SQL cité en exemple dans le bloc
@@ -267,6 +284,114 @@ t('event_versions ne contient pas de champ "confidence" isolé (hors official_co
   !/\bconfidence\b/i.test(eventVersionsBlock));
 t('event_versions ne référence aucun horizon H1-H5',
   !/\bH[1-5]\b/.test(eventVersionsBlock));
+
+// ---------------------------------------------------------------------
+// 12. Migration 0013 — durcissement search_path des 4 fonctions
+//     OPS-023 signalées par le Security Advisor Supabase
+//     (function_search_path_mutable), et UNIQUEMENT celles-ci.
+// ---------------------------------------------------------------------
+t('migration 0013 existe', existsSync(HARDENING_MIGRATION_PATH));
+
+const hardeningSource = existsSync(HARDENING_MIGRATION_PATH)
+  ? readFileSync(HARDENING_MIGRATION_PATH, 'utf8')
+  : '';
+const liveHardeningSource = hardeningSource
+  .split('\n')
+  .map((line) => {
+    const idx = line.indexOf('--');
+    return idx === -1 ? line : line.slice(0, idx);
+  })
+  .join('\n');
+
+t('migration 0013 est transactionnelle (BEGIN ... COMMIT)',
+  /^\s*BEGIN;/m.test(liveHardeningSource) && /COMMIT;\s*$/m.test(liveHardeningSource.trimEnd()));
+
+const HARDENED_FUNCTIONS = [
+  'fn_event_schema_append_only',
+  'fn_check_membership_decision_supersession',
+  'fn_check_event_version_evidence',
+  'fn_check_cluster_relation_operation_cardinality',
+];
+
+for (const fn of HARDENED_FUNCTIONS) {
+  // CREATE OR REPLACE FUNCTION public.<fn>() ... SET search_path = ''
+  // ... AS $$, dans cet ordre, sans qu'aucun autre CREATE FUNCTION ne
+  // s'intercale (capture non gourmande jusqu'au premier AS $$).
+  const re = new RegExp(
+    `CREATE OR REPLACE FUNCTION public\\.${fn}\\(\\)[\\s\\S]*?SET search_path = ''[\\s\\S]*?AS \\$\\$`,
+  );
+  t(`${fn} : re-créée en public.${fn}() avec SET search_path = '' avant AS $$`,
+    re.test(liveHardeningSource));
+}
+
+// Chaque référence de relation à l'intérieur des quatre fonctions
+// durcies doit être qualifiée public. — vérifié en isolant le corps de
+// chaque fonction (entre son "AS $$" et le "$$;" fermant qui suit) et en
+// s'assurant qu'aucun FROM/JOIN/INTO non qualifié n'y subsiste.
+function extractFunctionBody(src, fnName) {
+  const startRe = new RegExp(`CREATE OR REPLACE FUNCTION public\\.${fnName}\\(\\)[\\s\\S]*?AS \\$\\$`);
+  const startMatch = startRe.exec(src);
+  if (!startMatch) return null;
+  const bodyStart = startMatch.index + startMatch[0].length;
+  const endIdx = src.indexOf('$$;', bodyStart);
+  if (endIdx === -1) return null;
+  return src.slice(bodyStart, endIdx);
+}
+
+const RELATION_TABLES = [
+  'event_observation_memberships',
+  'event_versions',
+  'event_cluster_relation_edges',
+];
+
+for (const fn of HARDENED_FUNCTIONS) {
+  const body = extractFunctionBody(liveHardeningSource, fn);
+  t(`corps de ${fn} extrait pour analyse`, body !== null);
+  if (body === null) continue;
+
+  const referencedTables = RELATION_TABLES.filter((tbl) => new RegExp(`\\b${tbl}\\b`).test(body));
+  for (const tbl of referencedTables) {
+    const unqualified = new RegExp(`(?<!public\\.)\\b${tbl}\\b`);
+    t(`${fn} : toute référence à ${tbl} est qualifiée public.${tbl}`,
+      !unqualified.test(body));
+    t(`${fn} : référence qualifiée public.${tbl} bien présente`,
+      new RegExp(`public\\.${tbl}\\b`).test(body));
+  }
+}
+
+// extensions.digest(...) doit rester qualifiée (inchangée depuis 0012),
+// jamais remplacée par un appel non qualifié.
+t('extensions.digest(...) reste qualifiée dans fn_check_membership_decision_supersession',
+  /extensions\.digest\(/.test(liveHardeningSource) && !/(?<!extensions\.)\bdigest\(/.test(liveHardeningSource));
+
+// Aucune fonction/objet hors périmètre touché par 0013 : ni les
+// fonctions legacy préexistantes, ni aucune table/index/trigger/grant/
+// policy — la migration ne doit contenir QUE des CREATE OR REPLACE
+// FUNCTION sur les quatre fonctions ciblées, rien d'autre en DDL.
+const LEGACY_FUNCTIONS = [
+  'fn_news_score',
+  'fn_reclaim_stale_runs',
+  'fn_news_articles_append_only',
+  'fn_check_scenario_probability_sum',
+  'fn_news_classify',
+];
+for (const fn of LEGACY_FUNCTIONS) {
+  t(`0013 ne touche pas la fonction préexistante ${fn}`,
+    !new RegExp(`FUNCTION[^;]*\\b${fn}\\b`).test(liveHardeningSource));
+}
+
+const createOrReplaceCount = (liveHardeningSource.match(/CREATE OR REPLACE FUNCTION/g) || []).length;
+t('exactement 4 CREATE OR REPLACE FUNCTION dans la migration 0013 (aucune autre fonction créée/modifiée)',
+  createOrReplaceCount === 4, `${createOrReplaceCount} trouvées`);
+
+t('0013 ne crée/modifie aucune table (CREATE TABLE)', !/CREATE TABLE/i.test(liveHardeningSource));
+t('0013 ne modifie aucune table existante (ALTER TABLE)', !/ALTER TABLE/i.test(liveHardeningSource));
+t('0013 ne crée/modifie aucun index', !/CREATE (?:UNIQUE )?INDEX/i.test(liveHardeningSource));
+t('0013 ne crée/modifie/supprime aucun trigger', !/(?:CREATE|DROP)\s+(?:CONSTRAINT\s+)?TRIGGER/i.test(liveHardeningSource));
+t('0013 ne modifie aucun GRANT/REVOKE', !/\b(GRANT|REVOKE)\b/i.test(liveHardeningSource));
+t('0013 ne crée/modifie aucune policy RLS', !/CREATE POLICY|ALTER TABLE[^;]*ROW LEVEL SECURITY/i.test(liveHardeningSource));
+t('0013 ne contient aucun champ analytique EVENT IMPACT (direction/magnitude/pricing/horizon)',
+  !/\b(direction|magnitude|pricing_state|horizon)\b/i.test(liveHardeningSource));
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);
