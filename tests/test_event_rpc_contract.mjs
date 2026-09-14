@@ -177,12 +177,20 @@ if (assignFnSrc !== null) {
   t('ASSIGN_EXISTING rejette explicitement p_cluster_key/p_category/p_region/p_cluster_algorithm_version si renseignés (RAISE EXCEPTION, jamais ignoré)',
     CREATION_ONLY_PARAMS.every((param) => new RegExp(`${param} IS NOT NULL`).test(assignFnSrc))
     && /p_cluster_key IS NOT NULL\s*\n\s*OR p_category IS NOT NULL\s*\n\s*OR p_region IS NOT NULL\s*\n\s*OR p_cluster_algorithm_version IS NOT NULL\s*\n\s*THEN\s*\n\s*RAISE EXCEPTION/.test(assignFnSrc));
-  t('ce garde-fou est placé avant le verrouillage/l\'écriture ASSIGN_EXISTING (avant fn_event_lock_cluster(p_cluster_id))',
+  t('ce garde-fou est placé AVANT la pré-vérification d\'idempotence (avant WHERE m.idempotency_fingerprint = p_idempotency_fingerprint) — s\'applique donc au premier appel, au rejeu séquentiel ET au retry après réponse perdue, sans jamais pouvoir retourner replayed=true en le contournant',
+    (() => {
+      const guardIdx = assignFnSrc.search(/p_cluster_key IS NOT NULL\s*\n\s*OR p_category IS NOT NULL/);
+      const idempotencyCheckIdx = assignFnSrc.indexOf('WHERE m.idempotency_fingerprint = p_idempotency_fingerprint');
+      return guardIdx > -1 && idempotencyCheckIdx > -1 && guardIdx < idempotencyCheckIdx;
+    })());
+  t('ce garde-fou est aussi placé avant le verrouillage/l\'écriture ASSIGN_EXISTING (avant fn_event_lock_cluster(p_cluster_id))',
     (() => {
       const guardIdx = assignFnSrc.search(/p_cluster_key IS NOT NULL\s*\n\s*OR p_category IS NOT NULL/);
       const lockIdx = assignFnSrc.indexOf('PERFORM public.fn_event_lock_cluster(p_cluster_id);');
       return guardIdx > -1 && lockIdx > -1 && guardIdx < lockIdx;
     })());
+  t('le garde-fou n\'est PAS dupliqué : une seule occurrence dans la fonction (point de validation unique)',
+    (assignFnSrc.match(/p_cluster_key IS NOT NULL\s*\n\s*OR p_category IS NOT NULL/g) || []).length === 1);
 
   // ---------------------------------------------------------------------
   // 4ter. Une ligne issue d'une future REASSIGN (membership_operation_id

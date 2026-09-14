@@ -177,6 +177,30 @@ BEGIN
   END IF;
 
   -- ---------------------------------------------------------------
+  -- VALIDATION DE MODE — POINT DE GARDE UNIQUE, EN TOUT PREMIER : avant
+  -- même la pré-vérification d'idempotence, avant tout verrou, avant
+  -- toute écriture. Une requête ASSIGN_EXISTING dont l'intention est
+  -- incohérente (paramètres de fondation de cluster renseignés en même
+  -- temps qu'un p_cluster_id existant) doit être rejetée pour TOUTE
+  -- exécution — premier appel, rejeu séquentiel, ou retry après réponse
+  -- perdue — et ne doit JAMAIS pouvoir retourner replayed=true en
+  -- atteignant le chemin rapide d'idempotence avant ce contrôle.
+  -- Volontairement non dupliqué plus bas dans la fonction : ce garde-fou
+  -- est le seul point de validation du mode.
+  -- ---------------------------------------------------------------
+  IF p_cluster_id IS NOT NULL THEN
+    IF p_cluster_key IS NOT NULL
+       OR p_category IS NOT NULL
+       OR p_region IS NOT NULL
+       OR p_cluster_algorithm_version IS NOT NULL
+    THEN
+      RAISE EXCEPTION
+        'fn_event_assign_observation : ASSIGN_EXISTING (p_cluster_id=%) interdit tout paramètre de fondation de cluster (p_cluster_key/p_category/p_region/p_cluster_algorithm_version) — ces paramètres sont réservés à CREATE_AND_ASSIGN.',
+        p_cluster_id;
+    END IF;
+  END IF;
+
+  -- ---------------------------------------------------------------
   -- Pré-vérification d'idempotence (chemin rapide, avant tout verrou
   -- ou toute écriture). Une empreinte identique ne suffit JAMAIS seule
   -- à justifier un retour silencieux : l'intention canonique complète
@@ -372,24 +396,11 @@ BEGIN
   -- ---------------------------------------------------------------
   -- ASSIGN_EXISTING : p_cluster_id IS NOT NULL. N'altère jamais le
   -- cluster référencé (aucun UPDATE nulle part dans cette fonction).
-  --
-  -- Les paramètres de FONDATION de cluster (CREATE_AND_ASSIGN
-  -- uniquement) sont rejetés explicitement s'ils sont renseignés ici :
-  -- jamais ignorés silencieusement. Passer p_cluster_key/p_category/
-  -- p_region/p_cluster_algorithm_version en même temps qu'un
-  -- p_cluster_id existant est une intention incohérente de l'appelant,
-  -- pas une variante tolérée de ce mode.
+  -- La validation du mode (paramètres de fondation de cluster interdits
+  -- ici) a déjà été effectuée EN TOUT PREMIER, avant même la
+  -- pré-vérification d'idempotence — voir le garde-fou unique en tête
+  -- de fonction. Non dupliquée ici.
   -- ---------------------------------------------------------------
-  IF p_cluster_key IS NOT NULL
-     OR p_category IS NOT NULL
-     OR p_region IS NOT NULL
-     OR p_cluster_algorithm_version IS NOT NULL
-  THEN
-    RAISE EXCEPTION
-      'fn_event_assign_observation : ASSIGN_EXISTING (p_cluster_id=%) interdit tout paramètre de fondation de cluster (p_cluster_key/p_category/p_region/p_cluster_algorithm_version) — ces paramètres sont réservés à CREATE_AND_ASSIGN.',
-      p_cluster_id;
-  END IF;
-
   PERFORM public.fn_event_lock_cluster(p_cluster_id);
 
   IF NOT EXISTS (SELECT 1 FROM public.event_clusters WHERE id = p_cluster_id) THEN
