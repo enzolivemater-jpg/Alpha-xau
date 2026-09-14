@@ -37,6 +37,7 @@ const TEST_FILES = [
   'tests/test_committee_internal_transport.mjs',
   'tests/test_ecb_collector.mjs',
   'tests/test_ecb_raw_integration.mjs',
+  'tests/test_event_schema_contract.mjs',
   'tests/test_federal_reserve_collector.mjs',
   'tests/test_federal_reserve_raw_integration.mjs',
   'tests/test_gdelt_429_retry_policy.mjs',
