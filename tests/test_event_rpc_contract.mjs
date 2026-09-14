@@ -1,18 +1,27 @@
-// Contrat statique des RPC atomiques OPS-023 Phase 2 (migration 0014).
-// Analyse le texte SQL de la migration : aucune connexion PostgreSQL
-// requise, s'exécute en CI normale. Ne prouve PAS le comportement
-// transactionnel réel (verrouillage effectif, atomicité, récupération
-// de course) — une vérification live contre Supabase (rollback/probes
+// Contrat statique des RPC atomiques OPS-023 Phase 2 (migrations 0014 +
+// 0015). Analyse le texte SQL des migrations : aucune connexion
+// PostgreSQL requise, s'exécute en CI normale. Ne prouve PAS le
+// comportement transactionnel réel (verrouillage effectif, atomicité,
+// récupération de course, ni l'absence réelle de l'erreur 42702 que
+// 0015 corrige) — une vérification live contre Supabase (rollback/probes
 // de non-pollution) est effectuée indépendamment, après fusion. Ce
-// fichier prouve uniquement que le TEXTE de la migration respecte le
+// fichier prouve uniquement que le TEXTE des migrations respecte le
 // contrat gelé (paramètres, search_path, qualification, invariants
 // déjà portés par 0012 non dupliqués, périmètre strictement limité).
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION_PATH = path.join(__dirname, '..', 'database', 'migrations', '0014_event_membership_atomic_rpcs.sql');
+const FIX_MIGRATION_PATH = path.join(__dirname, '..', 'database', 'migrations', '0015_event_membership_returning_ambiguity_fix.sql');
+
+// Empreinte du contenu EXACT de la migration 0014 telle que fusionnée et
+// déjà appliquée à Supabase en production : immuable — 0015 ne doit
+// jamais la modifier.
+const MIGRATION_0014_EXPECTED_SHA256 =
+  'ae670a1b610ee28e8a7baac900d29caff91b368b0c3f5c4d5591ab3c75468d73';
 
 let p = 0, f = 0;
 const t = (n, c, x = '') => { c ? (p++, console.log(`  OK  ${n}`)) : (f++, console.log(`  FAIL ${n} ${x}`)); };
@@ -20,6 +29,13 @@ const t = (n, c, x = '') => { c ? (p++, console.log(`  OK  ${n}`)) : (f++, conso
 t('migration 0014 existe', existsSync(MIGRATION_PATH));
 
 const source = existsSync(MIGRATION_PATH) ? readFileSync(MIGRATION_PATH, 'utf8') : '';
+
+// Migration 0014 = déjà appliquée à Supabase en production, immuable :
+// 0015 (correctif de l'ambiguïté RETURNING) ne doit jamais la modifier.
+const migration0014Sha256 = source.length > 0 ? createHash('sha256').update(source).digest('hex') : '';
+t('migration 0014 reste inchangée (empreinte SHA-256 identique) — 0015 ne la modifie jamais',
+  migration0014Sha256 === MIGRATION_0014_EXPECTED_SHA256,
+  `attendu ${MIGRATION_0014_EXPECTED_SHA256}, trouvé ${migration0014Sha256}`);
 
 // Code SQL réellement exécuté : lignes de commentaire ('--...') retirées,
 // pour ne jamais faire correspondre du SQL cité en exemple dans le bloc
@@ -264,6 +280,97 @@ t('aucune référence au Comité/Anthropic/notification dans la migration',
 t('aucune référence à news_events (pipeline legacy) dans la migration', !/news_events/i.test(liveSource));
 t('aucun champ analytique EVENT IMPACT introduit (direction/magnitude/pricing/horizon)',
   !/\b(direction|magnitude|pricing_state|horizon)\b/i.test(liveSource));
+
+// =======================================================================
+// 9. Migration 0015 — correctif de l'ambiguïté RETURNING decision_id
+//    (ERROR 42702), exposée par vérification live contre Supabase.
+// =======================================================================
+t('migration 0015 existe', existsSync(FIX_MIGRATION_PATH));
+
+const fixSource = existsSync(FIX_MIGRATION_PATH) ? readFileSync(FIX_MIGRATION_PATH, 'utf8') : '';
+const liveFixSource = fixSource
+  .split('\n')
+  .map((line) => {
+    const idx = line.indexOf('--');
+    return idx === -1 ? line : line.slice(0, idx);
+  })
+  .join('\n');
+
+t('migration 0015 est transactionnelle (BEGIN ... COMMIT)',
+  /^\s*BEGIN;/m.test(liveFixSource) && /COMMIT;\s*$/m.test(liveFixSource.trimEnd()));
+
+// 0015 ne redéfinit QUE fn_event_assign_observation — jamais
+// fn_event_lock_cluster (son corps ne contient aucune clause RETURNING,
+// aucune ambiguïté possible, donc rien à y corriger).
+const fixCreateFunctionCount = (liveFixSource.match(/CREATE OR REPLACE FUNCTION/g) || []).length;
+t('migration 0015 redéfinit exactement UNE fonction', fixCreateFunctionCount === 1, `${fixCreateFunctionCount} trouvées`);
+t('cette fonction est public.fn_event_assign_observation',
+  /CREATE OR REPLACE FUNCTION public\.fn_event_assign_observation\(/.test(liveFixSource));
+t('fn_event_lock_cluster n\'est PAS redéfinie par 0015',
+  !/CREATE OR REPLACE FUNCTION public\.fn_event_lock_cluster/.test(liveFixSource));
+
+// Les deux INSERT membership doivent porter un alias de cible explicite
+// et le RETURNING doit référencer cet alias qualifié.
+const aliasedInsertCount = (liveFixSource.match(/INSERT INTO public\.event_observation_memberships AS m \(/g) || []).length;
+t('les deux INSERT event_observation_memberships portent un alias de cible explicite (AS m)',
+  aliasedInsertCount === 2, `${aliasedInsertCount} trouvés`);
+
+const qualifiedReturningCount = (liveFixSource.match(/RETURNING m\.decision_id INTO v_decision_id;/g) || []).length;
+t('les deux RETURNING référencent l\'alias qualifié (RETURNING m.decision_id INTO v_decision_id)',
+  qualifiedReturningCount === 2, `${qualifiedReturningCount} trouvés`);
+
+// Aucune occurrence non qualifiée ne doit subsister dans le code
+// RÉELLEMENT EXÉCUTÉ (liveFixSource exclut déjà les lignes de
+// commentaire, y compris celles du bloc VÉRIFICATION en fin de fichier
+// et le rappel du bug dans l'en-tête).
+t('aucun RETURNING decision_id INTO v_decision_id non qualifié ne subsiste dans le SQL exécuté',
+  !/(?<!m\.)\bRETURNING decision_id INTO v_decision_id\b/.test(liveFixSource));
+
+// Signature/sécurité/search_path/grants inchangés par rapport à 0014.
+const fix18ParamTypeList = 'UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT,\n  UUID, TEXT, TEXT, TEXT, TEXT, NUMERIC, TEXT, TEXT, TEXT, NUMERIC, TEXT';
+t('signature complète (18 paramètres, même ordre/types) inchangée dans 0015',
+  liveFixSource.includes(fix18ParamTypeList));
+t('RETURNS TABLE(cluster_id, decision_id, cluster_created_now, replayed) inchangé (aucune colonne renommée)',
+  /RETURNS TABLE \(\s*cluster_id\s+UUID,\s*decision_id\s+UUID,\s*cluster_created_now\s+BOOLEAN,\s*replayed\s+BOOLEAN/.test(liveFixSource));
+t('SECURITY INVOKER explicite conservé dans 0015', /SECURITY INVOKER/.test(liveFixSource));
+t('SECURITY DEFINER toujours absent dans 0015', !/SECURITY DEFINER/.test(liveFixSource));
+t('SET search_path = \'\' conservé dans 0015', /SET search_path = ''/.test(liveFixSource));
+t('REVOKE ALL sur fn_event_assign_observation réaffirmé (PUBLIC, anon, authenticated)',
+  /REVOKE ALL ON FUNCTION public\.fn_event_assign_observation\([\s\S]*?\) FROM PUBLIC, anon, authenticated;/.test(liveFixSource));
+t('GRANT EXECUTE sur fn_event_assign_observation réaffirmé (service_role uniquement)',
+  /GRANT EXECUTE ON FUNCTION public\.fn_event_assign_observation\([\s\S]*?\) TO service_role;/.test(liveFixSource));
+t('aucun GRANT à anon/authenticated/PUBLIC dans 0015',
+  !/GRANT[^;]*TO\s+(anon|authenticated|PUBLIC)\b/i.test(liveFixSource));
+
+// Garde-fous comportementaux préservés (ordre du garde-fou de mode,
+// logique d'idempotence, validation ASSIGN autonome) — vérifiés par
+// présence des mêmes marqueurs textuels qu'en 0014, pour détecter toute
+// régression accidentelle introduite en recopiant le corps de la
+// fonction.
+t('garde-fou de mode ASSIGN_EXISTING toujours placé avant la pré-vérification d\'idempotence',
+  (() => {
+    const guardIdx = liveFixSource.search(/p_cluster_key IS NOT NULL\s*\n\s*OR p_category IS NOT NULL/);
+    const idempotencyCheckIdx = liveFixSource.indexOf('WHERE m.idempotency_fingerprint = p_idempotency_fingerprint');
+    return guardIdx > -1 && idempotencyCheckIdx > -1 && guardIdx < idempotencyCheckIdx;
+  })());
+t('validation ASSIGN autonome (decision_type=\'ASSIGN\' + membership_operation_id IS NULL) toujours présente dans les 3 sites de 0015',
+  (liveFixSource.match(/v_existing\.decision_type IS DISTINCT FROM 'ASSIGN'/g) || []).length === 3
+  && (liveFixSource.match(/v_existing\.membership_operation_id IS NOT NULL/g) || []).length === 3);
+t('récupération sur violation d\'unicité toujours scopée à uq_memberships_idempotency_fingerprint (2 sites)',
+  (liveFixSource.match(/GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;/g) || []).length === 2);
+
+// Hors périmètre : aucune intégration worker/cron/Committee/legacy,
+// aucune table/index/trigger/policy touchée, aucun champ EVENT IMPACT.
+t('migration 0015 ne modifie pas les migrations 0012/0013/0014 (aucune référence à leur nom de fichier)',
+  !/0012_event_cluster_version_foundation|0013_event_function_search_path_hardening|0014_event_membership_atomic_rpcs/.test(fixSource));
+t('aucune référence à worker.ts/wrangler/cron dans 0015', !/wrangler|cron|worker\.ts/i.test(liveFixSource));
+t('aucune référence au Comité/Anthropic/notification dans 0015',
+  !/anthropic|committee|notifyAiEngine|ai_events/i.test(liveFixSource));
+t('aucune référence à news_events (pipeline legacy) dans 0015', !/news_events/i.test(liveFixSource));
+t('0015 ne crée/modifie aucune table, index, trigger ou policy',
+  !/CREATE TABLE|ALTER TABLE|CREATE (?:UNIQUE )?INDEX|CREATE (?:CONSTRAINT )?TRIGGER|CREATE POLICY/i.test(liveFixSource));
+t('aucun champ analytique EVENT IMPACT introduit par 0015 (direction/magnitude/pricing/horizon)',
+  !/\b(direction|magnitude|pricing_state|horizon)\b/i.test(liveFixSource));
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);
