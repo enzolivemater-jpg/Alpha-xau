@@ -183,6 +183,7 @@ BEGIN
   -- est validée contre la ligne déjà commitée.
   -- ---------------------------------------------------------------
   SELECT m.decision_id, m.cluster_id, m.observation_id, m.decision_type,
+         m.membership_operation_id,
          m.membership_method, m.membership_confidence, m.evidence_digest,
          m.editorial_origin_key, m.wire_lineage_key, m.lineage_resolution_method,
          m.lineage_resolution_confidence, m.lineage_evidence,
@@ -192,8 +193,14 @@ BEGIN
     WHERE m.idempotency_fingerprint = p_idempotency_fingerprint;
 
   IF FOUND THEN
+    -- fn_event_assign_observation ne crée JAMAIS que des décisions
+    -- ASSIGN autonomes (membership_operation_id NULL). Une ligne portant
+    -- ce même idempotency_fingerprint mais issue d'une future opération
+    -- REASSIGN (membership_operation_id renseigné, ou decision_type
+    -- différent) n'est jamais acceptée comme rejeu de CETTE RPC.
     IF v_existing.observation_id IS DISTINCT FROM p_observation_id
        OR v_existing.decision_type IS DISTINCT FROM 'ASSIGN'
+       OR v_existing.membership_operation_id IS NOT NULL
        OR v_existing.membership_method IS DISTINCT FROM p_membership_method
        OR v_existing.membership_confidence IS DISTINCT FROM p_membership_confidence
        OR v_existing.evidence_digest IS DISTINCT FROM p_evidence_digest
@@ -309,7 +316,8 @@ BEGIN
         RAISE;
       END IF;
 
-      SELECT m.decision_id, m.cluster_id, m.observation_id,
+      SELECT m.decision_id, m.cluster_id, m.observation_id, m.decision_type,
+             m.membership_operation_id,
              m.membership_method, m.membership_confidence, m.evidence_digest,
              m.editorial_origin_key, m.wire_lineage_key, m.lineage_resolution_method,
              m.lineage_resolution_confidence, m.lineage_evidence,
@@ -327,7 +335,12 @@ BEGIN
         FROM public.event_clusters c
         WHERE c.id = v_existing.cluster_id;
 
+      -- Même garde qu'au chemin rapide (§ci-dessus) : une ligne issue
+      -- d'une future REASSIGN n'est jamais acceptée comme rejeu de cette
+      -- RPC, même après une course concurrente.
       IF NOT FOUND
+         OR v_existing.decision_type IS DISTINCT FROM 'ASSIGN'
+         OR v_existing.membership_operation_id IS NOT NULL
          OR v_existing.observation_id IS DISTINCT FROM p_observation_id
          OR v_existing.membership_method IS DISTINCT FROM p_membership_method
          OR v_existing.membership_confidence IS DISTINCT FROM p_membership_confidence
@@ -359,7 +372,24 @@ BEGIN
   -- ---------------------------------------------------------------
   -- ASSIGN_EXISTING : p_cluster_id IS NOT NULL. N'altère jamais le
   -- cluster référencé (aucun UPDATE nulle part dans cette fonction).
+  --
+  -- Les paramètres de FONDATION de cluster (CREATE_AND_ASSIGN
+  -- uniquement) sont rejetés explicitement s'ils sont renseignés ici :
+  -- jamais ignorés silencieusement. Passer p_cluster_key/p_category/
+  -- p_region/p_cluster_algorithm_version en même temps qu'un
+  -- p_cluster_id existant est une intention incohérente de l'appelant,
+  -- pas une variante tolérée de ce mode.
   -- ---------------------------------------------------------------
+  IF p_cluster_key IS NOT NULL
+     OR p_category IS NOT NULL
+     OR p_region IS NOT NULL
+     OR p_cluster_algorithm_version IS NOT NULL
+  THEN
+    RAISE EXCEPTION
+      'fn_event_assign_observation : ASSIGN_EXISTING (p_cluster_id=%) interdit tout paramètre de fondation de cluster (p_cluster_key/p_category/p_region/p_cluster_algorithm_version) — ces paramètres sont réservés à CREATE_AND_ASSIGN.',
+      p_cluster_id;
+  END IF;
+
   PERFORM public.fn_event_lock_cluster(p_cluster_id);
 
   IF NOT EXISTS (SELECT 1 FROM public.event_clusters WHERE id = p_cluster_id) THEN
@@ -398,7 +428,8 @@ BEGIN
       RAISE;
     END IF;
 
-    SELECT m.decision_id, m.cluster_id, m.observation_id,
+    SELECT m.decision_id, m.cluster_id, m.observation_id, m.decision_type,
+           m.membership_operation_id,
            m.membership_method, m.membership_confidence, m.evidence_digest,
            m.editorial_origin_key, m.wire_lineage_key, m.lineage_resolution_method,
            m.lineage_resolution_confidence, m.lineage_evidence,
@@ -407,7 +438,11 @@ BEGIN
       FROM public.event_observation_memberships m
       WHERE m.idempotency_fingerprint = p_idempotency_fingerprint;
 
+    -- Même garde qu'au chemin rapide : une ligne issue d'une future
+    -- REASSIGN n'est jamais acceptée comme rejeu de cette RPC.
     IF NOT FOUND
+       OR v_existing.decision_type IS DISTINCT FROM 'ASSIGN'
+       OR v_existing.membership_operation_id IS NOT NULL
        OR v_existing.cluster_id IS DISTINCT FROM p_cluster_id
        OR v_existing.observation_id IS DISTINCT FROM p_observation_id
        OR v_existing.membership_method IS DISTINCT FROM p_membership_method

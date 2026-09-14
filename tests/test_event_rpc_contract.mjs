@@ -170,6 +170,43 @@ if (assignFnSrc !== null) {
     /RETURN QUERY SELECT v_existing\.cluster_id, v_existing\.decision_id, false, true;/g.test(assignFnSrc));
 
   // ---------------------------------------------------------------------
+  // 4bis. ASSIGN_EXISTING rejette explicitement les paramètres de
+  //    fondation de cluster (jamais ignorés silencieusement).
+  // ---------------------------------------------------------------------
+  const CREATION_ONLY_PARAMS = ['p_cluster_key', 'p_category', 'p_region', 'p_cluster_algorithm_version'];
+  t('ASSIGN_EXISTING rejette explicitement p_cluster_key/p_category/p_region/p_cluster_algorithm_version si renseignés (RAISE EXCEPTION, jamais ignoré)',
+    CREATION_ONLY_PARAMS.every((param) => new RegExp(`${param} IS NOT NULL`).test(assignFnSrc))
+    && /p_cluster_key IS NOT NULL\s*\n\s*OR p_category IS NOT NULL\s*\n\s*OR p_region IS NOT NULL\s*\n\s*OR p_cluster_algorithm_version IS NOT NULL\s*\n\s*THEN\s*\n\s*RAISE EXCEPTION/.test(assignFnSrc));
+  t('ce garde-fou est placé avant le verrouillage/l\'écriture ASSIGN_EXISTING (avant fn_event_lock_cluster(p_cluster_id))',
+    (() => {
+      const guardIdx = assignFnSrc.search(/p_cluster_key IS NOT NULL\s*\n\s*OR p_category IS NOT NULL/);
+      const lockIdx = assignFnSrc.indexOf('PERFORM public.fn_event_lock_cluster(p_cluster_id);');
+      return guardIdx > -1 && lockIdx > -1 && guardIdx < lockIdx;
+    })());
+
+  // ---------------------------------------------------------------------
+  // 4ter. Une ligne issue d'une future REASSIGN (membership_operation_id
+  //    renseigné, ou decision_type != 'ASSIGN') n'est JAMAIS acceptée
+  //    comme rejeu de cette RPC ASSIGN autonome — dans les trois sites
+  //    de vérification (chemin rapide + les deux récupérations).
+  // ---------------------------------------------------------------------
+  const membershipOperationIdSelected = (assignFnSrc.match(/m\.membership_operation_id/g) || []).length;
+  t('membership_operation_id sélectionné dans les 3 SELECT de vérification (chemin rapide + 2 récupérations)',
+    membershipOperationIdSelected === 3);
+
+  const decisionTypeSelected = (assignFnSrc.match(/m\.decision_id, m\.cluster_id, m\.observation_id, m\.decision_type,/g) || []).length;
+  t('decision_type sélectionné dans les 3 SELECT de vérification (chemin rapide + 2 récupérations)',
+    decisionTypeSelected === 3);
+
+  const decisionTypeGuardCount = (assignFnSrc.match(/v_existing\.decision_type IS DISTINCT FROM 'ASSIGN'/g) || []).length;
+  t('decision_type = \'ASSIGN\' validé dans les 3 sites (chemin rapide + 2 récupérations)',
+    decisionTypeGuardCount === 3);
+
+  const operationIdGuardCount = (assignFnSrc.match(/v_existing\.membership_operation_id IS NOT NULL/g) || []).length;
+  t('membership_operation_id IS NULL validé dans les 3 sites (chemin rapide + 2 récupérations)',
+    operationIdGuardCount === 3);
+
+  // ---------------------------------------------------------------------
   // 5. Aucune UPDATE/DELETE ; aucun modèle d'invariant concurrent
   // ---------------------------------------------------------------------
   t('aucun UPDATE contre une table d\'événement OPS-023', !/UPDATE\s+public\.event_/i.test(assignFnSrc));
