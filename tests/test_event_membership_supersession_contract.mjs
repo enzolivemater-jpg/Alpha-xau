@@ -94,12 +94,30 @@ if (fnSrc !== null) {
     firstOptionalIdx > -1 && REQUIRED_PARAMS.every((param) => signature.indexOf(param) < firstOptionalIdx));
 
   // ---------------------------------------------------------------------
-  // 3. AMEND/RETRACT uniquement, ASSIGN rejeté
+  // 3. AMEND/RETRACT uniquement, ASSIGN rejeté, NULL rejeté explicitement
+  //    (NULL NOT IN ('AMEND','RETRACT') s'évalue à NULL en PostgreSQL,
+  //    pas à TRUE — sans le IS NULL explicite, un p_decision_type NULL
+  //    contournerait silencieusement ce garde-fou).
   // ---------------------------------------------------------------------
   t('p_decision_type restreint à AMEND/RETRACT (ASSIGN rejeté)',
-    /p_decision_type NOT IN \('AMEND', 'RETRACT'\) THEN[\s\S]{0,120}RAISE EXCEPTION/.test(fnSrc));
+    /p_decision_type NOT IN \('AMEND', 'RETRACT'\)/.test(fnSrc));
+  t('p_decision_type IS NULL est testé explicitement, en plus de NOT IN',
+    /p_decision_type IS NULL\s*\n\s*OR p_decision_type NOT IN \('AMEND', 'RETRACT'\)\s*\n\s*THEN/.test(fnSrc));
   t('le message d\'erreur mentionne explicitement qu\'ASSIGN n\'est jamais accepté ici',
     /ASSIGN n''est jamais accepté ici/.test(fnSrc));
+
+  const decisionTypeGuardIdx = fnSrc.search(/p_decision_type IS NULL\s*\n\s*OR p_decision_type NOT IN \('AMEND', 'RETRACT'\)/);
+  t('le garde-fou p_decision_type (IS NULL OR NOT IN) est situé en ÉTAPE 1, avant toute lecture DB/verrou/écriture',
+    (() => {
+      if (decisionTypeGuardIdx === -1) return false;
+      const firstIdempotencyLookupIdx = fnSrc.indexOf('WHERE m.idempotency_fingerprint = p_idempotency_fingerprint');
+      const lockCallIdx = fnSrc.indexOf('PERFORM public.fn_event_lock_cluster(p_cluster_id);');
+      const insertCallIdx = fnSrc.indexOf('INSERT INTO public.event_observation_memberships');
+      return firstIdempotencyLookupIdx > -1 && lockCallIdx > -1 && insertCallIdx > -1
+        && decisionTypeGuardIdx < firstIdempotencyLookupIdx
+        && decisionTypeGuardIdx < lockCallIdx
+        && decisionTypeGuardIdx < insertCallIdx;
+    })());
 
   // ---------------------------------------------------------------------
   // 4. Verrouillage : avant mutation, chemin fast-path AVANT le verrou,

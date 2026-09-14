@@ -168,7 +168,14 @@ BEGIN
   IF p_supersedes_decision_id IS NULL THEN
     RAISE EXCEPTION 'fn_event_supersede_membership : p_supersedes_decision_id ne peut pas être NULL.';
   END IF;
-  IF p_decision_type NOT IN ('AMEND', 'RETRACT') THEN
+  -- IS NULL doit être testé explicitement : en PostgreSQL,
+  -- NULL NOT IN ('AMEND','RETRACT') s'évalue à NULL (pas TRUE), donc un
+  -- p_decision_type NULL contournerait silencieusement ce garde-fou et
+  -- ne serait rejeté que plus tard par la contrainte NOT NULL de la
+  -- table, après verrou/travail DB.
+  IF p_decision_type IS NULL
+     OR p_decision_type NOT IN ('AMEND', 'RETRACT')
+  THEN
     RAISE EXCEPTION
       'fn_event_supersede_membership : p_decision_type doit être AMEND ou RETRACT (reçu %) — ASSIGN n''est jamais accepté ici (voir fn_event_assign_observation).',
       p_decision_type;
