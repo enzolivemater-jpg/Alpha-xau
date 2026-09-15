@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.join(__dirname, '..', 'database', 'migrations');
 const MIGRATION_PATH = path.join(MIGRATIONS_DIR, '0020_event_version_atomic_rpc.sql');
+const FIX_MIGRATION_PATH = path.join(MIGRATIONS_DIR, '0021_event_version_runtime_ambiguity_fix.sql');
 
 let p = 0, f = 0;
 const t = (n, c, x = '') => { c ? (p++, console.log(`  OK  ${n}`)) : (f++, console.log(`  FAIL ${n} ${x}`)); };
@@ -44,6 +45,8 @@ const PRIOR_MIGRATIONS_EXPECTED_SHA256 = {
     'd07d4bd393596401ab183b8b15e940488add76498f3157262c61a7a3d8afd026',
   '0019_event_cluster_relation_rpc.sql':
     '43970a5154939cb13b7a7f2a2f2dc2ae8b00ea329d1bdadf064e305acf7470e2',
+  '0020_event_version_atomic_rpc.sql':
+    '3390026a0a1c9503cce0a8684dda4eb7d85e785c092087a11a271e76832736ee',
 };
 
 for (const [fileName, expectedSha] of Object.entries(PRIOR_MIGRATIONS_EXPECTED_SHA256)) {
@@ -487,6 +490,181 @@ t('aucune référence à une future RPC de processeur/identité/relation/members
   !/fn_event_assign_observation|fn_event_supersede_membership|fn_event_reassign_membership|fn_event_assert_identity_claim|fn_event_create_cluster_relation/i.test(liveSource));
 t('aucun champ analytique EVENT IMPACT/Gold introduit (direction/magnitude/pricing/horizon/H1/H5/regime)',
   !/\b(direction|magnitude|pricing_state|horizon|regime)\b/i.test(liveSource) && !/\bH[1-5]\b/.test(liveSource));
+
+// ---------------------------------------------------------------------
+// 18. RUNTIME-FIX-0021 — correctif d'ambiguïté de colonne (ERROR 42702)
+//     vérifié en live contre Supabase. Migration 0020 déjà appliquée en
+//     production (20260915104349 event_version_atomic_rpc) — IMMUABLE,
+//     figée par l'empreinte SHA-256 ci-dessus (section 0), jamais
+//     réécrite pour faire passer ces tests. 0021 fait un CREATE OR
+//     REPLACE de la MÊME fonction publique, signature et RETURNS TABLE
+//     identiques, sémantique Event Version identique — durcissement PUR
+//     de la qualification de colonne SQL.
+// ---------------------------------------------------------------------
+t('migration 0021 existe', existsSync(FIX_MIGRATION_PATH));
+
+const fixSource = existsSync(FIX_MIGRATION_PATH) ? readFileSync(FIX_MIGRATION_PATH, 'utf8') : '';
+const liveFixSource = fixSource
+  .split('\n')
+  .map((line) => {
+    const idx = line.indexOf('--');
+    return idx === -1 ? line : line.slice(0, idx);
+  })
+  .join('\n');
+
+t('migration 0021 est transactionnelle (BEGIN ... COMMIT)',
+  /^\s*BEGIN;/m.test(liveFixSource) && /COMMIT;\s*$/m.test(liveFixSource.trimEnd()));
+
+const fixCreateFunctionCount = (liveFixSource.match(/CREATE OR REPLACE FUNCTION/g) || []).length;
+t('migration 0021 redéfinit exactement UNE fonction', fixCreateFunctionCount === 1, `${fixCreateFunctionCount} trouvées`);
+t('cette fonction est public.fn_event_create_event_version (la MÊME RPC, pas une nouvelle)',
+  /CREATE OR REPLACE FUNCTION public\.fn_event_create_event_version\(/.test(liveFixSource));
+t('fn_event_lock_cluster n\'est PAS redéfinie par 0021',
+  !/CREATE OR REPLACE FUNCTION public\.fn_event_lock_cluster/.test(liveFixSource));
+t('0021 ne crée aucune nouvelle table/index/fonction utilitaire',
+  !/CREATE TABLE/i.test(liveFixSource) && !/CREATE (?:UNIQUE )?INDEX/i.test(liveFixSource)
+  && (liveFixSource.match(/CREATE OR REPLACE FUNCTION/g) || []).length === 1);
+
+t('migration 0021 ne référence le nom de fichier d\'aucune migration antérieure (0012-0020)',
+  !/0012_event_cluster_version_foundation|0013_event_function_search_path_hardening|0014_event_membership_atomic_rpcs|0015_event_membership_returning_ambiguity_fix|0016_event_membership_supersession_rpc|0017_event_membership_reassign_rpc|0018_event_identity_claim_rpc|0019_event_cluster_relation_rpc|0020_event_version_atomic_rpc/.test(fixSource));
+
+const fixSignatureMatch = /CREATE OR REPLACE FUNCTION public\.fn_event_create_event_version\(([\s\S]*?)\)\s*\nRETURNS TABLE \(([\s\S]*?)\)\s*\nLANGUAGE plpgsql/.exec(liveFixSource);
+const originalSignatureMatch = /CREATE OR REPLACE FUNCTION public\.fn_event_create_event_version\(([\s\S]*?)\)\s*\nRETURNS TABLE \(([\s\S]*?)\)\s*\nLANGUAGE plpgsql/.exec(liveSource);
+t('0021 extrait sa signature + RETURNS TABLE pour comparaison', fixSignatureMatch !== null && originalSignatureMatch !== null);
+if (fixSignatureMatch !== null && originalSignatureMatch !== null) {
+  t('signature (paramètres, ordre, types, DEFAULT) BYTE-POUR-BYTE identique entre 0020 et 0021',
+    fixSignatureMatch[1].trim() === originalSignatureMatch[1].trim());
+  t('RETURNS TABLE BYTE-POUR-BYTE identique entre 0020 et 0021 (aucun champ de sortie ajouté/retiré/renommé)',
+    fixSignatureMatch[2].trim() === originalSignatureMatch[2].trim());
+}
+
+t('SECURITY INVOKER explicite conservé dans 0021', /SECURITY INVOKER/.test(liveFixSource));
+t('SECURITY DEFINER toujours absent dans 0021', !/SECURITY DEFINER/.test(liveFixSource));
+t('SET search_path = \'\' conservé dans 0021', /SET search_path = ''/.test(liveFixSource));
+t('REVOKE ALL sur fn_event_create_event_version de PUBLIC/anon/authenticated conservé dans 0021',
+  /REVOKE ALL ON FUNCTION public\.fn_event_create_event_version\([\s\S]*?\) FROM PUBLIC, anon, authenticated;/.test(liveFixSource));
+t('GRANT EXECUTE à service_role uniquement conservé dans 0021',
+  /GRANT EXECUTE ON FUNCTION public\.fn_event_create_event_version\([\s\S]*?\) TO service_role;/.test(liveFixSource));
+t('aucun GRANT à anon/authenticated/PUBLIC dans 0021',
+  !/GRANT[^;]*TO\s+(anon|authenticated|PUBLIC)\b/i.test(liveFixSource));
+t('aucun changement de grant de TABLE ni de RLS dans 0021',
+  !/(?:GRANT|REVOKE)[^;]*\bON\s+(?:TABLE\s+)?event_(?!.*FUNCTION)[a-z_]+\s+(?:TO|FROM)/i.test(liveFixSource)
+  && !/CREATE POLICY|ALTER TABLE/i.test(liveFixSource));
+t('aucune référence à worker.ts/wrangler/cron/Comité/Anthropic/notification/news_events dans 0021',
+  !/wrangler|cron|worker\.ts/i.test(liveFixSource)
+  && !/anthropic|committee|notifyAiEngine|ai_events/i.test(liveFixSource)
+  && !/news_events/i.test(liveFixSource));
+
+const fixFnSrc = extractFunctionSource(liveFixSource, 'fn_event_create_event_version');
+t('corps de fn_event_create_event_version (0021) extrait pour analyse', fixFnSrc !== null);
+
+if (fixFnSrc !== null) {
+  // -----------------------------------------------------------------
+  // A) Agrégat de chaîne de version : AUCUNE occurrence exécutable de
+  //    max(version_number) nu ; exige max(<alias>.version_number)
+  //    qualifié, et cluster_id qualifié dans le WHERE.
+  // -----------------------------------------------------------------
+  t('A) aucune occurrence exécutable de max(version_number) NU (non qualifié) dans 0021',
+    !fixFnSrc.includes('max(version_number)'));
+  t('A) l\'agrégat de chaîne utilise max(ev_chain.version_number) qualifié',
+    fixFnSrc.includes('max(ev_chain.version_number)'));
+  t('A) l\'agrégat de chaîne utilise un alias explicite sur event_versions (AS ev_chain) et qualifie cluster_id',
+    /FROM public\.event_versions AS ev_chain\s*\n\s*WHERE ev_chain\.cluster_id = p_cluster_id;/.test(fixFnSrc));
+
+  // -----------------------------------------------------------------
+  // B) SELECT ... INTO v_tip : alias de table, CHAQUE colonne
+  //    sélectionnée qualifiée par cet alias.
+  // -----------------------------------------------------------------
+  const tipSelectFixMatch = /SELECT (ev_tip\.id, ev_tip\.version_number, ev_tip\.transition_type, ev_tip\.knowledge_cutoff, ev_tip\.state_fingerprint,\s*\n\s*ev_tip\.source_independence_state, ev_tip\.canonical_event_state, ev_tip\.effective_time, ev_tip\.effective_time_precision)\s*\n\s*INTO v_tip\s*\n\s*FROM public\.event_versions AS ev_tip\s*\n\s*WHERE ev_tip\.cluster_id = p_cluster_id AND ev_tip\.version_number = v_max_version_number;/.exec(fixFnSrc);
+  t('B) le SELECT ... INTO v_tip (0021) utilise l\'alias ev_tip et qualifie CHAQUE colonne sélectionnée : id, version_number, transition_type, knowledge_cutoff, state_fingerprint, source_independence_state, canonical_event_state, effective_time, effective_time_precision',
+    tipSelectFixMatch !== null);
+
+  const REQUIRED_TIP_FIELDS_0021 = [
+    'ev_tip.id', 'ev_tip.version_number', 'ev_tip.transition_type', 'ev_tip.knowledge_cutoff', 'ev_tip.state_fingerprint',
+    'ev_tip.source_independence_state', 'ev_tip.canonical_event_state', 'ev_tip.effective_time', 'ev_tip.effective_time_precision',
+  ];
+  const tipSelectedFieldsFix = tipSelectFixMatch
+    ? tipSelectFixMatch[1].split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+  for (const field of REQUIRED_TIP_FIELDS_0021) {
+    t(`B) v_tip (0021) charge le champ qualifié requis "${field}"`,
+      tipSelectedFieldsFix.includes(field));
+  }
+
+  // -----------------------------------------------------------------
+  // C) v_tip WHERE clause : <alias>.cluster_id ET <alias>.version_number
+  //    qualifiés, jamais des noms de colonne nus.
+  // -----------------------------------------------------------------
+  t('C) le WHERE de v_tip (0021) qualifie cluster_id via ev_tip.',
+    /WHERE ev_tip\.cluster_id = p_cluster_id/.test(fixFnSrc));
+  t('C) le WHERE de v_tip (0021) qualifie version_number via ev_tip.',
+    /ev_tip\.version_number = v_max_version_number/.test(fixFnSrc));
+  t('C) aucune forme nue "WHERE cluster_id = p_cluster_id AND version_number = " ne subsiste dans 0021',
+    !fixFnSrc.includes('WHERE cluster_id = p_cluster_id AND version_number = '));
+
+  // -----------------------------------------------------------------
+  // D) Aucun prédicat exécutable "WHERE event_version_id = ..." SANS
+  //    alias de table, nulle part dans 0021.
+  // -----------------------------------------------------------------
+  t('D) aucune occurrence exécutable de "WHERE event_version_id =" NU (non qualifié) dans 0021',
+    !fixFnSrc.includes('WHERE event_version_id ='));
+
+  // -----------------------------------------------------------------
+  // E) Les CINQ contextes de comptage de preuves utilisent un alias
+  //    explicite event_version_evidence (ve_count), jamais nu.
+  // -----------------------------------------------------------------
+  const veCountOccurrences = (fixFnSrc.match(/FROM public\.event_version_evidence AS ve_count\s*\n\s*WHERE ve_count\.event_version_id = /g) || []).length;
+  t('E) EXACTEMENT 5 contextes de comptage de preuves utilisent l\'alias qualifié ve_count.event_version_id (précheck, recheck post-verrous, NO_MATERIAL_CHANGE, vérification post-insertion, récupération unique_violation)',
+    veCountOccurrences === 5, `trouvé ${veCountOccurrences}`);
+  t('E) aucun "FROM public.event_version_evidence" SANS alias ne subsiste comme source d\'un comptage (event_version_id) dans 0021',
+    !/FROM public\.event_version_evidence\s*\n\s*WHERE event_version_id/.test(fixFnSrc));
+
+  // -----------------------------------------------------------------
+  // F) Les références DÉJÀ qualifiées légitimes (ev./v_existing./
+  //    v_tip./vev./v.) ne sont jamais faussement rejetées par ce
+  //    fichier de test : elles doivent rester présentes et détectées.
+  // -----------------------------------------------------------------
+  t('F) ev.version_number (précheck/recheck/récupération) reste présent et valide dans 0021',
+    (fixFnSrc.match(/ev\.version_number/g) || []).length >= 3);
+  t('F) v_existing.version_number (RETURN QUERY de rejeu) reste présent et valide dans 0021',
+    (fixFnSrc.match(/v_existing\.version_number/g) || []).length >= 3);
+  t('F) v_tip.version_number (garde-fou/matérialité/NO_MATERIAL_CHANGE) reste présent et valide dans 0021',
+    (fixFnSrc.match(/v_tip\.version_number/g) || []).length >= 2);
+  t('F) RETURNING v.id qualifié (leçon 0015) reste présent et valide dans 0021',
+    /RETURNING v\.id INTO v_event_version_id;/.test(fixFnSrc));
+
+  // -----------------------------------------------------------------
+  // G) Garde de régression générique v_tip (héritée du review-fix
+  //    PR3) : re-appliquée à 0021, la définition LIVE actuelle — TOUT
+  //    champ v_tip.<champ> utilisé doit figurer dans le SELECT.
+  // -----------------------------------------------------------------
+  const uniqueTipFieldUsagesFix = [...new Set([...fixFnSrc.matchAll(/(?<!\w)v_tip\.([a-z_]+)/g)].map((m) => m[1]))];
+  t('G) (0021) tout champ v_tip.<champ> effectivement utilisé figure dans le SELECT ... INTO v_tip qualifié (au moins un usage détecté)',
+    uniqueTipFieldUsagesFix.length > 0);
+  for (const usedField of uniqueTipFieldUsagesFix) {
+    t(`G) (0021) v_tip.${usedField} est utilisé et son champ qualifié ev_tip.${usedField} figure bien dans le SELECT`,
+      tipSelectedFieldsFix.includes(`ev_tip.${usedField}`));
+  }
+
+  // -----------------------------------------------------------------
+  // Sémantique inchangée : les mêmes garanties comportementales (étapes
+  // 1-11) restent présentes textuellement dans 0021 — précheck/recheck
+  // d'idempotence, matérialité, garde-fou CONFIRMATION, chaîne de
+  // version, vivacité AS-OF, insertion atomique, récupération scopée.
+  // -----------------------------------------------------------------
+  t('sémantique inchangée : matérialité stricte (comparaison state_fingerprint) toujours présente dans 0021',
+    /v_is_material := \(v_candidate_state_fingerprint IS DISTINCT FROM v_tip\.state_fingerprint\);/.test(fixFnSrc));
+  t('sémantique inchangée : NO_MATERIAL_CHANGE ne produit toujours aucun INSERT dans 0021',
+    fixFnSrc.indexOf("'NO_MATERIAL_CHANGE'::TEXT, false;") < fixFnSrc.indexOf('INSERT INTO public.event_versions AS v ('));
+  t('sémantique inchangée : garde-fou CONFIRMATION toujours présent dans 0021',
+    /IF p_transition_type = 'CONFIRMATION' THEN/.test(fixFnSrc));
+  t('sémantique inchangée : vivacité de cluster AS-OF (decided_at <= p_knowledge_cutoff) toujours présente dans 0021',
+    /o\.decided_at <= p_knowledge_cutoff/.test(fixFnSrc));
+  t('sémantique inchangée : récupération unique_violation toujours scopée à uq_event_versions_idempotency_fingerprint dans 0021',
+    /IF v_constraint_name IS DISTINCT FROM 'uq_event_versions_idempotency_fingerprint' THEN\s*\n\s*RAISE;/.test(fixFnSrc));
+  t('aucun UPDATE contre une table d\'événement OPS-023 dans 0021', !/UPDATE\s+public\.event_/i.test(fixFnSrc));
+  t('aucun DELETE contre une table d\'événement OPS-023 dans 0021', !/DELETE\s+FROM\s+public\.event_/i.test(fixFnSrc));
+}
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);
