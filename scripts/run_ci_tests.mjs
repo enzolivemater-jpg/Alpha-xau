@@ -43,6 +43,7 @@ const TEST_FILES = [
   'tests/test_event_membership_supersession_contract.mjs',
   'tests/test_event_rpc_contract.mjs',
   'tests/test_event_schema_contract.mjs',
+  'tests/test_event_version_rpc_contract.mjs',
   'tests/test_federal_reserve_collector.mjs',
   'tests/test_federal_reserve_raw_integration.mjs',
   'tests/test_gdelt_429_retry_policy.mjs',
