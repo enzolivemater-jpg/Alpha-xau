@@ -64,6 +64,7 @@ import {
   type Env as CommitteeEnv,
   type RecalcScope,
 } from './ai_engine/committee_orchestrator.js';
+import { handleEventShadowRequest } from './event_engine/shadow_runtime.js';
 
 /**
  * Environnement consolidé du Worker. Toutes les valeurs proviennent des
@@ -161,6 +162,12 @@ export default {
 
     if (path.startsWith('/committee')) return handleCommitteeRequest(request, env);
     if (path.startsWith('/news')) return handleNewsRequest(request, env);
+    // Exact match only — deliberately NOT startsWith('/event-shadow'), and
+    // deliberately NOT wired into scheduled()/resolveJob()/JobName below:
+    // OPS-023 PR7 is a controlled MANUAL endpoint only. Automatic candidate
+    // discovery + cron wiring belong to a later PR, after this endpoint is
+    // proven against live Supabase with controlled observation IDs.
+    if (path === '/event-shadow') return handleEventShadowRequest(request, env);
 
     if (path.startsWith('/health')) {
       return new Response(

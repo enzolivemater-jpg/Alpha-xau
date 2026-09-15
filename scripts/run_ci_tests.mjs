@@ -46,6 +46,7 @@ const TEST_FILES = [
   'tests/test_event_schema_contract.mjs',
   'tests/test_event_shadow_batch.mjs',
   'tests/test_event_shadow_orchestrator.mjs',
+  'tests/test_event_shadow_runtime.mjs',
   'tests/test_event_version_rpc_contract.mjs',
   'tests/test_federal_reserve_collector.mjs',
   'tests/test_federal_reserve_raw_integration.mjs',
