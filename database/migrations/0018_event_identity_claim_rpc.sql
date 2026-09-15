@@ -51,18 +51,34 @@
 --  Aucune normalisation silencieuse (trim/lowercase/rewrite) des valeurs
 --  d'identité : la colonne GENERATED reste seule autorité sur la clé.
 --
---  VERROUILLAGE (discipline gelée, CRITIQUE pour la correction) :
+--  VERROUILLAGE + ORDRE DE VALIDATION (discipline gelée, CRITIQUE pour la
+--  correction ET pour la concurrence d'un rejeu identique) :
 --    1. verrou de cluster (fn_event_lock_cluster, partagé, inchangé) ;
---    2. verrou(s) advisory de clé d'identité forte (nouveau namespace
+--    2. si supersession : CHARGEMENT du prédécesseur (existence, même
+--       cluster, sa strong_identity_key) — PAS ENCORE de rejet de
+--       fraîcheur ni de monotonie ici ;
+--    3. verrou(s) advisory de clé d'identité forte (nouveau namespace
 --       'xau_v2:event_identity', DEUX clés si une supersession change de
 --       clé, acquises en ordre lexical trié déterministe — sinon une
 --       seule fois si les deux clés coïncident) — AVANT toute validation
 --       de collision, pour qu'aucune autre transaction ne puisse insérer
 --       sous la même clé pendant l'examen ;
---    3. validation de collision de clé active ;
---    4. INSERT.
---  L'ordre trié empêche deux corrections opposées concurrentes (X->Y et
---  Y->X) d'acquérir leurs verrous de clé dans un ordre incohérent.
+--    4. RE-vérification d'idempotence post-verrous (voir IDEMPOTENCE
+--       ci-dessous) — SI rejeu exact : retour immédiat, replayed=true ;
+--    5. SEULEMENT SI CE N'EST PAS un rejeu : rejet de fraîcheur périmée
+--       (successeur déjà existant) et application de la monotonie
+--       temporelle ;
+--    6. validation de collision de clé active ;
+--    7. INSERT.
+--  L'ordre trié des verrous de clé empêche deux corrections opposées
+--  concurrentes (X->Y et Y->X) d'acquérir leurs verrous dans un ordre
+--  incohérent. Le rejet de fraîcheur périmée DOIT survenir APRÈS la
+--  re-vérification d'idempotence post-verrous, jamais avant : sinon un
+--  rejeu concurrent IDENTIQUE (T2 attendant le verrou de cluster pendant
+--  que T1, même intention canonique, insère puis commite le successeur)
+--  verrait son propre prédécesseur comme "périmé" par le successeur que
+--  T1 vient de committer à l'identique, et échouerait à tort au lieu de
+--  recevoir replayed=true.
 --
 --  IDEMPOTENCE (à deux niveaux, identique au pattern gelé 0014/0016/0017) :
 --    1. pré-vérification par idempotency_fingerprint AVANT tout verrou ;
@@ -98,11 +114,15 @@
 --  une résolution explicite ultérieure (relation de cluster), hors
 --  périmètre ici.
 --
---  FRAÎCHEUR DU PRÉDÉCESSEUR (supersession), sous verrou de cluster :
---  existence, MÊME cluster_id, détection EXPLICITE d'un successeur déjà
---  existant (lecture dédiée, PAS une dépendance exclusive à
---  uq_identity_claims_supersedes), et monotonie temporelle
---  (p_knowledge_cutoff >= prédécesseur.knowledge_cutoff). Une
+--  FRAÎCHEUR DU PRÉDÉCESSEUR (supersession) : existence et MÊME
+--  cluster_id vérifiés sous verrou de cluster (chargement, étape 2
+--  ci-dessus) ; détection EXPLICITE d'un successeur déjà existant
+--  (lecture dédiée, PAS une dépendance exclusive à
+--  uq_identity_claims_supersedes) et monotonie temporelle
+--  (p_knowledge_cutoff >= prédécesseur.knowledge_cutoff) appliquées
+--  seulement APRÈS la re-vérification d'idempotence post-verrous (étape
+--  5 ci-dessus) — jamais avant, pour ne jamais faire échouer à tort un
+--  rejeu concurrent identique. Une
 --  supersession PEUT conserver la même strong_identity_key (correction
 --  de métadonnées/raison) OU changer authority_namespace/identity_type/
 --  identity_value — donc changer la clé — TOUJOURS comme correction
@@ -290,12 +310,24 @@ BEGIN
   END IF;
 
   -- ---------------------------------------------------------------
-  -- ÉTAPE 4 — prédécesseur de supersession, SOUS LE VERROU DE CLUSTER :
-  -- existence, MÊME cluster, fraîcheur explicite (successeur déjà
-  -- existant — détection PRIMAIRE par lecture dédiée, pas une
-  -- dépendance exclusive à uq_identity_claims_supersedes), monotonie
-  -- temporelle. Détermine v_old_strong_identity_key (NULL si assertion
-  -- fraîche indépendante).
+  -- ÉTAPE 4 — CHARGEMENT du prédécesseur de supersession, SOUS LE
+  -- VERROU DE CLUSTER : existence, MÊME cluster, et obtention de
+  -- v_old_strong_identity_key (NULL si assertion fraîche indépendante)
+  -- — nécessaire pour savoir QUELLE(S) clé(s) verrouiller à l'étape 5.
+  --
+  -- NE REJETTE PAS ENCORE pour fraîcheur périmée (successeur déjà
+  -- existant) ni pour monotonie temporelle : un rejet ICI, AVANT le
+  -- verrou de clé et la RE-vérification d'idempotence post-verrous,
+  -- ferait échouer à tort un rejeu concurrent IDENTIQUE (même cluster,
+  -- même prédécesseur, même intention canonique, même
+  -- idempotency_fingerprint) qui a commité entre le précheck (étape 2)
+  -- et l'acquisition du verrou de cluster (étape 3) — ce second appel
+  -- verrait alors son prédécesseur comme "périmé" (un successeur —
+  -- justement CETTE ligne rejouée à l'identique — existe déjà) alors
+  -- qu'il devrait recevoir replayed=true. Le rejet de fraîcheur/
+  -- monotonie est donc DIFFÉRÉ à l'étape 7, APRÈS que la RE-vérification
+  -- d'idempotence post-verrous (étape 6) ait explicitement écarté
+  -- l'hypothèse du rejeu.
   -- ---------------------------------------------------------------
   IF p_supersedes_claim_id IS NOT NULL THEN
     SELECT c.identity_claim_id, c.cluster_id, c.strong_identity_key, c.knowledge_cutoff
@@ -312,23 +344,6 @@ BEGIN
       RAISE EXCEPTION
         'fn_event_assert_identity_claim : le prédécesseur % porte sur un cluster différent (attendu %, trouvé %).',
         p_supersedes_claim_id, p_cluster_id, v_predecessor.cluster_id;
-    END IF;
-
-    SELECT EXISTS (
-      SELECT 1 FROM public.event_cluster_identity_claims c
-      WHERE c.supersedes_claim_id = p_supersedes_claim_id
-    ) INTO v_predecessor_successor_exists;
-
-    IF v_predecessor_successor_exists THEN
-      RAISE EXCEPTION
-        'fn_event_assert_identity_claim : prédécesseur % périmé — un successeur existe déjà (pas le tip vivant).',
-        p_supersedes_claim_id;
-    END IF;
-
-    IF p_knowledge_cutoff < v_predecessor.knowledge_cutoff THEN
-      RAISE EXCEPTION
-        'fn_event_assert_identity_claim : p_knowledge_cutoff (%) est antérieur à celui du prédécesseur % (%) — une supersession doit être temporellement monotone.',
-        p_knowledge_cutoff, p_supersedes_claim_id, v_predecessor.knowledge_cutoff;
     END IF;
 
     v_old_strong_identity_key := v_predecessor.strong_identity_key;
@@ -401,7 +416,42 @@ BEGIN
   END IF;
 
   -- ---------------------------------------------------------------
-  -- ÉTAPE 7 — collision de clé active, SOUS LE VERROU DE CLÉ. Une
+  -- ÉTAPE 7 — SEULEMENT MAINTENANT que le rejeu a été explicitement
+  -- écarté (étape 6, ci-dessus) : rejet de fraîcheur périmée (successeur
+  -- déjà existant — détection PRIMAIRE par lecture dédiée, PAS une
+  -- dépendance exclusive à uq_identity_claims_supersedes pour le flux
+  -- normal) et application de la monotonie temporelle
+  -- (p_knowledge_cutoff >= prédécesseur.knowledge_cutoff, chargé à
+  -- l'étape 4). Cet ordre garantit qu'un rejeu concurrent IDENTIQUE (T2
+  -- attendant le verrou de cluster pendant que T1, avec la MÊME
+  -- intention canonique, insère puis commite le successeur) atteint
+  -- TOUJOURS la RE-vérification d'idempotence (étape 6) avant tout rejet
+  -- de fraîcheur — sans quoi T2 verrait son prédécesseur comme périmé
+  -- (par le successeur que T1 vient précisément de committer à
+  -- l'identique) et échouerait à tort au lieu de retourner
+  -- replayed=true.
+  -- ---------------------------------------------------------------
+  IF p_supersedes_claim_id IS NOT NULL THEN
+    SELECT EXISTS (
+      SELECT 1 FROM public.event_cluster_identity_claims c
+      WHERE c.supersedes_claim_id = p_supersedes_claim_id
+    ) INTO v_predecessor_successor_exists;
+
+    IF v_predecessor_successor_exists THEN
+      RAISE EXCEPTION
+        'fn_event_assert_identity_claim : prédécesseur % périmé — un successeur existe déjà (pas le tip vivant).',
+        p_supersedes_claim_id;
+    END IF;
+
+    IF p_knowledge_cutoff < v_predecessor.knowledge_cutoff THEN
+      RAISE EXCEPTION
+        'fn_event_assert_identity_claim : p_knowledge_cutoff (%) est antérieur à celui du prédécesseur % (%) — une supersession doit être temporellement monotone.',
+        p_knowledge_cutoff, p_supersedes_claim_id, v_predecessor.knowledge_cutoff;
+    END IF;
+  END IF;
+
+  -- ---------------------------------------------------------------
+  -- ÉTAPE 8 — collision de clé active, SOUS LE VERROU DE CLÉ. Une
   -- revendication ACTIVE = aucun successeur (graphe append-only, jamais
   -- asserted_at seul). 0 -> éligible ; >1 -> corruption/invariant ;
   -- exactement 1 -> cas A (même prédécesseur explicite + même cluster +
@@ -451,7 +501,7 @@ BEGIN
   END IF;
 
   -- ---------------------------------------------------------------
-  -- ÉTAPE 8 — insertion append-only unique. Alias de table explicite
+  -- ÉTAPE 9 — insertion append-only unique. Alias de table explicite
   -- qualifié + RETURNING qualifié (leçon 0015). La clé GENERATED
   -- réellement matérialisée est comparée à la clé calculée par la RPC.
   -- ---------------------------------------------------------------
@@ -481,8 +531,8 @@ BEGIN
     -- (unique sur TOUTE la table). On ne récupère QUE cette violation
     -- précise : uq_identity_claims_supersedes (ou toute autre) est
     -- relevée telle quelle (re-RAISE) — la fraîcheur du prédécesseur est
-    -- déjà censée être garantie par la détection explicite de l'étape 4,
-    -- sous verrou.
+    -- déjà censée être garantie par la détection explicite de l'étape 7,
+    -- sous verrou, après exclusion du rejeu à l'étape 6.
     GET STACKED DIAGNOSTICS v_constraint_name = CONSTRAINT_NAME;
     IF v_constraint_name IS DISTINCT FROM 'uq_identity_claims_idempotency_fingerprint' THEN
       RAISE;

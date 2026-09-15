@@ -254,6 +254,75 @@ if (fnSrc !== null) {
     /IF p_knowledge_cutoff < v_predecessor\.knowledge_cutoff THEN\s*\n\s*RAISE EXCEPTION/.test(fnSrc));
 
   // ---------------------------------------------------------------------
+  // 9bis. RÉVIEW-FIX-001 — ORDRE CRITIQUE DE CONCURRENCE : la
+  //     RE-vérification d'idempotence post-verrous DOIT survenir AVANT
+  //     le rejet de fraîcheur périmée (successeur déjà existant) et
+  //     avant la monotonie temporelle — sinon un rejeu concurrent
+  //     IDENTIQUE (T2 attendant le verrou de cluster pendant que T1,
+  //     même intention canonique, insère puis commite le successeur)
+  //     verrait à tort son propre prédécesseur comme périmé (par le
+  //     successeur que T1 vient de committer à l'identique) au lieu de
+  //     recevoir replayed=true. Preuve textuelle complète de la chaîne :
+  //       chargement prédécesseur (après verrou cluster)
+  //       < clé(s) d'identité verrouillée(s) (après clé prédécesseur connue)
+  //       < RE-vérification d'idempotence post-verrous
+  //       < rejet de fraîcheur périmée / monotonie temporelle
+  //       < validation de collision de clé active
+  //       < INSERT (aucune mutation avant tout ce qui précède).
+  // ---------------------------------------------------------------------
+  const predecessorLoadIdx = fnSrc.indexOf('WHERE c.identity_claim_id = p_supersedes_claim_id');
+  const oldKeyAssignIdx = fnSrc.indexOf('v_old_strong_identity_key := v_predecessor.strong_identity_key;');
+  const stalePredecessorCheckIdx = fnSrc.indexOf('IF v_predecessor_successor_exists THEN');
+  const monotonicityCheckIdx = fnSrc.indexOf('IF p_knowledge_cutoff < v_predecessor.knowledge_cutoff THEN');
+  const insertStatementIdx = fnSrc.indexOf('INSERT INTO public.event_cluster_identity_claims AS c (');
+
+  const REPLAY_TRUE_RETURN_MARKER =
+    'RETURN QUERY SELECT v_existing.cluster_id, v_existing.identity_claim_id, v_existing.strong_identity_key, v_existing.supersedes_claim_id, true;';
+  const replayTrueReturnIndices = [];
+  {
+    let searchFrom = 0;
+    for (;;) {
+      const idx = fnSrc.indexOf(REPLAY_TRUE_RETURN_MARKER, searchFrom);
+      if (idx === -1) break;
+      replayTrueReturnIndices.push(idx);
+      searchFrom = idx + 1;
+    }
+  }
+  t('exactement 3 retours replayed=true trouvés (précheck, recheck post-verrous, récupération unique_violation)',
+    replayTrueReturnIndices.length === 3, `trouvé ${replayTrueReturnIndices.length}`);
+  const postLockRecheckReturnIdx = replayTrueReturnIndices.length >= 2 ? replayTrueReturnIndices[1] : -1;
+
+  t('le prédécesseur est chargé APRÈS le verrou de cluster',
+    predecessorLoadIdx > -1 && clusterLockIdx > -1 && predecessorLoadIdx > clusterLockIdx);
+  t('v_old_strong_identity_key (clé du prédécesseur) est connue AVANT l\'acquisition du/des verrou(s) de clé d\'identité',
+    oldKeyAssignIdx > -1 && advisoryLockIndices.length > 0 && oldKeyAssignIdx < advisoryLockIndices[0]);
+  t('la RE-vérification d\'idempotence post-verrous (2e retour replayed=true) survient APRÈS TOUS les verrous de clé d\'identité requis',
+    postLockRecheckReturnIdx > -1 && advisoryLockIndices.length > 0
+    && postLockRecheckReturnIdx > advisoryLockIndices[advisoryLockIndices.length - 1]);
+
+  t('INVARIANT CRITIQUE : la RE-vérification d\'idempotence post-verrous précède le rejet de fraîcheur périmée (successeur déjà existant)',
+    postLockRecheckReturnIdx > -1 && stalePredecessorCheckIdx > -1 && postLockRecheckReturnIdx < stalePredecessorCheckIdx);
+  t('INVARIANT CRITIQUE : la RE-vérification d\'idempotence post-verrous précède l\'application de la monotonie temporelle',
+    postLockRecheckReturnIdx > -1 && monotonicityCheckIdx > -1 && postLockRecheckReturnIdx < monotonicityCheckIdx);
+  t('le rejet de fraîcheur périmée précède la validation de collision de clé active',
+    stalePredecessorCheckIdx > -1 && activeClaimCountIdx > -1 && stalePredecessorCheckIdx < activeClaimCountIdx);
+  t('la monotonie temporelle précède la validation de collision de clé active',
+    monotonicityCheckIdx > -1 && activeClaimCountIdx > -1 && monotonicityCheckIdx < activeClaimCountIdx);
+  t('la validation de collision de clé active précède l\'INSERT (aucune mutation avant ces vérifications)',
+    activeClaimCountIdx > -1 && insertStatementIdx > -1 && activeClaimCountIdx < insertStatementIdx);
+  t('CHAÎNE COMPLÈTE : recheck post-verrous < fraîcheur/monotonie < collision de clé active < INSERT',
+    postLockRecheckReturnIdx > -1 && stalePredecessorCheckIdx > -1 && monotonicityCheckIdx > -1
+    && activeClaimCountIdx > -1 && insertStatementIdx > -1
+    && postLockRecheckReturnIdx < stalePredecessorCheckIdx
+    && postLockRecheckReturnIdx < monotonicityCheckIdx
+    && Math.max(stalePredecessorCheckIdx, monotonicityCheckIdx) < activeClaimCountIdx
+    && activeClaimCountIdx < insertStatementIdx);
+  t('aucune mutation (INSERT) n\'a lieu avant le chargement du prédécesseur, les verrous de clé, ni la re-vérification d\'idempotence',
+    insertStatementIdx > predecessorLoadIdx
+    && insertStatementIdx > advisoryLockIndices[advisoryLockIndices.length - 1]
+    && insertStatementIdx > postLockRecheckReturnIdx);
+
+  // ---------------------------------------------------------------------
   // 10. Collision de clé active : sémantique par graphe (aucun
   //     successeur), >1 = corruption, cas A/B/C.
   // ---------------------------------------------------------------------
