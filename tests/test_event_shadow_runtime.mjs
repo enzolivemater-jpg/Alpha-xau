@@ -591,6 +591,109 @@ t('le type de méthode du contrat request<T> n\'inclut ni DELETE ni PUT (GET | P
   t('aucune fuite : ni le service-role key ni INGEST_TOKEN dans la réponse HTTP finale',
     !text.includes(SERVICE_ROLE_KEY) && !text.includes(INGEST_TOKEN));
 }
+{
+  // BLOCKER (revue) : un échec PostgREST survenant PENDANT le traitement
+  // PAR-OBSERVATION (rpc/fn_event_assign_observation), dont le corps de
+  // réponse upstream contient LITTÉRALEMENT le service-role key, ne doit
+  // JAMAIS laisser fuiter ce secret — même quand PR6 convertit cet échec
+  // en item FAILED d'un rapport que PR7 retourne intentionnellement en
+  // HTTP 200 (rapport auditable, pas un échec de l'opération runtime).
+  const id = uid('secret-leak-in-failed-item');
+  const { fakeFetch } = makeFakeFetch([
+    makeObservation(id, {
+      assignBehavior: () => new Response(JSON.stringify({ message: SERVICE_ROLE_KEY }), { status: 500 }),
+    }),
+  ]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ observationIds: [id] }) }), ENV,
+  ));
+  t('échec PostgREST par-observation avec secret dans le corps upstream => toujours HTTP 200 (rapport auditable)', res.status === 200);
+  const bodyText = await res.text();
+  t('la réponse HTTP complète NE CONTIENT PAS SUPABASE_SERVICE_ROLE_KEY', !bodyText.includes(SERVICE_ROLE_KEY));
+  t('la réponse HTTP complète NE CONTIENT PAS INGEST_TOKEN', !bodyText.includes(INGEST_TOKEN));
+  const json = JSON.parse(bodyText);
+  t('report.items[0].kind = FAILED', json.report?.items?.[0]?.kind === 'FAILED');
+  t('safeErrorMessage de l\'item FAILED ne contient NI le service-role key NI INGEST_TOKEN',
+    typeof json.report?.items?.[0]?.safeErrorMessage === 'string'
+    && !json.report.items[0].safeErrorMessage.includes(SERVICE_ROLE_KEY)
+    && !json.report.items[0].safeErrorMessage.includes(INGEST_TOKEN));
+}
+
+// ---------------------------------------------------------------------
+// 4b. Allowlist runtime des méthodes DB — DELETE/PUT rejetés AVANT tout
+//     appel global fetch (le typage TypeScript seul n'est pas une
+//     frontière de sécurité : un appelant JavaScript peut le contourner).
+// ---------------------------------------------------------------------
+{
+  const db = new PostgrestEventShadowDb(ENV);
+  let fetchCallCount = 0;
+  const fakeFetch = async () => { fetchCallCount += 1; return new Response(null, { status: 204 }); };
+  await withFakeFetch(fakeFetch, () => expectThrow(() => db.request('DELETE', 'news_articles?id=eq.x'), 'DELETE rejeté AU RUNTIME (pas seulement par le typage TS)'));
+  t('DELETE : global fetch JAMAIS appelé', fetchCallCount === 0);
+}
+{
+  const db = new PostgrestEventShadowDb(ENV);
+  let fetchCallCount = 0;
+  const fakeFetch = async () => { fetchCallCount += 1; return new Response(null, { status: 204 }); };
+  await withFakeFetch(fakeFetch, () => expectThrow(() => db.request('PUT', 'news_articles?id=eq.x'), 'PUT rejeté AU RUNTIME (pas seulement par le typage TS)'));
+  t('PUT : global fetch JAMAIS appelé', fetchCallCount === 0);
+}
+{
+  const db = new PostgrestEventShadowDb(ENV);
+  let fetchCallCount = 0;
+  const fakeFetch = async () => { fetchCallCount += 1; return new Response(null, { status: 204 }); };
+  await withFakeFetch(fakeFetch, () => expectThrow(() => db.request('delete', 'news_articles?id=eq.x'), 'méthode minuscule "delete" rejetée (aucune normalisation silencieuse vers DELETE)'));
+  t('méthode minuscule "delete" : global fetch JAMAIS appelé', fetchCallCount === 0);
+}
+t('le contrat request<T> reste exactement \'GET\' | \'POST\' | \'PATCH\' (typage TS inchangé)',
+  /method: 'GET' \| 'POST' \| 'PATCH'/.test(runtimeSource));
+
+// ---------------------------------------------------------------------
+// 4c. Enveloppe de requête bornée — limite de transport (16 KiB), jamais
+//     une duplication des limites sémantiques de PR6 (25 IDs max,
+//     validité/doublons UUID).
+// ---------------------------------------------------------------------
+{
+  // A) Content-Length déclaré > limite => 413, ZÉRO appel DB, JSON jamais parsé.
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const req = new Request('https://worker.test/event-shadow', {
+    method: 'POST',
+    headers: { ...AUTH_HEADERS, 'content-length': String(mod.MAX_EVENT_SHADOW_REQUEST_BODY_BYTES + 1) },
+    body: 'small-actual-body-irrelevant-here',
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowRequest(req, ENV));
+  t('A) Content-Length déclaré > limite => 413', res.status === 413);
+  const json = await res.json();
+  t('A) code REQUEST_BODY_TOO_LARGE', json.code === 'REQUEST_BODY_TOO_LARGE');
+  t('A) ZÉRO appel DB', calls.length === 0);
+}
+{
+  // B) AUCUN Content-Length, mais le corps RÉEL dépasse la limite => 413,
+  //    ZÉRO appel DB (la limite s'applique au corps réel, pas seulement
+  //    à un en-tête client potentiellement absent/mensonger).
+  const oversizedBody = `{"observationIds":["${'x'.repeat(mod.MAX_EVENT_SHADOW_REQUEST_BODY_BYTES + 1000)}"]}`;
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const req = new Request('https://worker.test/event-shadow', {
+    method: 'POST',
+    headers: { 'x-ingest-token': INGEST_TOKEN, 'content-type': 'application/json' },
+    body: oversizedBody,
+  });
+  t('B) précondition du test : aucun en-tête Content-Length présent', req.headers.get('content-length') === null);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowRequest(req, ENV));
+  t('B) corps réel > limite (sans Content-Length) => 413', res.status === 413);
+  const json = await res.json();
+  t('B) code REQUEST_BODY_TOO_LARGE', json.code === 'REQUEST_BODY_TOO_LARGE');
+  t('B) ZÉRO appel DB', calls.length === 0);
+}
+{
+  // C) Requête valide normale, confortablement sous la limite => comportement inchangé.
+  const id = uid('size-normal-ok');
+  const { fakeFetch } = makeFakeFetch([makeObservation(id)]);
+  const bodyText = JSON.stringify({ observationIds: [id] });
+  t('C) précondition : le corps de test est confortablement sous la limite', new TextEncoder().encode(bodyText).length < mod.MAX_EVENT_SHADOW_REQUEST_BODY_BYTES);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowRequest(makeRequest({ headers: AUTH_HEADERS, bodyText }), ENV));
+  t('C) requête normale sous la limite => 200 (comportement inchangé)', res.status === 200);
+}
 
 // ---------------------------------------------------------------------
 // 5. Intégration Worker — statique (backend/worker.ts, wrangler.toml).

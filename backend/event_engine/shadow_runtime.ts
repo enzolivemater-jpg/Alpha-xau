@@ -86,6 +86,23 @@ function errorMessage(err: unknown): string {
   return redactString(raw).slice(0, MAX_ERROR_DETAIL_LENGTH);
 }
 
+/**
+ * Defense in depth beyond the generic pattern-based redactString() above:
+ * replaces every VERBATIM occurrence of a known exact secret value. Used
+ * wherever a message might otherwise embed a secret's literal bytes (e.g.
+ * a raw underlying network error message). Empty/undefined secrets are
+ * skipped — never redact an empty string (would corrupt every message).
+ */
+function redactExactSecrets(value: string, secrets: readonly (string | undefined)[]): string {
+  let result = value;
+  for (const secret of secrets) {
+    if (secret !== undefined && secret.length > 0) {
+      result = result.split(secret).join('[REDACTED]');
+    }
+  }
+  return result;
+}
+
 function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -148,10 +165,53 @@ class EventShadowRuntimeEnvelopeError extends Error {
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['observationIds']);
 
+/**
+ * Transport-level bound, deliberately NOT a duplication of PR6's semantic
+ * limits (max 25 ids / UUID validity / duplicates — all still PR6's
+ * responsibility). 16 KiB comfortably fits 25 UUIDs (25 * 36 bytes ≈ 900
+ * bytes) plus generous JSON/field-name overhead, with headroom to spare.
+ */
+export const MAX_EVENT_SHADOW_REQUEST_BODY_BYTES = 16 * 1024;
+
+/** Content-Length is a CLIENT-SUPPLIED HINT, not trustworthy on its own —
+ *  reject fast on an oversized declared length (without reading the body
+ *  at all), but the actual body is ALWAYS also bounded below regardless
+ *  of what this header claims (or omits). */
+function checkDeclaredContentLength(request: Request): void {
+  const header = request.headers.get('content-length');
+  if (header === null) return;
+  const declared = Number(header);
+  if (Number.isFinite(declared) && declared > MAX_EVENT_SHADOW_REQUEST_BODY_BYTES) {
+    throw new EventShadowRuntimeEnvelopeError(
+      'REQUEST_BODY_TOO_LARGE',
+      `Request body exceeds the ${MAX_EVENT_SHADOW_REQUEST_BODY_BYTES}-byte limit (Content-Length: ${header}).`,
+    );
+  }
+}
+
+/** A simple bounded text read: the actual body is measured (UTF-8 byte
+ *  length, not JS string length) and rejected if oversized — BEFORE
+ *  JSON.parse ever runs — regardless of whether Content-Length was
+ *  present, absent, or understated. */
+async function readBoundedRequestBody(request: Request): Promise<string> {
+  const text = await request.text();
+  const byteLength = new TextEncoder().encode(text).length;
+  if (byteLength > MAX_EVENT_SHADOW_REQUEST_BODY_BYTES) {
+    throw new EventShadowRuntimeEnvelopeError(
+      'REQUEST_BODY_TOO_LARGE',
+      `Request body exceeds the ${MAX_EVENT_SHADOW_REQUEST_BODY_BYTES}-byte limit.`,
+    );
+  }
+  return text;
+}
+
 async function parseEnvelope(request: Request): Promise<EventShadowRequestEnvelope> {
+  checkDeclaredContentLength(request);
+  const bodyText = await readBoundedRequestBody(request);
+
   let raw: unknown;
   try {
-    raw = await request.json();
+    raw = JSON.parse(bodyText);
   } catch {
     throw new EventShadowRuntimeEnvelopeError('MALFORMED_JSON', 'Request body is not valid JSON.');
   }
@@ -246,6 +306,15 @@ export function buildPostgrestHeaders(
   return headers;
 }
 
+/**
+ * Runtime mirror of the TypeScript method union — a TYPE is not a runtime
+ * security boundary (a JavaScript caller can bypass it entirely), so
+ * request() fails closed here too, BEFORE global fetch is ever called.
+ * Exactly GET, POST, PATCH; no silent lowercase-to-uppercase
+ * normalization of any other verb, and no other HTTP verb is accepted.
+ */
+const SUPPORTED_DB_METHODS: ReadonlySet<string> = new Set(['GET', 'POST', 'PATCH']);
+
 export class PostgrestEventShadowDb implements EventShadowBatchDb {
   private readonly base: string;
   private readonly apiKey: string;
@@ -262,6 +331,9 @@ export class PostgrestEventShadowDb implements EventShadowBatchDb {
     body?: unknown,
     extraHeaders: Record<string, string> = {},
   ): Promise<T> {
+    if (!SUPPORTED_DB_METHODS.has(method)) {
+      throw new EventShadowDbError(`Unsupported PostgREST method: ${String(method)}. Only GET, POST, PATCH are allowed.`);
+    }
     validatePostgrestPath(path);
 
     // GET must never send a body, regardless of what a caller passes.
@@ -283,15 +355,33 @@ export class PostgrestEventShadowDb implements EventShadowBatchDb {
       throw new EventShadowDbError(
         isAbort
           ? `PostgREST request timed out after ${POSTGREST_TIMEOUT_MS}ms.`
-          : `PostgREST network failure: ${errorMessage(err)}`,
+          : `PostgREST network failure: ${redactExactSecrets(errorMessage(err), [this.apiKey])}`,
       );
     } finally {
       clearTimeout(timer);
     }
 
     if (!response.ok) {
+      // BLOCKER FIX (PR7 review): the upstream response BODY is never
+      // echoed into the thrown message — not even redacted. This error can
+      // be caught per-observation by PR6 and surfaced as
+      // FAILED.safeErrorMessage in an auditable report that PR7
+      // intentionally returns with HTTP 200 (see the handler below), so
+      // the generic outer-500 branch alone cannot guarantee
+      // SUPABASE_SERVICE_ROLE_KEY never reaches an HTTP response if an
+      // upstream PostgREST error body happened to contain it. Only the
+      // HTTP status — and a narrow, SAFE, CANNED "duplicate key" signal
+      // (never the raw body) preserved so run_lock.ts's isUniqueViolation()
+      // keeps working for the lock-acquisition path — survive into the
+      // thrown error.
       const detail = (await response.text().catch(() => '')).slice(0, MAX_ERROR_DETAIL_LENGTH);
-      throw new EventShadowDbError(`PostgREST HTTP ${response.status}: ${redactString(detail)}`, response.status);
+      const isDuplicateConflict = /23505|duplicate key|already exists/i.test(detail);
+      throw new EventShadowDbError(
+        isDuplicateConflict
+          ? `PostgREST request failed with HTTP ${response.status} (duplicate key).`
+          : `PostgREST request failed with HTTP ${response.status}.`,
+        response.status,
+      );
     }
 
     const text = await response.text();
@@ -337,6 +427,9 @@ export async function handleEventShadowRequest(
     envelope = await parseEnvelope(request);
   } catch (err) {
     if (err instanceof EventShadowRuntimeEnvelopeError) {
+      if (err.code === 'REQUEST_BODY_TOO_LARGE') {
+        return jsonResponse({ error: err.message, code: err.code }, 413);
+      }
       return jsonResponse({ error: err.message, code: err.code }, 400);
     }
     return jsonResponse({ error: 'Malformed request.' }, 400);
