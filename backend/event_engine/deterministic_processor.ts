@@ -596,16 +596,22 @@ export function planEventProcessing(input: ProcessObservationInput): EventProces
       return abstain(observation.id, 'INVALID_INPUT', 'STRONG_IDENTITY_CONTEXT_INVALID');
     }
 
-    const proposal: StrongIdentityClaimProposal = { authorityNamespace, identityType, identityValue };
-
     if (candidateClusterIds.length === 0) {
+      // No existing cluster resolves this curated identity yet: propose
+      // a fresh identity-claim assertion alongside the new cluster.
       clusterDisposition = 'CREATE_NEW_CLUSTER';
       resolvedClusterId = null;
-      strongIdentityClaimProposal = proposal;
+      strongIdentityClaimProposal = { authorityNamespace, identityType, identityValue };
     } else if (candidateClusterIds.length === 1) {
+      // The curated identity ALREADY resolves to one existing cluster —
+      // the active identity claim behind that resolution is precisely
+      // what produced this single candidate. Proposing a new assertion
+      // here would have PR5 call fn_event_assert_identity_claim again for
+      // the same active key/cluster, which PR2C correctly rejects as a
+      // duplicate active identity claim. No new proposal is emitted.
       clusterDisposition = 'ASSIGN_EXISTING';
       resolvedClusterId = candidateClusterIds[0];
-      strongIdentityClaimProposal = proposal;
+      strongIdentityClaimProposal = null;
     } else {
       // Never choose a winner, never auto-MERGE.
       return abstain(observation.id, 'SIGNAL_CONFLICT', 'IDENTITY_COLLISION');

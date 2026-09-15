@@ -247,36 +247,59 @@ assertAbstain(
   t('kind=NONE => strongIdentityClaimProposal null', plan.strongIdentityClaimProposal === null);
 }
 
+// -------------------------------------------------------------------
+// RÉVIEW-FIX-001-IDENTITY-PROPOSAL : le comportement diffère
+// STRICTEMENT entre 0 candidat (le cluster n'existe pas encore -> une
+// NOUVELLE proposition d'identity claim a du sens) et exactement 1
+// candidat (l'identité curée RÉSOUT DÉJÀ un cluster existant -> la
+// revendication active existante est précisément ce qui a produit ce
+// candidat unique ; proposer une NOUVELLE assertion ferait rejouer
+// fn_event_assert_identity_claim pour la MÊME clé/cluster actifs, que
+// PR2C rejette à juste titre comme doublon actif — donc AUCUNE
+// proposition n'est émise dans ce cas).
+// -------------------------------------------------------------------
 {
-  const plan = planFor(makeObservation(), {
+  // A) 0 candidat : CREATE_NEW_CLUSTER + proposition NON-NULLE, valeurs
+  // curées préservées EXACTEMENT.
+  const plan = assertProcess(planFor(makeObservation(), {
     kind: 'CURATED_STRONG_IDENTITY',
     authorityNamespace: 'test-authority', identityType: 'test-type', identityValue: 'test-value',
     candidateClusterIds: [],
-  });
-  t('identité curée à 0 candidat => CREATE_NEW_CLUSTER',
-    plan.kind === 'PROCESS' && plan.clusterDisposition === 'CREATE_NEW_CLUSTER' && plan.resolvedClusterId === null);
-  t('identité curée à 0 candidat propage la proposition d\'identity claim',
-    plan.strongIdentityClaimProposal !== null
-    && plan.strongIdentityClaimProposal.authorityNamespace === 'test-authority'
-    && plan.strongIdentityClaimProposal.identityType === 'test-type'
-    && plan.strongIdentityClaimProposal.identityValue === 'test-value');
+  }), 'A) identité curée à 0 candidat');
+  t('A) identité curée à 0 candidat => CREATE_NEW_CLUSTER, resolvedClusterId=null',
+    plan.clusterDisposition === 'CREATE_NEW_CLUSTER' && plan.resolvedClusterId === null);
+  t('A) identité curée à 0 candidat => strongIdentityClaimProposal NON-NULLE',
+    plan.strongIdentityClaimProposal !== null);
+  t('A) la proposition préserve EXACTEMENT authorityNamespace/identityType/identityValue curés',
+    plan.strongIdentityClaimProposal?.authorityNamespace === 'test-authority'
+    && plan.strongIdentityClaimProposal?.identityType === 'test-type'
+    && plan.strongIdentityClaimProposal?.identityValue === 'test-value');
 }
 {
+  // B) exactement 1 candidat : ASSIGN_EXISTING vers exactement ce
+  // cluster, ET strongIdentityClaimProposal === null (jamais une
+  // nouvelle assertion demandée pour une identité déjà résolue).
   const clusterId = '30303030-3030-4030-8030-303030303030';
-  const plan = planFor(
+  const plan = assertProcess(planFor(
     makeObservation(),
     { kind: 'CURATED_STRONG_IDENTITY', authorityNamespace: 'a', identityType: 't', identityValue: 'v', candidateClusterIds: [clusterId] },
     { clusterId, previousVersion: null, activeEvidenceLineages: [] },
-  );
-  t('identité curée à 1 candidat => ASSIGN_EXISTING vers exactement ce cluster',
-    plan.kind === 'PROCESS' && plan.clusterDisposition === 'ASSIGN_EXISTING' && plan.resolvedClusterId === clusterId);
+  ), 'B) identité curée à 1 candidat');
+  t('B) identité curée à 1 candidat => ASSIGN_EXISTING vers exactement ce cluster',
+    plan.clusterDisposition === 'ASSIGN_EXISTING' && plan.resolvedClusterId === clusterId);
+  t('B) identité curée à 1 candidat => strongIdentityClaimProposal === null (la revendication active existante a déjà produit ce candidat unique)',
+    plan.strongIdentityClaimProposal === null);
 }
 {
+  // C) >1 candidats : ABSTAIN SIGNAL_CONFLICT/IDENTITY_COLLISION, et
+  // AUCUNE proposition de claim n'est jamais émise via un plan PROCESS.
   const plan = planFor(makeObservation(), {
     kind: 'CURATED_STRONG_IDENTITY', authorityNamespace: 'a', identityType: 't', identityValue: 'v',
     candidateClusterIds: ['40404040-4040-4040-8040-404040404040', '50505050-5050-4050-8050-505050505050'],
   });
-  assertAbstain(plan, 'SIGNAL_CONFLICT', 'IDENTITY_COLLISION', 'identité curée à >1 candidats');
+  assertAbstain(plan, 'SIGNAL_CONFLICT', 'IDENTITY_COLLISION', 'C) identité curée à >1 candidats');
+  t('C) >1 candidats : aucune proposition de claim n\'est jamais émise via un plan PROCESS (le plan est ABSTAIN, pas PROCESS)',
+    plan.kind === 'ABSTAIN' && plan.strongIdentityClaimProposal === undefined);
 }
 {
   // Aucun candidat n'est jamais choisi par similarité de titre : deux
