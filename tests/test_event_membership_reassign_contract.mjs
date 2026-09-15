@@ -197,6 +197,85 @@ if (fnSrc !== null) {
     && (fnSrc.match(/ELSIF v_op_row_count <> 0 THEN\s*\n\s*RAISE EXCEPTION/g) || []).length >= 2);
 
   // ---------------------------------------------------------------------
+  // 5bis. VALIDATION STRUCTURELLE DU PRÉDÉCESSEUR SOUS LES TROIS SITES DE
+  //    REJEU (précheck avant verrous, recheck après verrous, récupération
+  //    sur violation d'unicité) : un simple match d'idempotency_
+  //    fingerprint / IS DISTINCT FROM ne prouve pas que la paire
+  //    committée représente encore une opération REASSIGN canonique — il
+  //    faut aussi prouver la forme du graphe de prédécesseurs.
+  //
+  //    v_replay_source_predecessor / v_replay_destination_predecessor
+  //    déclarées, et CHAQUE bloc de validation ci-dessous doit apparaître
+  //    EXACTEMENT 3 fois (une fois par site de rejeu) et, pour chaque
+  //    site, AVANT son propre retour replayed=true (jamais après).
+  // ---------------------------------------------------------------------
+  t('v_replay_source_predecessor déclarée (RECORD)',
+    /v_replay_source_predecessor\s+RECORD;/.test(liveSource));
+  t('v_replay_destination_predecessor déclarée (RECORD)',
+    /v_replay_destination_predecessor\s+RECORD;/.test(liveSource));
+
+  const REPLAY_PREDECESSOR_CHECKS = [
+    ['prédécesseur SOURCE existe (v_replay_source_predecessor.decision_id IS NULL testé)',
+      'IF v_replay_source_predecessor.decision_id IS NULL'],
+    ['prédécesseur SOURCE porte sur la MÊME observation',
+      'OR v_replay_source_predecessor.observation_id IS DISTINCT FROM p_observation_id'],
+    ['prédécesseur SOURCE porte sur le MÊME cluster source',
+      'OR v_replay_source_predecessor.cluster_id IS DISTINCT FROM p_source_cluster_id'],
+    ['prédécesseur SOURCE a decision_type ASSIGN ou AMEND (jamais RETRACT)',
+      "OR v_replay_source_predecessor.decision_type NOT IN ('ASSIGN', 'AMEND')"],
+    ['branche destination ASSIGN identifiée explicitement',
+      "IF v_existing_destination.decision_type = 'ASSIGN' THEN"],
+    ['ASSIGN rejoué => supersedes_decision_id DOIT être NULL',
+      'IF v_existing_destination.supersedes_decision_id IS NOT NULL THEN'],
+    ['branche destination AMEND identifiée explicitement',
+      "ELSIF v_existing_destination.decision_type = 'AMEND' THEN"],
+    ['AMEND rejoué => supersedes_decision_id DOIT être NON-NULL',
+      'IF v_existing_destination.supersedes_decision_id IS NULL THEN'],
+    ['prédécesseur AMEND (destination) existe (v_replay_destination_predecessor.decision_id IS NULL testé)',
+      'IF v_replay_destination_predecessor.decision_id IS NULL'],
+    ['prédécesseur AMEND (destination) porte sur la MÊME observation',
+      'OR v_replay_destination_predecessor.observation_id IS DISTINCT FROM p_observation_id'],
+    ['prédécesseur AMEND (destination) porte sur le MÊME cluster destination',
+      'OR v_replay_destination_predecessor.cluster_id IS DISTINCT FROM p_destination_cluster_id'],
+    ['prédécesseur AMEND (destination) a decision_type RETRACT (preuve de réouverture réelle)',
+      "OR v_replay_destination_predecessor.decision_type IS DISTINCT FROM 'RETRACT'"],
+  ];
+
+  for (const [label, snippet] of REPLAY_PREDECESSOR_CHECKS) {
+    const count = fnSrc.split(snippet).length - 1;
+    t(`validation de rejeu : ${label} — présente aux 3 sites de rejeu`, count === 3, `trouvé ${count} occurrence(s)`);
+  }
+
+  const REPLAY_RETURN_MARKER =
+    'RETURN QUERY SELECT p_observation_id, p_source_cluster_id, p_destination_cluster_id,\n' +
+    '                        v_existing_source.decision_id, v_existing_destination.decision_id,\n' +
+    '                        v_existing_destination.decision_type, p_membership_operation_id, true;';
+  const replayReturnIndices = [];
+  {
+    let searchFrom = 0;
+    for (;;) {
+      const idx = fnSrc.indexOf(REPLAY_RETURN_MARKER, searchFrom);
+      if (idx === -1) break;
+      replayReturnIndices.push(idx);
+      searchFrom = idx + 1;
+    }
+  }
+  t('exactement 3 retours replayed=true trouvés (précheck, recheck, récupération)',
+    replayReturnIndices.length === 3, `trouvé ${replayReturnIndices.length}`);
+
+  if (replayReturnIndices.length === 3) {
+    let prevEnd = 0;
+    replayReturnIndices.forEach((returnIdx, siteIndex) => {
+      const segment = fnSrc.slice(prevEnd, returnIdx);
+      for (const [label, snippet] of REPLAY_PREDECESSOR_CHECKS) {
+        t(`site de rejeu #${siteIndex + 1} : "${label}" précède ce retour replayed=true (jamais après)`,
+          segment.includes(snippet));
+      }
+      prevEnd = returnIdx;
+    });
+  }
+
+  // ---------------------------------------------------------------------
   // 6. Prédécesseur source : existence, observation/cluster identiques,
   //    tip vivant ASSIGN/AMEND uniquement (RETRACT rejeté), fraîcheur
   //    explicite (successeur déjà existant).

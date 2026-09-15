@@ -182,6 +182,8 @@ DECLARE
   v_op_row_count                     INTEGER;
   v_existing_source                  RECORD;
   v_existing_destination             RECORD;
+  v_replay_source_predecessor        RECORD;
+  v_replay_destination_predecessor   RECORD;
   v_lock_first                       UUID;
   v_lock_second                      UUID;
   v_source_predecessor               RECORD;
@@ -299,6 +301,62 @@ BEGIN
       RAISE EXCEPTION 'fn_event_reassign_membership : membership_operation_id % corrèle déjà une paire dont l''intention canonique diffère de cet appel — collision, pas un rejeu.', p_membership_operation_id;
     END IF;
 
+    -- Validation structurelle du prédécesseur SOURCE (pas seulement
+    -- l'égalité de supersedes_decision_id ci-dessus) : le prédécesseur
+    -- référencé doit RÉELLEMENT exister, porter sur la MÊME observation
+    -- ET le MÊME cluster source, et avoir un decision_type ASSIGN ou
+    -- AMEND (jamais RETRACT — un RETRACT-sur-RETRACT n'est jamais un
+    -- REASSIGN valide, committé ou rejoué).
+    SELECT m.decision_id, m.observation_id, m.cluster_id, m.decision_type
+      INTO v_replay_source_predecessor
+      FROM public.event_observation_memberships m
+      WHERE m.decision_id = p_source_supersedes_decision_id;
+
+    IF v_replay_source_predecessor.decision_id IS NULL
+       OR v_replay_source_predecessor.observation_id IS DISTINCT FROM p_observation_id
+       OR v_replay_source_predecessor.cluster_id IS DISTINCT FROM p_source_cluster_id
+       OR v_replay_source_predecessor.decision_type NOT IN ('ASSIGN', 'AMEND')
+    THEN
+      RAISE EXCEPTION
+        'fn_event_reassign_membership : membership_operation_id % corrèle un RETRACT source dont le prédécesseur % est manquant, porte sur une relation différente, ou est lui-même RETRACT — corruption d''operation_id, pas un rejeu.',
+        p_membership_operation_id, p_source_supersedes_decision_id;
+    END IF;
+
+    -- Validation structurelle de la ligne DESTINATION : ASSIGN doit
+    -- toujours avoir supersedes_decision_id NULL ; AMEND doit toujours
+    -- référencer un prédécesseur RÉELLEMENT RETRACT sur la MÊME relation
+    -- (observation, cluster destination) — prouve que l'AMEND rejoue
+    -- bien une réouverture, pas un AMEND arbitraire accepté à tort comme
+    -- rejeu de REASSIGN.
+    IF v_existing_destination.decision_type = 'ASSIGN' THEN
+      IF v_existing_destination.supersedes_decision_id IS NOT NULL THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination ASSIGN dont supersedes_decision_id n''est pas NULL — corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id;
+      END IF;
+    ELSIF v_existing_destination.decision_type = 'AMEND' THEN
+      IF v_existing_destination.supersedes_decision_id IS NULL THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination AMEND dont supersedes_decision_id est NULL — corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id;
+      END IF;
+
+      SELECT m.decision_id, m.observation_id, m.cluster_id, m.decision_type
+        INTO v_replay_destination_predecessor
+        FROM public.event_observation_memberships m
+        WHERE m.decision_id = v_existing_destination.supersedes_decision_id;
+
+      IF v_replay_destination_predecessor.decision_id IS NULL
+         OR v_replay_destination_predecessor.observation_id IS DISTINCT FROM p_observation_id
+         OR v_replay_destination_predecessor.cluster_id IS DISTINCT FROM p_destination_cluster_id
+         OR v_replay_destination_predecessor.decision_type IS DISTINCT FROM 'RETRACT'
+      THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination AMEND dont le prédécesseur % est manquant, porte sur une relation différente, ou n''est pas RETRACT — l''AMEND ne prouve pas une réouverture valide, corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id, v_existing_destination.supersedes_decision_id;
+      END IF;
+    END IF;
+
     RETURN QUERY SELECT p_observation_id, p_source_cluster_id, p_destination_cluster_id,
                         v_existing_source.decision_id, v_existing_destination.decision_id,
                         v_existing_destination.decision_type, p_membership_operation_id, true;
@@ -393,6 +451,62 @@ BEGIN
        OR v_existing_destination.decision_actor IS DISTINCT FROM p_decision_actor
     THEN
       RAISE EXCEPTION 'fn_event_reassign_membership : membership_operation_id % corrèle déjà une paire dont l''intention canonique diffère de cet appel — collision, pas un rejeu.', p_membership_operation_id;
+    END IF;
+
+    -- Validation structurelle du prédécesseur SOURCE (pas seulement
+    -- l'égalité de supersedes_decision_id ci-dessus) : le prédécesseur
+    -- référencé doit RÉELLEMENT exister, porter sur la MÊME observation
+    -- ET le MÊME cluster source, et avoir un decision_type ASSIGN ou
+    -- AMEND (jamais RETRACT — un RETRACT-sur-RETRACT n'est jamais un
+    -- REASSIGN valide, committé ou rejoué).
+    SELECT m.decision_id, m.observation_id, m.cluster_id, m.decision_type
+      INTO v_replay_source_predecessor
+      FROM public.event_observation_memberships m
+      WHERE m.decision_id = p_source_supersedes_decision_id;
+
+    IF v_replay_source_predecessor.decision_id IS NULL
+       OR v_replay_source_predecessor.observation_id IS DISTINCT FROM p_observation_id
+       OR v_replay_source_predecessor.cluster_id IS DISTINCT FROM p_source_cluster_id
+       OR v_replay_source_predecessor.decision_type NOT IN ('ASSIGN', 'AMEND')
+    THEN
+      RAISE EXCEPTION
+        'fn_event_reassign_membership : membership_operation_id % corrèle un RETRACT source dont le prédécesseur % est manquant, porte sur une relation différente, ou est lui-même RETRACT — corruption d''operation_id, pas un rejeu.',
+        p_membership_operation_id, p_source_supersedes_decision_id;
+    END IF;
+
+    -- Validation structurelle de la ligne DESTINATION : ASSIGN doit
+    -- toujours avoir supersedes_decision_id NULL ; AMEND doit toujours
+    -- référencer un prédécesseur RÉELLEMENT RETRACT sur la MÊME relation
+    -- (observation, cluster destination) — prouve que l'AMEND rejoue
+    -- bien une réouverture, pas un AMEND arbitraire accepté à tort comme
+    -- rejeu de REASSIGN.
+    IF v_existing_destination.decision_type = 'ASSIGN' THEN
+      IF v_existing_destination.supersedes_decision_id IS NOT NULL THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination ASSIGN dont supersedes_decision_id n''est pas NULL — corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id;
+      END IF;
+    ELSIF v_existing_destination.decision_type = 'AMEND' THEN
+      IF v_existing_destination.supersedes_decision_id IS NULL THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination AMEND dont supersedes_decision_id est NULL — corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id;
+      END IF;
+
+      SELECT m.decision_id, m.observation_id, m.cluster_id, m.decision_type
+        INTO v_replay_destination_predecessor
+        FROM public.event_observation_memberships m
+        WHERE m.decision_id = v_existing_destination.supersedes_decision_id;
+
+      IF v_replay_destination_predecessor.decision_id IS NULL
+         OR v_replay_destination_predecessor.observation_id IS DISTINCT FROM p_observation_id
+         OR v_replay_destination_predecessor.cluster_id IS DISTINCT FROM p_destination_cluster_id
+         OR v_replay_destination_predecessor.decision_type IS DISTINCT FROM 'RETRACT'
+      THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination AMEND dont le prédécesseur % est manquant, porte sur une relation différente, ou n''est pas RETRACT — l''AMEND ne prouve pas une réouverture valide, corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id, v_existing_destination.supersedes_decision_id;
+      END IF;
     END IF;
 
     RETURN QUERY SELECT p_observation_id, p_source_cluster_id, p_destination_cluster_id,
@@ -606,6 +720,62 @@ BEGIN
        OR v_existing_destination.decision_actor IS DISTINCT FROM p_decision_actor
     THEN
       RAISE EXCEPTION 'fn_event_reassign_membership : violation d''unicité sur idempotency_fingerprint pendant l''opération %, dont la paire committée diffère de cet appel — collision réelle, pas un rejeu.', p_membership_operation_id;
+    END IF;
+
+    -- Validation structurelle du prédécesseur SOURCE (pas seulement
+    -- l'égalité de supersedes_decision_id ci-dessus) : le prédécesseur
+    -- référencé doit RÉELLEMENT exister, porter sur la MÊME observation
+    -- ET le MÊME cluster source, et avoir un decision_type ASSIGN ou
+    -- AMEND (jamais RETRACT — un RETRACT-sur-RETRACT n'est jamais un
+    -- REASSIGN valide, committé ou rejoué).
+    SELECT m.decision_id, m.observation_id, m.cluster_id, m.decision_type
+      INTO v_replay_source_predecessor
+      FROM public.event_observation_memberships m
+      WHERE m.decision_id = p_source_supersedes_decision_id;
+
+    IF v_replay_source_predecessor.decision_id IS NULL
+       OR v_replay_source_predecessor.observation_id IS DISTINCT FROM p_observation_id
+       OR v_replay_source_predecessor.cluster_id IS DISTINCT FROM p_source_cluster_id
+       OR v_replay_source_predecessor.decision_type NOT IN ('ASSIGN', 'AMEND')
+    THEN
+      RAISE EXCEPTION
+        'fn_event_reassign_membership : membership_operation_id % corrèle un RETRACT source dont le prédécesseur % est manquant, porte sur une relation différente, ou est lui-même RETRACT — corruption d''operation_id, pas un rejeu.',
+        p_membership_operation_id, p_source_supersedes_decision_id;
+    END IF;
+
+    -- Validation structurelle de la ligne DESTINATION : ASSIGN doit
+    -- toujours avoir supersedes_decision_id NULL ; AMEND doit toujours
+    -- référencer un prédécesseur RÉELLEMENT RETRACT sur la MÊME relation
+    -- (observation, cluster destination) — prouve que l'AMEND rejoue
+    -- bien une réouverture, pas un AMEND arbitraire accepté à tort comme
+    -- rejeu de REASSIGN.
+    IF v_existing_destination.decision_type = 'ASSIGN' THEN
+      IF v_existing_destination.supersedes_decision_id IS NOT NULL THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination ASSIGN dont supersedes_decision_id n''est pas NULL — corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id;
+      END IF;
+    ELSIF v_existing_destination.decision_type = 'AMEND' THEN
+      IF v_existing_destination.supersedes_decision_id IS NULL THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination AMEND dont supersedes_decision_id est NULL — corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id;
+      END IF;
+
+      SELECT m.decision_id, m.observation_id, m.cluster_id, m.decision_type
+        INTO v_replay_destination_predecessor
+        FROM public.event_observation_memberships m
+        WHERE m.decision_id = v_existing_destination.supersedes_decision_id;
+
+      IF v_replay_destination_predecessor.decision_id IS NULL
+         OR v_replay_destination_predecessor.observation_id IS DISTINCT FROM p_observation_id
+         OR v_replay_destination_predecessor.cluster_id IS DISTINCT FROM p_destination_cluster_id
+         OR v_replay_destination_predecessor.decision_type IS DISTINCT FROM 'RETRACT'
+      THEN
+        RAISE EXCEPTION
+          'fn_event_reassign_membership : membership_operation_id % corrèle une destination AMEND dont le prédécesseur % est manquant, porte sur une relation différente, ou n''est pas RETRACT — l''AMEND ne prouve pas une réouverture valide, corruption d''operation_id, pas un rejeu.',
+          p_membership_operation_id, v_existing_destination.supersedes_decision_id;
+      END IF;
     END IF;
 
     RETURN QUERY SELECT p_observation_id, p_source_cluster_id, p_destination_cluster_id,
