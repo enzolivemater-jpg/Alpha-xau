@@ -284,10 +284,21 @@ export function validatePostgrestPath(path: string): void {
   }
 }
 
-/** apikey/authorization are ALWAYS the service-role credentials — any
- *  case-variant supplied via extraHeaders is stripped before the
- *  authoritative values are applied, so extraHeaders can never override
- *  them. Safe internal headers (e.g. Prefer) pass through untouched. */
+/** apikey is ALWAYS the service-role credential — any case-variant
+ *  supplied via extraHeaders is stripped before the authoritative value
+ *  is applied, so extraHeaders can never override it. Safe internal
+ *  headers (e.g. Prefer) pass through untouched.
+ *
+ *  AUTH HOTFIX (PR7 review): the service credential is sent ONLY as
+ *  `apikey`, never as `Authorization: Bearer <credential>`. Modern
+ *  Supabase secret API keys (sb_secret_...) are not JWTs and must be
+ *  presented via `apikey` alone; legacy service_role JWT keys are also
+ *  accepted by PostgREST through `apikey` alone, so this is a strict
+ *  compatibility widening, not a behavior loss for any currently
+ *  supported credential shape. An `authorization` value supplied via
+ *  extraHeaders is still stripped as defense in depth — this adapter
+ *  never forwards a caller-supplied Authorization header for a
+ *  service-level PostgREST call — but it no longer sets one itself. */
 export function buildPostgrestHeaders(
   apiKey: string,
   hasBody: boolean,
@@ -300,7 +311,6 @@ export function buildPostgrestHeaders(
     headers[lower] = value;
   }
   headers.apikey = apiKey;
-  headers.authorization = `Bearer ${apiKey}`;
   headers.accept = 'application/json';
   if (hasBody) headers['content-type'] = 'application/json';
   return headers;
