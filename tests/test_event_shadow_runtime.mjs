@@ -518,7 +518,14 @@ t('EVENT_SHADOW_RUNTIME_TRIGGER_TYPE est le littéral \'manual\'', /EVENT_SHADOW
   ));
   t('toutes les URLs commencent exactement sous SUPABASE_URL/rest/v1/', calls.every((c) => c.url.startsWith(REST_PREFIX)));
   t('apikey service-role présent sur chaque appel', calls.every((c) => c.headers.apikey === SERVICE_ROLE_KEY));
-  t('Authorization: Bearer service-role présent sur chaque appel', calls.every((c) => c.headers.authorization === `Bearer ${SERVICE_ROLE_KEY}`));
+  // AUTH HOTFIX (revue PR7) : la crédential service-role est envoyée
+  // UNIQUEMENT via apikey — jamais via Authorization: Bearer. Les clés
+  // secrètes Supabase modernes (sb_secret_...) ne sont pas des JWT et
+  // n'acceptent que apikey ; les clés service_role JWT historiques
+  // restent utilisables via apikey seul (élargissement de compatibilité,
+  // aucune perte de comportement).
+  t('AUCUN en-tête Authorization sur les appels PostgREST (apikey seul porte la crédential service-role)',
+    calls.every((c) => c.headers.authorization === undefined));
 
   const acquireCall = calls.find((c) => c.method === 'POST' && c.path === 'ingestion_runs?select=id');
   t('Prefer survit (extraHeader interne de run_lock.ts, acquire)', acquireCall.headers.prefer === 'return=representation');
@@ -536,8 +543,10 @@ t('EVENT_SHADOW_RUNTIME_TRIGGER_TYPE est le littéral \'manual\'', /EVENT_SHADOW
 {
   t('buildPostgrestHeaders : extraHeaders ne peut PAS écraser apikey',
     buildPostgrestHeaders(SERVICE_ROLE_KEY, false, { apikey: 'evil-injected-key' }).apikey === SERVICE_ROLE_KEY);
-  t('buildPostgrestHeaders : extraHeaders ne peut PAS écraser Authorization (même avec une casse différente)',
-    buildPostgrestHeaders(SERVICE_ROLE_KEY, false, { Authorization: 'Bearer evil-injected-token' }).authorization === `Bearer ${SERVICE_ROLE_KEY}`);
+  t('buildPostgrestHeaders : n\'émet JAMAIS d\'en-tête Authorization pour la crédential service-role (apikey seul)',
+    buildPostgrestHeaders(SERVICE_ROLE_KEY, false, {}).authorization === undefined);
+  t('buildPostgrestHeaders : un Authorization fourni via extraHeaders (même avec une casse différente) est toujours supprimé, jamais transmis (défense en profondeur)',
+    buildPostgrestHeaders(SERVICE_ROLE_KEY, false, { Authorization: 'Bearer evil-injected-token' }).authorization === undefined);
   t('buildPostgrestHeaders : un en-tête sûr (Prefer) survit sans modification',
     buildPostgrestHeaders(SERVICE_ROLE_KEY, false, { prefer: 'return=minimal' }).prefer === 'return=minimal');
   t('buildPostgrestHeaders : content-type ajouté seulement si hasBody',
