@@ -332,6 +332,54 @@ async function expectThrow(fn, label) {
 }
 
 // ---------------------------------------------------------------------
+// 1b. Contrat trigger_type — DOIT correspondre exactement au VRAI CHECK
+//     de ingestion_runs.trigger_type (cron | manual | webhook | backfill),
+//     vérifié en direct. Toute autre valeur DOIT être rejetée AVANT tout
+//     appel DB, jamais normalisée/repliée silencieusement sur "manual".
+// ---------------------------------------------------------------------
+{
+  const id = uid('trigger-default');
+  const { db } = makeBatchFakeDb([makeObservation(id)]);
+  const report = await runEventShadowBatch(db, [id]); // pas de 3e argument => défaut
+  t('défaut "manual" accepté', report.triggerType === 'manual');
+}
+for (const trigger of ['cron', 'manual', 'webhook', 'backfill']) {
+  const id = uid(`trigger-ok-${trigger}`);
+  const { db, calls } = makeBatchFakeDb([makeObservation(id)]);
+  const report = await runEventShadowBatch(db, [id], trigger);
+  t(`trigger "${trigger}" accepté (valeur réelle du CHECK PostgreSQL)`, report.triggerType === trigger);
+  const acquireCall = calls.find((c) => c.method === 'POST' && c.path === 'ingestion_runs?select=id');
+  t(`trigger "${trigger}" propagé EXACTEMENT à ingestion_runs.trigger_type`, acquireCall.body[0].trigger_type === trigger);
+}
+{
+  const { db, calls } = makeBatchFakeDb([]);
+  const err = await expectThrow(() => runEventShadowBatch(db, [uid('trigger-scheduled-review')], 'scheduled_review'), '"scheduled_review" (non conforme au CHECK réel) rejeté AVANT tout appel DB');
+  t('erreur : EventShadowBatchInvariantError UNSUPPORTED_TRIGGER_TYPE', err instanceof EventShadowBatchInvariantError && err.code === 'UNSUPPORTED_TRIGGER_TYPE');
+  t('"scheduled_review" : ZÉRO appel DB (n\'atteint jamais acquireLock)', calls.length === 0);
+}
+{
+  const { db, calls } = makeBatchFakeDb([]);
+  const err = await expectThrow(() => runEventShadowBatch(db, [uid('trigger-foo')], 'foo'), 'trigger arbitraire "foo" rejeté AVANT tout appel DB');
+  t('erreur "foo" : EventShadowBatchInvariantError UNSUPPORTED_TRIGGER_TYPE', err instanceof EventShadowBatchInvariantError && err.code === 'UNSUPPORTED_TRIGGER_TYPE');
+  t('"foo" : ZÉRO appel DB (n\'atteint jamais acquireLock)', calls.length === 0);
+}
+
+// ---------------------------------------------------------------------
+// 1c. Sémantique de doublon UUID — insensible à la casse hexadécimale
+//     (identité PostgreSQL UUID), sans jamais réécrire le tableau
+//     observationIds, l'ordre de l'appelant, ni l'ID exact transmis à
+//     PR5.
+// ---------------------------------------------------------------------
+{
+  const base = uid('case-dup-1'); // toujours en minuscules (sortie hex de createHash)
+  const upper = base.toUpperCase();
+  const { db, calls } = makeBatchFakeDb([]);
+  const err = await expectThrow(() => runEventShadowBatch(db, [base, upper]), 'même UUID en minuscules PUIS majuscules => doublon');
+  t('doublon insensible à la casse : EventShadowBatchInvariantError DUPLICATE_OBSERVATION_ID', err instanceof EventShadowBatchInvariantError && err.code === 'DUPLICATE_OBSERVATION_ID');
+  t('doublon insensible à la casse : ZÉRO appel DB', calls.length === 0);
+}
+
+// ---------------------------------------------------------------------
 // 2. Verrou — reclaim/acquire avant tout traitement, engine exact,
 //    trigger propagé, occupé => EventShadowBusyError, aucune libération
 //    si le verrou n'a jamais été acquis.
@@ -339,7 +387,7 @@ async function expectThrow(fn, label) {
 {
   const id = uid('lock-order-1');
   const { db, calls } = makeBatchFakeDb([makeObservation(id)]);
-  await runEventShadowBatch(db, [id], 'scheduled_review');
+  await runEventShadowBatch(db, [id], 'backfill');
 
   const reclaimIdx = calls.findIndex((c) => c.path === 'rpc/fn_reclaim_stale_runs');
   const acquireIdx = calls.findIndex((c) => c.method === 'POST' && c.path === 'ingestion_runs?select=id');
@@ -348,7 +396,7 @@ async function expectThrow(fn, label) {
 
   const acquireCall = calls[acquireIdx];
   t('engine = event_shadow dans la ligne insérée', acquireCall.body[0].engine === 'event_shadow');
-  t('trigger_type propagé exactement', acquireCall.body[0].trigger_type === 'scheduled_review');
+  t('trigger_type propagé exactement ("backfill", valeur réelle du CHECK)', acquireCall.body[0].trigger_type === 'backfill');
 }
 {
   const id = uid('lock-busy-1');
@@ -551,11 +599,51 @@ t('shadow_batch.ts ne référence jamais Promise.all( / Promise.allSettled(', !/
   t('libération : errors contient une entrée pour l\'item FAILED', Array.isArray(releaseCall.body.errors) && releaseCall.body.errors.length === 1 && releaseCall.body.errors[0].includes(idFail));
 }
 {
+  // Libération après un succès complet (aucun item en échec).
+  const id = uid('release-success-1');
+  const { calls, db, getReleaseCallCount } = makeBatchFakeDb([makeObservation(id)]);
+  const report = await runEventShadowBatch(db, [id]);
+  t('libération après succès complet : tentée exactement une fois', getReleaseCallCount() === 1);
+  const releaseCall = calls.find((c) => c.method === 'PATCH' && c.path.startsWith('ingestion_runs?id=eq.'));
+  t('libération après succès complet : status = success', releaseCall.body.status === 'success' && report.status === 'success');
+}
+{
+  // Libération après échec TOTAL (tous les items en échec).
+  const idFail1 = uid('release-all-failed-1');
+  const idFail2 = uid('release-all-failed-2');
+  const malformed = () => [{ cluster_id: 'bad', decision_id: 'bad', cluster_created_now: true, replayed: false }];
+  const { calls, db, getReleaseCallCount } = makeBatchFakeDb([
+    makeObservation(idFail1, { assignBehavior: malformed }),
+    makeObservation(idFail2, { assignBehavior: malformed }),
+  ]);
+  const report = await runEventShadowBatch(db, [idFail1, idFail2]);
+  t('libération après échec total : tentée exactement une fois', getReleaseCallCount() === 1);
+  const releaseCall = calls.find((c) => c.method === 'PATCH' && c.path.startsWith('ingestion_runs?id=eq.'));
+  t('libération après échec total : status = failed', releaseCall.body.status === 'failed' && report.status === 'failed');
+}
+{
   const id = uid('release-failure-1');
   const { db, getReleaseCallCount } = makeBatchFakeDb([makeObservation(id)], { forceReleaseFailure: true });
   const err = await expectThrow(() => runEventShadowBatch(db, [id]), 'échec de libération du verrou surface une erreur (pas de rapport "réussi" retourné)');
   t('erreur de libération : EventShadowBatchInvariantError EVENT_SHADOW_LOCK_RELEASE_FAILED', err instanceof EventShadowBatchInvariantError && err.code === 'EVENT_SHADOW_LOCK_RELEASE_FAILED');
   t('la libération a bien été tentée (pas juste ignorée) avant l\'échec', getReleaseCallCount() === 1);
+}
+
+// ---------------------------------------------------------------------
+// 7b. Garde structurelle : la libération DOIT être couverte par un vrai
+//     bloc try/finally après l'acquisition du verrou — pas seulement un
+//     appel explicite placé après la construction du rapport. Ce test
+//     échouerait si la libération était déplacée hors de la garantie
+//     finally (retour à l'implémentation précédente PR6).
+// ---------------------------------------------------------------------
+{
+  const liveBatchSourceForFinallyCheck = batchSource
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+  t('releaseLock( apparaît exactement une fois dans le source (un seul point d\'appel)',
+    (liveBatchSourceForFinallyCheck.match(/releaseLock\(/g) ?? []).length === 1);
+  t('l\'unique appel releaseLock( est structurellement situé à l\'intérieur d\'un bloc finally { ... } (garantie réelle, pas une ligne libre après le rapport)',
+    /finally\s*\{[\s\S]*?releaseLock\(/.test(liveBatchSourceForFinallyCheck));
 }
 
 // ---------------------------------------------------------------------

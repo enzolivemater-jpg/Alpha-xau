@@ -54,6 +54,18 @@ const LOCK_ENGINE = 'event_shadow' as const;
 const DEFAULT_TRIGGER_TYPE = 'manual';
 const MAX_TRIGGER_TYPE_LENGTH = 64;
 
+/**
+ * The REAL ingestion_runs.trigger_type CHECK constraint (verified live) —
+ * 'cron' | 'manual' | 'webhook' | 'backfill'. This is the application-side
+ * mirror of that DB constraint (no migration, no constraint change): any
+ * other value would fail acquireLock's INSERT against real PostgreSQL, so
+ * it fails closed here instead, before any DB call is ever made.
+ */
+export type EventShadowTriggerType = 'cron' | 'manual' | 'webhook' | 'backfill';
+const SUPPORTED_TRIGGER_TYPES: ReadonlySet<string> = new Set<EventShadowTriggerType>([
+  'cron', 'manual', 'webhook', 'backfill',
+]);
+
 // ---------------------------------------------------------------------------
 // Injected structural DB port — compatible with BOTH the PR5 port
 // (EventShadowDb) and the run_lock port (LockCapableDb). Both already share
@@ -123,6 +135,13 @@ function validateBatchInput(observationIds: readonly string[], triggerType: stri
     );
   }
 
+  // PostgreSQL UUID identity is case-insensitive w.r.t. textual hex
+  // representation — duplicate detection MUST use a canonical lowercase
+  // comparison key, never the raw string, or the same RAW observation
+  // could be processed twice inside one batch under two different
+  // capitalizations. The comparison key is used ONLY for this check: the
+  // original observationIds array, caller order, and exact strings
+  // forwarded to PR5 are never rewritten, trimmed, or normalized.
   const seen = new Set<string>();
   for (const id of observationIds) {
     if (typeof id !== 'string' || !UUID_LIKE_PATTERN.test(id)) {
@@ -131,13 +150,14 @@ function validateBatchInput(observationIds: readonly string[], triggerType: stri
         `observationIds entry is not a UUID-like string: ${JSON.stringify(id)}.`,
       );
     }
-    if (seen.has(id)) {
+    const comparisonKey = id.toLowerCase();
+    if (seen.has(comparisonKey)) {
       throw new EventShadowBatchInvariantError(
         'DUPLICATE_OBSERVATION_ID',
-        `observationIds contains a duplicate id: ${id}.`,
+        `observationIds contains a duplicate id (case-insensitive UUID comparison): ${id}.`,
       );
     }
-    seen.add(id);
+    seen.add(comparisonKey);
   }
 
   if (typeof triggerType !== 'string' || triggerType.trim().length === 0) {
@@ -150,6 +170,15 @@ function validateBatchInput(observationIds: readonly string[], triggerType: stri
     throw new EventShadowBatchInvariantError(
       'TRIGGER_TYPE_TOO_LONG',
       `triggerType length ${triggerType.length} exceeds the ${MAX_TRIGGER_TYPE_LENGTH} character limit.`,
+    );
+  }
+  // The allowlist is the actual source-of-truth constraint (mirrors the
+  // real ingestion_runs.trigger_type CHECK) — never normalized/falled back,
+  // the exact accepted value is forwarded to acquireLock unchanged.
+  if (!SUPPORTED_TRIGGER_TYPES.has(triggerType)) {
+    throw new EventShadowBatchInvariantError(
+      'UNSUPPORTED_TRIGGER_TYPE',
+      `triggerType "${triggerType}" is not one of the supported values: ${[...SUPPORTED_TRIGGER_TYPES].join(', ')}.`,
     );
   }
 }
@@ -338,6 +367,35 @@ function toLockRelease(report: EventShadowBatchReport): LockRelease {
   };
 }
 
+/**
+ * SAFE MINIMAL fallback release payload for the (structurally unreachable
+ * under normal per-item error isolation, but still guarded defensively)
+ * case where an unexpected operational error escapes the processing block
+ * BEFORE a real EventShadowBatchReport could be built. Never fabricates
+ * successful processing metrics — conservatively reports the whole run as
+ * failed, zero persisted/duplicated, with a safe error entry describing
+ * the operational failure.
+ */
+function buildFallbackLockRelease(input: {
+  readonly requested: number;
+  readonly durationMs: number;
+  readonly error: unknown;
+}): LockRelease {
+  return {
+    status: 'failed',
+    durationMs: input.durationMs,
+    fetched: input.requested,
+    persisted: 0,
+    duplicates: 0,
+    providers: {
+      event_shadow: {
+        batch_version: OPS023_EVENT_SHADOW_BATCH_VERSION,
+      },
+    },
+    errors: [`event_shadow batch operational failure before a report could be built: ${errorMessage(input.error)}`],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point.
 // ---------------------------------------------------------------------------
@@ -360,39 +418,59 @@ export async function runEventShadowBatch(
     throw new EventShadowBusyError();
   }
 
-  // Strict caller order, one at a time — no Promise.all/allSettled. One
-  // observation's failure is isolated here and never aborts the remaining
-  // ids; PR5 itself remains the sole authority on retry/idempotency, so
-  // this loop adds zero new idempotency logic.
-  const items: EventShadowBatchItemResult[] = [];
-  for (const observationId of observationIds) {
-    try {
-      const result = await processEventShadowObservation(db, observationId);
-      items.push(toBatchItem(observationId, result));
-    } catch (err) {
-      items.push(toFailedItem(observationId, err));
+  // From here on, release is a STRUCTURAL guarantee: everything that can
+  // run after a successful acquireLock is covered by this try/finally, and
+  // releaseLock is attempted EXACTLY ONCE from the finally path — whether
+  // processing completes normally (report built) or an unexpected
+  // operational error escapes the per-item isolation below (report never
+  // built, a safe minimal fallback payload is released instead). If
+  // release itself fails, the caller must never receive a report implying
+  // the lock was correctly returned — throw instead of returning/rethrowing.
+  let report: EventShadowBatchReport | null = null;
+  let operationalError: unknown = null;
+  try {
+    // Strict caller order, one at a time — no Promise.all/allSettled. One
+    // observation's failure is isolated here and never aborts the
+    // remaining ids; PR5 itself remains the sole authority on retry/
+    // idempotency, so this loop adds zero new idempotency logic.
+    const items: EventShadowBatchItemResult[] = [];
+    for (const observationId of observationIds) {
+      try {
+        const result = await processEventShadowObservation(db, observationId);
+        items.push(toBatchItem(observationId, result));
+      } catch (err) {
+        items.push(toFailedItem(observationId, err));
+      }
     }
+
+    report = buildReport({
+      triggerType,
+      runRowId: lock.runRowId,
+      requested: observationIds.length,
+      items,
+      durationMs: Date.now() - startedAt,
+    });
+    return report;
+  } catch (err) {
+    // Genuinely unexpected — normal per-item PR5 failures are already
+    // isolated above and never reach here. Captured for the fallback
+    // release payload below, then rethrown unchanged: the original
+    // operational error remains visible unless release itself fails.
+    operationalError = err;
+    throw err;
+  } finally {
+    const releasePayload = report !== null
+      ? toLockRelease(report)
+      : buildFallbackLockRelease({
+        requested: observationIds.length,
+        durationMs: Date.now() - startedAt,
+        error: operationalError,
+      });
+    await releaseLock(db, lock.runRowId, releasePayload).catch((err: unknown) => {
+      throw new EventShadowBatchInvariantError(
+        'EVENT_SHADOW_LOCK_RELEASE_FAILED',
+        `releaseLock failed for event_shadow run ${lock.runRowId}: ${errorMessage(err)}`,
+      );
+    });
   }
-
-  const durationMs = Date.now() - startedAt;
-  const report = buildReport({
-    triggerType,
-    runRowId: lock.runRowId,
-    requested: observationIds.length,
-    items,
-    durationMs,
-  });
-
-  // Guaranteed release: attempted unconditionally once the lock is held,
-  // regardless of how many items above resolved to FAILED. If release
-  // itself fails, the caller must never receive a report implying the lock
-  // was correctly returned — throw instead of returning here.
-  await releaseLock(db, lock.runRowId, toLockRelease(report)).catch((err: unknown) => {
-    throw new EventShadowBatchInvariantError(
-      'EVENT_SHADOW_LOCK_RELEASE_FAILED',
-      `releaseLock failed for event_shadow run ${lock.runRowId}: ${errorMessage(err)}`,
-    );
-  });
-
-  return report;
 }
