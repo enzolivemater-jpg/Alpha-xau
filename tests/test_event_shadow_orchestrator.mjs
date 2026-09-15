@@ -524,6 +524,70 @@ async function expectThrow(fn, label) {
   const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'transition_type != NOVELTY rejeté');
   t('erreur transition_type != NOVELTY est une EventShadowInvariantError', err instanceof EventShadowInvariantError && err.code === 'EVENT_VERSION_SHAPE_INVARIANT');
 }
+{
+  const { db } = makeFakeDb({ ...happyPathHandlers(), eventVersion: () => [makeEventVersionResponseRow({ state_fingerprint: undefined })] });
+  const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'state_fingerprint manquant/undefined rejeté');
+  t('erreur state_fingerprint manquant est une EventShadowInvariantError MALFORMED_RPC_RESPONSE', err instanceof EventShadowInvariantError && err.code === 'MALFORMED_RPC_RESPONSE');
+}
+{
+  const { db } = makeFakeDb({ ...happyPathHandlers(), eventVersion: () => [makeEventVersionResponseRow({ state_fingerprint: null })] });
+  const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'state_fingerprint null rejeté');
+  t('erreur state_fingerprint null est une EventShadowInvariantError MALFORMED_RPC_RESPONSE', err instanceof EventShadowInvariantError && err.code === 'MALFORMED_RPC_RESPONSE');
+}
+{
+  const { db } = makeFakeDb({ ...happyPathHandlers(), eventVersion: () => [makeEventVersionResponseRow({ state_fingerprint: '   ' })] });
+  const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'state_fingerprint vide/blanc rejeté');
+  t('erreur state_fingerprint vide est une EventShadowInvariantError MALFORMED_RPC_RESPONSE', err instanceof EventShadowInvariantError && err.code === 'MALFORMED_RPC_RESPONSE');
+}
+{
+  const { db } = makeFakeDb({ ...happyPathHandlers(), eventVersion: () => [makeEventVersionResponseRow({ state_fingerprint: 'a-valid-non-empty-fingerprint' })] });
+  const result = await processEventShadowObservation(db, makeRawRow().id);
+  t('state_fingerprint non-vide valide accepté => PROCESSED', result.kind === 'PROCESSED');
+}
+{
+  const { db } = makeFakeDb({ ...happyPathHandlers(), eventVersion: () => [makeEventVersionResponseRow({ outcome: 'CREATED', replayed: true })] });
+  const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'incohérence outcome=CREATED avec replayed=true rejetée');
+  t('erreur incohérence CREATED/replayed=true est une EventShadowInvariantError EVENT_VERSION_SHAPE_INVARIANT', err instanceof EventShadowInvariantError && err.code === 'EVENT_VERSION_SHAPE_INVARIANT');
+}
+{
+  const { db } = makeFakeDb({ ...happyPathHandlers(), eventVersion: () => [makeEventVersionResponseRow({ outcome: 'REPLAYED', replayed: false })] });
+  const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'incohérence outcome=REPLAYED avec replayed=false rejetée');
+  t('erreur incohérence REPLAYED/replayed=false est une EventShadowInvariantError EVENT_VERSION_SHAPE_INVARIANT', err instanceof EventShadowInvariantError && err.code === 'EVENT_VERSION_SHAPE_INVARIANT');
+}
+
+// ---------------------------------------------------------------------
+// 6b. Garde-fou de lignage de membership — le lignage persisté DOIT
+//     correspondre EXACTEMENT à ce que PR4 a planifié, AVANT toute
+//     création d'Event Version (égalité exacte, null-safe).
+// ---------------------------------------------------------------------
+{
+  // A) editorial_origin_key persisté différent du plan.
+  const { db, calls } = makeFakeDb(happyPathHandlers({}, { editorial_origin_key: 'official:some_other_source' }));
+  const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'A) editorial_origin_key persisté != plan => MEMBERSHIP_LINEAGE_MISMATCH');
+  t('A) erreur est une EventShadowInvariantError MEMBERSHIP_LINEAGE_MISMATCH', err instanceof EventShadowInvariantError && err.code === 'MEMBERSHIP_LINEAGE_MISMATCH');
+  t('A) ZÉRO appel fn_event_create_event_version', !calls.some((c) => c.path === 'rpc/fn_event_create_event_version'));
+}
+{
+  // B) editorial_origin_key persisté null alors que le plan a résolu une origine officielle.
+  const { db, calls } = makeFakeDb(happyPathHandlers({}, { editorial_origin_key: null }));
+  const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'B) editorial_origin_key persisté null alors que le plan a résolu une origine officielle => MEMBERSHIP_LINEAGE_MISMATCH');
+  t('B) erreur est une EventShadowInvariantError MEMBERSHIP_LINEAGE_MISMATCH', err instanceof EventShadowInvariantError && err.code === 'MEMBERSHIP_LINEAGE_MISMATCH');
+  t('B) ZÉRO appel fn_event_create_event_version', !calls.some((c) => c.path === 'rpc/fn_event_create_event_version'));
+}
+{
+  // C) wire_lineage_key persisté différent du plan (null attendu pour une source officielle directe).
+  const { db, calls } = makeFakeDb(happyPathHandlers({}, { wire_lineage_key: 'wire:some-syndication-key' }));
+  const err = await expectThrow(() => processEventShadowObservation(db, makeRawRow().id), 'C) wire_lineage_key persisté != plan => MEMBERSHIP_LINEAGE_MISMATCH');
+  t('C) erreur est une EventShadowInvariantError MEMBERSHIP_LINEAGE_MISMATCH', err instanceof EventShadowInvariantError && err.code === 'MEMBERSHIP_LINEAGE_MISMATCH');
+  t('C) ZÉRO appel fn_event_create_event_version', !calls.some((c) => c.path === 'rpc/fn_event_create_event_version'));
+}
+{
+  // D) lignage persisté exactement égal au plan => succès normal.
+  const { db, calls } = makeFakeDb(happyPathHandlers());
+  const result = await processEventShadowObservation(db, makeRawRow().id);
+  t('D) lignage exact persisté = plan => PROCESSED', result.kind === 'PROCESSED');
+  t('D) exactement UN appel fn_event_create_event_version', calls.filter((c) => c.path === 'rpc/fn_event_create_event_version').length === 1);
+}
 
 // ---------------------------------------------------------------------
 // 7. Rejeu (retry) — première exécution, rejeu exact avec empreintes
@@ -607,6 +671,70 @@ async function expectThrow(fn, label) {
     assignCalls.length === 2 && assignCalls[0].body.p_idempotency_fingerprint === assignCalls[1].body.p_idempotency_fingerprint);
   t('récupération : le résultat réutilise le cluster/decision déjà committés (aucun second cluster demandé)',
     result.clusterId === CLUSTER_ID && result.decisionId === DECISION_ID);
+}
+
+// ---------------------------------------------------------------------
+// 8b. Perte RÉELLE de la réponse HTTP d'ASSIGNATION elle-même (pas
+//     seulement Event Version) : le premier appel fn_event_assign_observation
+//     est commis côté "serveur" (fake DB) mais l'application ne reçoit
+//     JAMAIS la réponse HTTP (throw simulé). La lecture de membership et
+//     l'appel Event Version NE DOIVENT PAS avoir lieu suite à cette perte.
+//     Le rejeu suivant, avec l'EXACTE MÊME empreinte d'idempotence F,
+//     reçoit le cluster/decision déjà committés en mode replayed=true,
+//     cluster_created_now=false, puis poursuit normalement jusqu'à
+//     l'Event Version.
+// ---------------------------------------------------------------------
+{
+  const observation = makeRawRow({ id: 'b0b0b0b0-b0b0-4b0b-8b0b-b0b0b0b0b0b0' });
+  let assignAttempt = 0;
+  let committed = null;
+  let membershipCallCount = 0;
+  let eventVersionCallCount = 0;
+  const capturedAssignFingerprints = [];
+  const { db, calls } = makeFakeDb({
+    newsArticles: () => [observation],
+    assignObservation: (method, path, body) => {
+      assignAttempt++;
+      capturedAssignFingerprints.push(body.p_idempotency_fingerprint);
+      if (assignAttempt === 1) {
+        // Le "serveur" commet l'assignation en interne, mais la réponse
+        // HTTP vers l'application est perdue avant d'avoir pu être lue.
+        committed = { cluster_id: CLUSTER_ID, decision_id: DECISION_ID };
+        throw new Error('simulated network/HTTP-response-loss error: the RPC response never reached the application, even though the assignment committed server-side');
+      }
+      // Rejeu : le "serveur" reconnaît la MÊME empreinte d'idempotence et
+      // rejoue la ligne déjà committée — aucune seconde intention de cluster.
+      return [makeAssignResponseRow({ cluster_id: committed.cluster_id, decision_id: committed.decision_id, cluster_created_now: false, replayed: true })];
+    },
+    membership: () => {
+      membershipCallCount++;
+      return [makeMembershipRow({ observation_id: observation.id })];
+    },
+    eventVersion: () => {
+      eventVersionCallCount++;
+      return [makeEventVersionResponseRow({ outcome: 'CREATED', replayed: false })];
+    },
+  });
+
+  let firstError = null;
+  try {
+    await processEventShadowObservation(db, observation.id);
+  } catch (err) {
+    firstError = err;
+  }
+  t('première invocation : la perte de réponse HTTP d\'assignation lève une erreur (aucun cluster_id/decision_id reçu)', firstError !== null);
+  t('première invocation : AUCUNE lecture de membership (jamais atteinte suite à la perte de réponse)', membershipCallCount === 0);
+  t('première invocation : AUCUN appel Event Version (jamais atteint suite à la perte de réponse)', eventVersionCallCount === 0);
+
+  const result = await processEventShadowObservation(db, observation.id);
+  t('seconde invocation (même observation) après la perte de réponse : PROCESSED', result.kind === 'PROCESSED');
+  t('empreinte d\'assignation première tentative === empreinte seconde tentative (même intention logique CREATE_AND_ASSIGN)',
+    capturedAssignFingerprints.length === 2 && capturedAssignFingerprints[0] === capturedAssignFingerprints[1]);
+  t('la seconde tentative réutilise le cluster_id/decision_id déjà committés (aucune seconde intention de cluster générée)',
+    result.clusterId === CLUSTER_ID && result.decisionId === DECISION_ID);
+
+  const eventVersionCalls = calls.filter((c) => c.path === 'rpc/fn_event_create_event_version');
+  t('exactement UN appel Event Version a eu lieu sur l\'ensemble du scénario (jamais après la première perte)', eventVersionCalls.length === 1 && eventVersionCallCount === 1);
 }
 
 // ---------------------------------------------------------------------

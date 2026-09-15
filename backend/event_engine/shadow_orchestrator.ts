@@ -536,6 +536,35 @@ function assertMembershipIdentity(
   }
 }
 
+/**
+ * Fail-closed BEFORE Event Version creation: the persisted membership
+ * lineage (editorial_origin_key / wire_lineage_key) must exactly match what
+ * PR4 actually planned. fn_event_create_event_version never recomputes
+ * editorial-independence semantics from the membership row — it only
+ * receives plan.sourceIndependenceState directly — so if the write/read
+ * contract ever silently drifted (persisted evidence disagreeing with the
+ * processor plan that is about to drive the Event Version), that drift
+ * must be caught here, never passed through unnoticed. Null-safe exact
+ * equality; neither side is ever substituted for the other.
+ */
+function assertMembershipLineageMatchesPlan(
+  membership: PersistedMembership,
+  plan: ProcessPlan,
+): void {
+  if (membership.editorialOriginKey !== plan.lineage.editorialOriginKey) {
+    throw new EventShadowInvariantError(
+      'MEMBERSHIP_LINEAGE_MISMATCH',
+      `persisted membership editorial_origin_key (${JSON.stringify(membership.editorialOriginKey)}) does not match the processor plan lineage.editorialOriginKey (${JSON.stringify(plan.lineage.editorialOriginKey)}).`,
+    );
+  }
+  if (membership.wireLineageKey !== plan.lineage.wireLineageKey) {
+    throw new EventShadowInvariantError(
+      'MEMBERSHIP_LINEAGE_MISMATCH',
+      `persisted membership wire_lineage_key (${JSON.stringify(membership.wireLineageKey)}) does not match the processor plan lineage.wireLineageKey (${JSON.stringify(plan.lineage.wireLineageKey)}).`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Self-contained strict ISO-8601 validation (SUPPLIED strings only — never
 // the application clock). Duplicated locally, same discipline as PR4:
@@ -652,6 +681,7 @@ interface EventVersionOutcome {
   readonly eventVersionId: string;
   readonly versionNumber: number;
   readonly transitionType: string;
+  readonly stateFingerprint: string;
   readonly sourceIndependenceState: string;
   readonly evidenceCount: number;
   readonly outcome: string;
@@ -696,6 +726,8 @@ async function callCreateEventVersion(
   const eventVersionId = validateUuidLikeString(row.event_version_id, 'event_version_id');
   const versionNumber = validateFiniteNumber(row.version_number, 'version_number');
   const transitionType = validateNonEmptyString(row.transition_type, 'transition_type');
+  // Validated as a non-empty string only — never recomputed/reinterpreted here.
+  const stateFingerprint = validateNonEmptyString(row.state_fingerprint, 'state_fingerprint');
   const sourceIndependenceState = validateNonEmptyString(row.source_independence_state, 'source_independence_state');
   const evidenceCount = validateFiniteNumber(row.evidence_count, 'evidence_count');
   const outcome = validateNonEmptyString(row.outcome, 'outcome');
@@ -706,6 +738,19 @@ async function callCreateEventVersion(
     throw new EventShadowInvariantError(
       'EVENT_VERSION_SHAPE_INVARIANT',
       `fn_event_create_event_version outcome "${outcome}" is not accepted by PR5 V1 (only CREATED/REPLAYED) — a processor-plan reinterpretation is never performed here.`,
+    );
+  }
+  // Local response-coherence check only — no new RPC/SQL semantics.
+  if (outcome === 'CREATED' && replayed !== false) {
+    throw new EventShadowInvariantError(
+      'EVENT_VERSION_SHAPE_INVARIANT',
+      `fn_event_create_event_version returned outcome=CREATED with replayed=${replayed} (expected false).`,
+    );
+  }
+  if (outcome === 'REPLAYED' && replayed !== true) {
+    throw new EventShadowInvariantError(
+      'EVENT_VERSION_SHAPE_INVARIANT',
+      `fn_event_create_event_version returned outcome=REPLAYED with replayed=${replayed} (expected true).`,
     );
   }
   if (versionNumber !== 1) {
@@ -724,7 +769,7 @@ async function callCreateEventVersion(
     );
   }
 
-  return { eventVersionId, versionNumber, transitionType, sourceIndependenceState, evidenceCount, outcome, replayed };
+  return { eventVersionId, versionNumber, transitionType, stateFingerprint, sourceIndependenceState, evidenceCount, outcome, replayed };
 }
 
 // ---------------------------------------------------------------------------
@@ -803,6 +848,8 @@ export async function processEventShadowObservation(
     observationId: observation.id,
     clusterId: assignment.clusterId,
   });
+
+  assertMembershipLineageMatchesPlan(membership, plan);
 
   const finalKnowledgeCutoff = deriveFinalKnowledgeCutoff(plan.knowledgeCutoffFloor, membership.assignedAt);
 
