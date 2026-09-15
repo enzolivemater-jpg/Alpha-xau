@@ -38,6 +38,7 @@ const TEST_FILES = [
   'tests/test_ecb_collector.mjs',
   'tests/test_ecb_raw_integration.mjs',
   'tests/test_event_cluster_relation_contract.mjs',
+  'tests/test_event_deterministic_processor.mjs',
   'tests/test_event_identity_claim_contract.mjs',
   'tests/test_event_membership_reassign_contract.mjs',
   'tests/test_event_membership_supersession_contract.mjs',
