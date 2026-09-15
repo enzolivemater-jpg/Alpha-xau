@@ -144,6 +144,23 @@ CONFIG.BACKOFF_BASE_MS = 1;
 CONFIG.BACKOFF_MAX_MS = 1;
 CONFIG.MAX_RETRY_AFTER_MS = 999999;
 
+// XAU-V2-CI-GDELT-TIME-DETERMINISM-FIX : horloge applicative gelée à un
+// instant fixe, uniquement DANS ce harnais isolé et jetable (sous-process
+// séparé lancé via execFileSync, qui se termine après ce test -- n'affecte
+// jamais le process hôte ni aucun autre test). parseTimestamp() (production,
+// backend/ingest.ts, extrait verbatim ci-dessous, jamais réécrite) lit
+// Date.now() pour rejeter tout article plus vieux que CONFIG.MAX_ARTICLE_
+// AGE_MS (48h, INCHANGÉ). Sans ce gel, le fixture nominal ("1 article
+// conservé" ci-dessous) expire silencieusement à mesure que l'horloge réelle
+// avance -- c'est exactement la dérive temporelle observée en CI. Geler
+// l'horloge ici rend le test déterministe POUR TOUJOURS, sans jamais
+// affaiblir la règle de production (toujours exercée réellement contre le
+// vrai parseTimestamp(), jamais court-circuitée) : voir le scénario
+// gdelt_stale_article plus bas, qui prouve que le filtre 48h reste actif
+// sous cette horloge gelée.
+const FIXED_NOW_MS = Date.parse('2026-09-13T13:00:00.000Z');
+Date.now = () => FIXED_NOW_MS;
+
 ${secretKeyPatternMatch[0]}
 ${redactStringSrc}
 ${redactSrc}
@@ -274,6 +291,22 @@ const results = {};
   results.gdelt_success = { articleCount: articles.length, report, fetchCallCount: __fetchCallCount };
 }
 
+// 5bis. XAU-V2-CI-GDELT-TIME-DETERMINISM-FIX (garde-fou comportemental) :
+//       même sous l'horloge GELÉE ci-dessus, un article dont seendate est
+//       clairement antérieur à CONFIG.MAX_ARTICLE_AGE_MS (48h) reste filtré
+//       -- preuve que geler l'horloge ne désactive/n'affaiblit JAMAIS la
+//       règle de production réelle (parseTimestamp() reste celle extraite
+//       verbatim de backend/ingest.ts, jamais réécrite). 12 jours avant
+//       FIXED_NOW_MS, sans ambiguïté > 48h.
+{
+  __fetchCallCount = 0;
+  __fetchScenario = () => jsonResponse(200, {
+    articles: [{ title: 'Stale article well beyond the 48h window', seendate: '20260901T000000Z', url: 'https://reuters.com/stale', domain: 'reuters.com' }],
+  });
+  const { articles, report } = await collectGdelt({}, new Logger());
+  results.gdelt_stale_article = { articleCount: articles.length, report, fetchCallCount: __fetchCallCount };
+}
+
 process.stdout.write(JSON.stringify(results));
 process.exit(0);
 `;
@@ -348,6 +381,14 @@ console.log('--- GDELT SUCCES NOMINAL : CHEMIN NON AFFECTE ---');
   t('report.ok = true', r.report.ok === true);
   t('1 article conservé', r.articleCount === 1);
   t('report.retries = 0', r.report.retries === 0);
+}
+
+console.log('--- GDELT ARTICLE PERIME (>48h) SOUS HORLOGE GELEE : FILTRE DE PRODUCTION TOUJOURS ACTIF ---');
+{
+  const r = output.gdelt_stale_article;
+  t('report.ok = true (la requête HTTP réussit ; seul le filtrage d\'article rejette)', r.report.ok === true);
+  t('0 article conservé (seendate > 48h avant l\'horloge gelée -- CONFIG.MAX_ARTICLE_AGE_MS toujours appliqué, jamais affaibli par le gel de test)',
+    r.articleCount === 0, `got ${r.articleCount}`);
 }
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
