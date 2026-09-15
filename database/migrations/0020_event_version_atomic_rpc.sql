@@ -539,8 +539,8 @@ BEGIN
         p_cluster_id, v_version_count;
     END IF;
 
-    SELECT id, version_number, knowledge_cutoff, state_fingerprint,
-           canonical_event_state, effective_time, effective_time_precision
+    SELECT id, version_number, transition_type, knowledge_cutoff, state_fingerprint,
+           source_independence_state, canonical_event_state, effective_time, effective_time_precision
       INTO v_tip
       FROM public.event_versions
       WHERE cluster_id = p_cluster_id AND version_number = v_max_version_number;

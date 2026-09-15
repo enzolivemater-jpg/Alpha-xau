@@ -337,6 +337,53 @@ if (fnSrc !== null) {
     /v_new_version_number := v_max_version_number \+ 1;/.test(fnSrc));
 
   // ---------------------------------------------------------------------
+  // 10bis. RÉVIEW-FIX-001 — RÉGRESSION RECORD v_tip INCOMPLET : le
+  //     SELECT ... INTO v_tip doit charger EXACTEMENT tous les champs
+  //     lus ailleurs via v_tip.<champ> (validation du prédécesseur,
+  //     garde-fou CONFIRMATION, comparaison de matérialité, retour
+  //     NO_MATERIAL_CHANGE) — sinon un accès à un champ RECORD non
+  //     chargé échoue à l'exécution PostgreSQL (défaut découvert par
+  //     revue indépendante : transition_type/source_independence_state
+  //     étaient lus via v_tip.* dans le retour NO_MATERIAL_CHANGE sans
+  //     jamais être inclus dans le SELECT). Ce test générique empêche
+  //     TOUTE régression de ce type, pas seulement les deux champs
+  //     initialement manquants.
+  // ---------------------------------------------------------------------
+  const tipSelectMatch = /SELECT (id, version_number, transition_type, knowledge_cutoff, state_fingerprint,\s*\n\s*source_independence_state, canonical_event_state, effective_time, effective_time_precision)\s*\n\s*INTO v_tip\s*\n\s*FROM public\.event_versions\s*\n\s*WHERE cluster_id = p_cluster_id AND version_number = v_max_version_number;/.exec(fnSrc);
+  t('le SELECT ... INTO v_tip charge explicitement id, version_number, transition_type, knowledge_cutoff, state_fingerprint, source_independence_state, canonical_event_state, effective_time, effective_time_precision',
+    tipSelectMatch !== null);
+
+  const REQUIRED_TIP_FIELDS = [
+    'id', 'version_number', 'transition_type', 'knowledge_cutoff', 'state_fingerprint',
+    'source_independence_state', 'canonical_event_state', 'effective_time', 'effective_time_precision',
+  ];
+  const tipSelectedFields = tipSelectMatch
+    ? tipSelectMatch[1].split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+  for (const field of REQUIRED_TIP_FIELDS) {
+    t(`v_tip charge le champ requis "${field}" (consommé par la validation de prédécesseur/CONFIRMATION/matérialité/NO_MATERIAL_CHANGE)`,
+      tipSelectedFields.includes(field));
+  }
+
+  // Preuve GÉNÉRIQUE et robuste aux évolutions futures : TOUT champ
+  // effectivement lu via v_tip.<champ> ailleurs dans la fonction doit
+  // apparaître dans la liste réellement sélectionnée — empêche
+  // structurellement la classe de bug (accès à un champ RECORD jamais
+  // chargé), pas seulement les deux champs de cette régression précise.
+  const tipFieldUsages = [...fnSrc.matchAll(/v_tip\.([a-z_]+)/g)].map((m) => m[1]);
+  const uniqueTipFieldUsages = [...new Set(tipFieldUsages)];
+  t('tout champ v_tip.<champ> effectivement utilisé dans la fonction figure dans le SELECT ... INTO v_tip (au moins un usage détecté)',
+    uniqueTipFieldUsages.length > 0);
+  for (const usedField of uniqueTipFieldUsages) {
+    t(`v_tip.${usedField} est utilisé et figure bien dans le SELECT ... INTO v_tip (aucun champ RECORD non chargé lu)`,
+      tipSelectedFields.includes(usedField));
+  }
+  t('v_tip.transition_type est spécifiquement chargé (régression précise identifiée par la revue indépendante)',
+    tipSelectedFields.includes('transition_type') && uniqueTipFieldUsages.includes('transition_type'));
+  t('v_tip.source_independence_state est spécifiquement chargé (régression précise identifiée par la revue indépendante)',
+    tipSelectedFields.includes('source_independence_state') && uniqueTipFieldUsages.includes('source_independence_state'));
+
+  // ---------------------------------------------------------------------
   // 11. Garde-fou CONFIRMATION.
   // ---------------------------------------------------------------------
   t('CONFIRMATION ne peut pas modifier canonical_event_state/effective_time/effective_time_precision',
