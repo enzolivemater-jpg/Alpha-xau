@@ -38,6 +38,62 @@
  *  never queries "newest"/ingested_at/published_at, never builds a
  *  cursor/checkpoint. The only news_articles reads are the ones already
  *  performed inside PR5 for the explicit caller-provided observation IDs.
+ *
+ *  OPS-023 PR9 — Controlled MANUAL Discovered-Batch Bridge (V1).
+ *
+ *  Adds a SECOND, separate authenticated endpoint:
+ *
+ *    POST /event-shadow/discover
+ *      -> SAME authentication convention as POST /event-shadow above
+ *      -> validate a DISTINCT strict envelope ({ maxCandidates: integer }
+ *         only — no observationIds, no lane, no triggerType, no processor/
+ *         orchestrator version, no cluster/decision id, no backfill/dryRun
+ *         flag, no cursor/timestamp, no DB parameter)
+ *      -> discoverEventShadowCandidates(db, maxCandidates) — the merged
+ *         PR8 state-derived selector (./shadow_candidate_discovery.js,
+ *         imported and reused here, NEVER reimplemented; this module never
+ *         queries news_articles/event_observation_memberships/
+ *         event_clusters/event_version_evidence directly)
+ *      -> if discovery.selectedObservationIds is EMPTY: return HTTP 200
+ *         with an explicit NO_CANDIDATES status and batch: null — PR6's
+ *         run lock is NEVER acquired and runEventShadowBatch is NEVER
+ *         called for an empty selection
+ *      -> otherwise: runEventShadowBatch(db, discovery.selectedObservationIds,
+ *         'manual') — EXACTLY the same PR6 entry point POST /event-shadow
+ *         already uses, called with the SAME hardcoded literal 'manual'
+ *         trigger (never derived from the request body, never influenced
+ *         by discovery)
+ *      -> a single combined { discovery, batch } JSON response
+ *
+ *  STILL PURELY MANUAL: this endpoint is a manual COMPOSITION of two
+ *  already-merged, already-proven read paths (PR8 discovery) and mutation
+ *  paths (PR6 batch) — it is not a new selection algorithm, not a cursor,
+ *  not a cron trigger. An operator must issue the HTTP request. PR9 does
+ *  NOT touch backend/worker.ts's scheduled()/resolveJob()/JobName/
+ *  wrangler.toml — automatic background draining of the discovered backlog
+ *  remains explicitly out of scope for a later, independently reviewed PR.
+ *
+ *  RACE / STALE DISCOVERY (deliberate, documented, not fixed here):
+ *  discovery runs BEFORE runEventShadowBatch acquires the existing
+ *  event_shadow run lock (backend/shared/run_lock.ts) — there is a small
+ *  window between the two where Event state could change (e.g. a
+ *  concurrent manual POST /event-shadow call, or another discovered-batch
+ *  run finishing first). This module deliberately does NOT add a second
+ *  lock around discovery and does NOT refactor PR6's locking to close that
+ *  window, because:
+ *    - PR6 (runEventShadowBatch / backend/shared/run_lock.ts) remains the
+ *      SOLE batch-run lock owner — a second lock here would be a second,
+ *      divergent locking implementation, exactly what PR6's own module
+ *      header already forbids duplicating.
+ *    - PR5 (shadow_orchestrator.ts / deterministic_processor.ts) remains
+ *      the SOLE idempotency/replay authority — any observation whose
+ *      discovered state went stale between the two RPC calls above and
+ *      PR6 actually processing it fails/replays through PR5's EXISTING
+ *      fingerprint/replay invariants (e.g. a membership that appeared in
+ *      the interim), never through new PR9 repair/retry logic.
+ *  PR9 therefore introduces ZERO new idempotency logic and ZERO new
+ *  locking logic — the accepted race is bounded by, and resolved through,
+ *  invariants PR5/PR6 already enforce.
  * =============================================================================
  */
 
@@ -47,6 +103,14 @@ import {
   EventShadowBatchInvariantError,
   type EventShadowBatchDb,
 } from './shadow_batch.js';
+import {
+  discoverEventShadowCandidates,
+  EventShadowDiscoveryInvariantError,
+  MIN_EVENT_SHADOW_DISCOVERY_CANDIDATES,
+  MAX_EVENT_SHADOW_DISCOVERY_CANDIDATES,
+  type EventShadowDiscoveryDb,
+  type EventShadowDiscoveryResult,
+} from './shadow_candidate_discovery.js';
 
 // ---------------------------------------------------------------------------
 // Runtime environment — Cloudflare env injection is authoritative, never
@@ -238,6 +302,63 @@ async function parseEnvelope(request: Request): Promise<EventShadowRequestEnvelo
   }
 
   return { observationIds: obj.observationIds };
+}
+
+// ---------------------------------------------------------------------------
+// PR9 discover envelope — DISTINCT from EventShadowRequestEnvelope above.
+// Strictly { maxCandidates: integer } — exactly one top-level key, no
+// observationIds/lane/triggerType/processorVersion/orchestratorVersion/
+// clusterId/decisionId/backfill/cursor/timestamp/dryRun/DB parameter.
+// Range enforcement here (never clamped/defaulted/rounded/coerced) reuses
+// PR8's OWN exported MIN/MAX_EVENT_SHADOW_DISCOVERY_CANDIDATES constants —
+// a single source of truth for the [1,25] bound, never a second duplicated
+// magic-number range that could silently drift from PR8's.
+// ---------------------------------------------------------------------------
+
+const ALLOWED_DISCOVER_ENVELOPE_KEYS = new Set(['maxCandidates']);
+
+async function parseDiscoverEnvelope(request: Request): Promise<number> {
+  checkDeclaredContentLength(request);
+  const bodyText = await readBoundedRequestBody(request);
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(bodyText);
+  } catch {
+    throw new EventShadowRuntimeEnvelopeError('MALFORMED_JSON', 'Request body is not valid JSON.');
+  }
+
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new EventShadowRuntimeEnvelopeError('INVALID_BODY_SHAPE', 'Request body must be a JSON object.');
+  }
+  const obj = raw as Record<string, unknown>;
+
+  if (!('maxCandidates' in obj)) {
+    throw new EventShadowRuntimeEnvelopeError('MISSING_MAX_CANDIDATES', 'Request body must include "maxCandidates".');
+  }
+
+  const unexpectedKeys = Object.keys(obj).filter((key) => !ALLOWED_DISCOVER_ENVELOPE_KEYS.has(key));
+  if (unexpectedKeys.length > 0) {
+    throw new EventShadowRuntimeEnvelopeError(
+      'UNEXPECTED_FIELD',
+      `Unexpected field(s) in request body: ${unexpectedKeys.join(', ')}. Only "maxCandidates" is accepted.`,
+    );
+  }
+
+  const { maxCandidates } = obj;
+  if (
+    typeof maxCandidates !== 'number'
+    || !Number.isInteger(maxCandidates)
+    || maxCandidates < MIN_EVENT_SHADOW_DISCOVERY_CANDIDATES
+    || maxCandidates > MAX_EVENT_SHADOW_DISCOVERY_CANDIDATES
+  ) {
+    throw new EventShadowRuntimeEnvelopeError(
+      'INVALID_MAX_CANDIDATES',
+      `"maxCandidates" must be an integer between ${MIN_EVENT_SHADOW_DISCOVERY_CANDIDATES} and ${MAX_EVENT_SHADOW_DISCOVERY_CANDIDATES}.`,
+    );
+  }
+
+  return maxCandidates;
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +588,106 @@ export async function handleEventShadowRequest(
       if (CALLER_INPUT_INVARIANT_CODES.has(err.code)) {
         return jsonResponse({ error: err.message, code: err.code }, 400);
       }
+      return jsonResponse({ error: 'Event-shadow batch failed.', code: err.code }, 500);
+    }
+    // Unexpected/runtime/network error — no stack trace, no secret. The
+    // underlying message is deliberately NOT echoed to the caller: even a
+    // redacted message is a wider surface than this runtime needs to expose.
+    return jsonResponse({ error: 'Internal event-shadow runtime error.' }, 500);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPS-023 PR9 — POST /event-shadow/discover HTTP handler.
+//
+// Combines PR8 discovery (read-only) with PR6 batch execution (mutation)
+// behind ONE authenticated manual request. Never derives lane/triggerType
+// from the request — see parseDiscoverEnvelope() above, which accepts no
+// such field.
+// ---------------------------------------------------------------------------
+
+export async function handleEventShadowDiscoverRequest(
+  request: Request,
+  env: EventShadowRuntimeEnv,
+): Promise<Response> {
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed. Use POST.' }, 405, { allow: 'POST' });
+  }
+
+  if (!isAuthorized(request, env)) {
+    // No detail on the reason for refusal — never help an attacker.
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  let maxCandidates: number;
+  try {
+    maxCandidates = await parseDiscoverEnvelope(request);
+  } catch (err) {
+    if (err instanceof EventShadowRuntimeEnvelopeError) {
+      if (err.code === 'REQUEST_BODY_TOO_LARGE') {
+        return jsonResponse({ error: err.message, code: err.code }, 413);
+      }
+      return jsonResponse({ error: err.message, code: err.code }, 400);
+    }
+    return jsonResponse({ error: 'Malformed request.' }, 400);
+  }
+
+  // ONE PostgrestEventShadowDb instance, shared by discovery (read-only)
+  // and — if candidates are found — the PR6 batch call below. Structurally
+  // compatible with both EventShadowDiscoveryDb and EventShadowBatchDb: no
+  // second PostgREST adapter is implemented for this endpoint.
+  let db: EventShadowDiscoveryDb & EventShadowBatchDb;
+  try {
+    db = new PostgrestEventShadowDb(env);
+  } catch {
+    return jsonResponse({ error: 'Event-shadow runtime configuration error.' }, 500);
+  }
+
+  let discovery: EventShadowDiscoveryResult;
+  try {
+    discovery = await discoverEventShadowCandidates(db, maxCandidates);
+  } catch (err) {
+    // Every EventShadowDiscoveryInvariantError reaching this point reflects
+    // an unexpected RPC/database-side anomaly (malformed row, version
+    // mismatch, duplicate observationId across lanes, ...) — never caller
+    // input, since maxCandidates was already fully range-validated above.
+    // Fails closed to HTTP 500, exactly the "discovery invariant / unexpected
+    // operational error" bucket this endpoint's error contract requires.
+    if (err instanceof EventShadowDiscoveryInvariantError) {
+      return jsonResponse({ error: 'Event-shadow discovery failed.', code: err.code }, 500);
+    }
+    return jsonResponse({ error: 'Internal event-shadow discovery error.' }, 500);
+  }
+
+  if (discovery.selectedObservationIds.length === 0) {
+    // NO runEventShadowBatch call, NO lock acquisition, NO ingestion_runs
+    // row for an empty selection — never fabricate a successful batch
+    // metric for zero candidates.
+    return jsonResponse({ ok: true, status: 'NO_CANDIDATES', discovery, batch: null }, 200);
+  }
+
+  try {
+    // The trigger is ALWAYS the literal 'manual' — never derived from the
+    // request body, never influenced by discovery, exactly the same
+    // hardcoded literal POST /event-shadow already uses above. Selected
+    // observation IDs are forwarded EXACTLY in PR8's own discovery order —
+    // this module reorders/filters nothing.
+    const report = await runEventShadowBatch(db, discovery.selectedObservationIds, EVENT_SHADOW_RUNTIME_TRIGGER_TYPE);
+    // report.status === 'partial' or 'failed' is still an HTTP 200: the
+    // runtime operation itself succeeded and produced an auditable report —
+    // same established PR7 convention as POST /event-shadow above.
+    return jsonResponse({ ok: true, status: 'BATCH_EXECUTED', discovery, batch: report }, 200);
+  } catch (err) {
+    if (err instanceof EventShadowBusyError) {
+      return jsonResponse({ error: err.message, code: 'EVENT_SHADOW_ALREADY_RUNNING' }, 409);
+    }
+    if (err instanceof EventShadowBatchInvariantError) {
+      // UNLIKE POST /event-shadow, observationIds here are DISCOVERY-
+      // derived, never caller-supplied — there is no caller-input
+      // invariant-code bucket to map to HTTP 400 on this path. ANY
+      // EventShadowBatchInvariantError reaching this point (e.g. PR8 and
+      // PR6 disagreeing on the [1,25] bound after a future version change)
+      // is an unexpected internal/operational state, always HTTP 500.
       return jsonResponse({ error: 'Event-shadow batch failed.', code: err.code }, 500);
     }
     // Unexpected/runtime/network error — no stack trace, no secret. The
