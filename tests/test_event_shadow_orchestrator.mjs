@@ -545,6 +545,28 @@ async function expectThrow(fn, label) {
     'CASE 5e : timestamp sans timezone explicite rejeté');
 }
 {
+  // CASE 6 — ANNÉE ANCIENNE À 4 CHIFFRES (0000-0099) : la conversion
+  // calendrier->epoch ne doit JAMAIS remapper une année 4-chiffres comme
+  // "0099" vers 1999, contrairement à la règle historique JS de
+  // Date.UTC(year, ...) pour un argument year numérique 0..99 (Date.UTC(99,
+  // 0, 1) => 1999-01-01, alors que Date.parse('0099-01-01T00:00:00Z') =>
+  // 0099-01-01, correctement). Ce test échouerait sous ce bug précis.
+  const floor0099 = '0099-01-01T00:00:00.123455Z';
+  const assigned0099 = '0099-01-01T00:00:00.123456Z';
+  t('CASE 6a : assigned_at gagne à la microseconde près pour une année 4-chiffres ancienne (0099), aucun remap 1900-based',
+    deriveFinalKnowledgeCutoff(floor0099, assigned0099) === assigned0099);
+
+  // Comparaison contre un instant clairement postérieur/antérieur : sous le
+  // bug Date.UTC (remap vers 1999), floor0099/assigned0099 seraient traités
+  // comme survenant en 1999, donc APRÈS 0100, faisant gagner l'année ancienne
+  // à tort. Avec le fix, 0099 reste authentiquement antérieur à 0100.
+  const laterYear0100 = '0100-01-01T00:00:00.000000Z';
+  t('CASE 6b : une année 4-chiffres ancienne (0099) reste authentiquement antérieure à une année clairement postérieure (0100)',
+    deriveFinalKnowledgeCutoff(floor0099, laterYear0100) === laterYear0100);
+  t('CASE 6c : une année 4-chiffres ancienne (0099) reste authentiquement postérieure à une année clairement antérieure (0098)',
+    deriveFinalKnowledgeCutoff('0098-12-31T23:59:59.999999Z', assigned0099) === assigned0099);
+}
+{
   // Preuve d'intégration : le corps RPC RÉEL envoyé à
   // fn_event_create_event_version porte p_knowledge_cutoff à précision
   // microseconde EXACTE, jamais tronqué à la milliseconde — c'est

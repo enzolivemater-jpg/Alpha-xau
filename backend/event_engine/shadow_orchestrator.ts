@@ -596,11 +596,11 @@ function isValidNumericOffset(offset: string): boolean {
 
 /**
  * Parses a strict explicit-timezone ISO-8601 timestamp to whole MICROSECONDS
- * since the Unix epoch, as a BigInt — never through Date.parse()/toISOString()
- * for the final value, since a JS Date only carries millisecond resolution
- * and PostgreSQL timestamptz carries microsecond resolution. Fractional
- * digits beyond the 6th (microseconds) are truncated, never rounded: we
- * never invent precision the source did not supply.
+ * since the Unix epoch, as a BigInt — never through toISOString() for the
+ * final value, since a JS Date only carries millisecond resolution and
+ * PostgreSQL timestamptz carries microsecond resolution. Fractional digits
+ * beyond the 6th (microseconds) are truncated, never rounded: we never
+ * invent precision the source did not supply.
  */
 function parseStrictIsoTimestampToEpochMicros(value: string): bigint | null {
   const trimmed = value.trim();
@@ -618,28 +618,22 @@ function parseStrictIsoTimestampToEpochMicros(value: string): bigint | null {
   if (hour > 23 || minute > 59 || second > 59) return null;
   if (tz !== 'Z' && !isValidNumericOffset(tz)) return null;
 
-  // Whole-second UTC instant, treating the wall-clock fields as if they were
-  // already UTC (no fractional-ms args passed in, so this is an exact
-  // integer number of seconds — Date.UTC is used here only as a calendar/
-  // civil-time-to-epoch-seconds converter, never as the source of the final
-  // sub-second value).
-  const epochMsAsIfUtc = Date.UTC(year, month - 1, day, hour, minute, second);
-  const epochSecondsAsIfUtc = BigInt(epochMsAsIfUtc / 1000);
-
-  let offsetMinutes = 0;
-  if (tz !== 'Z') {
-    const om = /^([+-])(\d{2}):?(\d{2})$/.exec(tz)!;
-    const sign = om[1] === '-' ? -1 : 1;
-    offsetMinutes = sign * (Number(om[2]) * 60 + Number(om[3]));
-  }
-  // The wall-clock fields were expressed in the supplied offset, not UTC:
-  // true UTC instant = wall-clock-as-if-UTC minus the offset.
-  const epochSecondsUtc = epochSecondsAsIfUtc - BigInt(offsetMinutes) * 60n;
+  // Reconstruct the SAME instant at WHOLE-SECOND precision, preserving the
+  // original 4-digit year and exact supplied timezone, and let Date.parse()
+  // — never Date.UTC(), which silently remaps a 2-digit numeric year 0-99 to
+  // 1900-1999 even when it came from a 4-digit "0099" field — resolve the
+  // calendar/timezone-to-epoch conversion. Civil-date/time-of-day validity
+  // was already checked above, so Date.parse() here only performs the
+  // conversion, never decides validity. Because the reconstructed string has
+  // no fractional seconds, the resulting epoch milliseconds are always an
+  // exact multiple of 1000.
+  const epochMsWholeSecond = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}${tz}`);
+  if (!Number.isFinite(epochMsWholeSecond)) return null;
 
   const fracDigits = (frac ?? '').padEnd(6, '0').slice(0, 6);
   const fracMicros = BigInt(fracDigits);
 
-  return epochSecondsUtc * 1_000_000n + fracMicros;
+  return BigInt(epochMsWholeSecond / 1000) * 1_000_000n + fracMicros;
 }
 
 /**
