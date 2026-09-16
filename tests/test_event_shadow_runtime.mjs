@@ -1,11 +1,12 @@
-// Contrat BEHAVIORAL (pas seulement statique) du runtime Worker OPS-023 PR7
-// (backend/event_engine/shadow_runtime.ts). Comme pour les tests PR5/PR6,
-// ce fichier transpile le TypeScript source avec `typescript` (déjà présent
-// en devDependency, aucune nouvelle dépendance) et exécute les CINQ modules
-// réellement compilés — shadow_runtime.ts, shadow_batch.ts,
-// shadow_orchestrator.ts, deterministic_processor.ts, run_lock.ts — jamais
-// aucun n'est remplacé par une version factice. SEULE la frontière réseau
-// externe (`global fetch`) est simulée.
+// Contrat BEHAVIORAL (pas seulement statique) du runtime Worker OPS-023
+// PR7+PR9 (backend/event_engine/shadow_runtime.ts). Comme pour les tests
+// PR5/PR6/PR8, ce fichier transpile le TypeScript source avec `typescript`
+// (déjà présent en devDependency, aucune nouvelle dépendance) et exécute
+// les SIX modules réellement compilés — shadow_runtime.ts, shadow_batch.ts,
+// shadow_orchestrator.ts, deterministic_processor.ts, run_lock.ts,
+// shadow_candidate_discovery.ts (PR9) — jamais aucun n'est remplacé par une
+// version factice. SEULE la frontière réseau externe (`global fetch`) est
+// simulée.
 import { readFileSync, existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -19,6 +20,7 @@ const BATCH_PATH = path.join(__dirname, '..', 'backend', 'event_engine', 'shadow
 const ORCHESTRATOR_PATH = path.join(__dirname, '..', 'backend', 'event_engine', 'shadow_orchestrator.ts');
 const PROCESSOR_PATH = path.join(__dirname, '..', 'backend', 'event_engine', 'deterministic_processor.ts');
 const RUN_LOCK_PATH = path.join(__dirname, '..', 'backend', 'shared', 'run_lock.ts');
+const DISCOVERY_PATH = path.join(__dirname, '..', 'backend', 'event_engine', 'shadow_candidate_discovery.ts');
 const WORKER_PATH = path.join(__dirname, '..', 'backend', 'worker.ts');
 const WRANGLER_PATH = path.join(__dirname, '..', 'wrangler.toml');
 
@@ -32,11 +34,12 @@ const batchSource = existsSync(BATCH_PATH) ? readFileSync(BATCH_PATH, 'utf8') : 
 const orchestratorSource = existsSync(ORCHESTRATOR_PATH) ? readFileSync(ORCHESTRATOR_PATH, 'utf8') : '';
 const processorSource = existsSync(PROCESSOR_PATH) ? readFileSync(PROCESSOR_PATH, 'utf8') : '';
 const runLockSource = existsSync(RUN_LOCK_PATH) ? readFileSync(RUN_LOCK_PATH, 'utf8') : '';
+const discoverySource = existsSync(DISCOVERY_PATH) ? readFileSync(DISCOVERY_PATH, 'utf8') : '';
 const workerSource = existsSync(WORKER_PATH) ? readFileSync(WORKER_PATH, 'utf8') : '';
 const wranglerSource = existsSync(WRANGLER_PATH) ? readFileSync(WRANGLER_PATH, 'utf8') : '';
 
 // ---------------------------------------------------------------------
-// 0. Transpilation + chargement ESM réel des CINQ modules, avec la MÊME
+// 0. Transpilation + chargement ESM réel des SIX modules, avec la MÊME
 //    structure de répertoires relative que le dépôt (event_engine/ +
 //    shared/) pour que les spécificateurs d'import relatifs résolvent.
 // ---------------------------------------------------------------------
@@ -61,15 +64,15 @@ try {
     "$1./deterministic_processor.mjs$1",
   );
   const runLockTranspiled = transpile(runLockSource);
+  const discoveryTranspiled = transpile(discoverySource);
   let batchTranspiled = transpile(batchSource);
   batchTranspiled = batchTranspiled
     .replace(/(['"])\.\/shadow_orchestrator\.js\1/, "$1./shadow_orchestrator.mjs$1")
     .replace(/(['"])\.\.\/shared\/run_lock\.js\1/, "$1../shared/run_lock.mjs$1");
   let runtimeTranspiled = transpile(runtimeSource);
-  runtimeTranspiled = runtimeTranspiled.replace(
-    /(['"])\.\/shadow_batch\.js\1/,
-    "$1./shadow_batch.mjs$1",
-  );
+  runtimeTranspiled = runtimeTranspiled
+    .replace(/(['"])\.\/shadow_batch\.js\1/, "$1./shadow_batch.mjs$1")
+    .replace(/(['"])\.\/shadow_candidate_discovery\.js\1/, "$1./shadow_candidate_discovery.mjs$1");
 
   tmpDir = mkdtempSync(path.join(tmpdir(), 'ops023-shadow-runtime-'));
   const eventEngineDir = path.join(tmpDir, 'event_engine');
@@ -81,6 +84,7 @@ try {
   writeFileSync(path.join(eventEngineDir, 'shadow_orchestrator.mjs'), orchestratorTranspiled, 'utf8');
   writeFileSync(path.join(sharedDir, 'run_lock.mjs'), runLockTranspiled, 'utf8');
   writeFileSync(path.join(eventEngineDir, 'shadow_batch.mjs'), batchTranspiled, 'utf8');
+  writeFileSync(path.join(eventEngineDir, 'shadow_candidate_discovery.mjs'), discoveryTranspiled, 'utf8');
   const runtimeTmpFile = path.join(eventEngineDir, 'shadow_runtime.mjs');
   writeFileSync(runtimeTmpFile, runtimeTranspiled, 'utf8');
 
@@ -93,8 +97,9 @@ try {
   }
 }
 
-t('les cinq modules transpilent et se chargent sans erreur', mod !== null);
+t('les six modules transpilent et se chargent sans erreur', mod !== null);
 t('handleEventShadowRequest est exporté (fonction)', typeof mod?.handleEventShadowRequest === 'function');
+t('handleEventShadowDiscoverRequest est exporté (fonction, PR9)', typeof mod?.handleEventShadowDiscoverRequest === 'function');
 t('PostgrestEventShadowDb est exporté (classe)', typeof mod?.PostgrestEventShadowDb === 'function');
 t('buildPostgrestHeaders est exporté (fonction)', typeof mod?.buildPostgrestHeaders === 'function');
 t('validateSupabaseUrl est exporté (fonction)', typeof mod?.validateSupabaseUrl === 'function');
@@ -107,6 +112,7 @@ if (mod === null) {
 
 const {
   handleEventShadowRequest,
+  handleEventShadowDiscoverRequest,
   PostgrestEventShadowDb,
   buildPostgrestHeaders,
   validateSupabaseUrl,
@@ -163,11 +169,51 @@ function makeObservation(id, overrides = {}) {
   };
 }
 
+// ---------------------------------------------------------------------
+// PR9 discovery RPC row fixtures — the exact 8-key shape
+// fn_event_shadow_discover_candidates returns (mirrors
+// tests/test_event_shadow_candidate_discovery.mjs's fixtures).
+// ---------------------------------------------------------------------
+const DISCOVERY_EXPECTED_PROCESSOR_VERSION = 'ops023-deterministic-event-processor-v1';
+const DISCOVERY_EXPECTED_ORCHESTRATOR_VERSION = 'ops023-event-shadow-orchestrator-v1';
+
+function makeFreshDiscoveryRow(id, overrides = {}) {
+  return {
+    observation_id: id,
+    lane: 'FRESH',
+    ingested_at: '2026-09-01T18:05:03.000Z',
+    cluster_id: null,
+    decision_id: null,
+    assigned_at: null,
+    expected_processor_version: DISCOVERY_EXPECTED_PROCESSOR_VERSION,
+    expected_orchestrator_version: DISCOVERY_EXPECTED_ORCHESTRATOR_VERSION,
+    ...overrides,
+  };
+}
+
+function makeRecoveryDiscoveryRow(id, overrides = {}) {
+  return {
+    observation_id: id,
+    lane: 'RECOVERY',
+    ingested_at: '2026-09-01T18:05:03.000Z',
+    cluster_id: uid(`${id}:disc-cluster`),
+    decision_id: uid(`${id}:disc-decision`),
+    assigned_at: '2026-09-01T18:05:05.000Z',
+    expected_processor_version: DISCOVERY_EXPECTED_PROCESSOR_VERSION,
+    expected_orchestrator_version: DISCOVERY_EXPECTED_ORCHESTRATOR_VERSION,
+    ...overrides,
+  };
+}
+
 /**
  * Faux `global fetch` — la SEULE frontière simulée. Route par path
  * PostgREST (après REST_PREFIX), enregistre chaque appel (url, method,
  * headers, body parsé, path), renvoie de vrais objets `Response` (Fetch
  * API native de Node).
+ *
+ * `options.discovery = { recoveryRows, freshRows }` (PR9) alimente
+ * rpc/fn_event_shadow_discover_candidates ; par défaut, deux tableaux
+ * vides (zéro candidat découvert).
  */
 function makeFakeFetch(observations, options = {}) {
   const byId = new Map(observations.map((o) => [o.id, o]));
@@ -178,6 +224,8 @@ function makeFakeFetch(observations, options = {}) {
   let releaseCallCount = 0;
   const assignCallCounts = new Map();
   const eventVersionCallCounts = new Map();
+  const discoveryRecoveryRows = options.discovery?.recoveryRows ?? [];
+  const discoveryFreshRows = options.discovery?.freshRows ?? [];
 
   async function fakeFetch(url, init = {}) {
     const method = init.method ?? 'GET';
@@ -193,6 +241,15 @@ function makeFakeFetch(observations, options = {}) {
 
     if (options.networkFailureOnAcquire && method === 'POST' && restPath === 'ingestion_runs?select=id') {
       throw new Error('simulated network failure (fetch itself threw)');
+    }
+
+    if (restPath === 'rpc/fn_event_shadow_discover_candidates') {
+      if (options.discoveryRpcFailure) {
+        return new Response(JSON.stringify({ message: 'simulated discovery RPC failure' }), { status: 500 });
+      }
+      if (body?.p_lane === 'RECOVERY') return new Response(JSON.stringify(discoveryRecoveryRows), { status: 200 });
+      if (body?.p_lane === 'FRESH') return new Response(JSON.stringify(discoveryFreshRows), { status: 200 });
+      throw new Error(`fake fetch: unexpected p_lane for discovery RPC: ${JSON.stringify(body?.p_lane)}`);
     }
 
     if (restPath === 'rpc/fn_reclaim_stale_runs') {
@@ -275,6 +332,13 @@ function makeRequest({ method = 'POST', headers = {}, bodyText } = {}) {
   const init = { method, headers };
   if (bodyText !== undefined) init.body = bodyText;
   return new Request('https://worker.test/event-shadow', init);
+}
+
+/** PR9 — same shape as makeRequest(), targeting POST /event-shadow/discover. */
+function makeDiscoverRequest({ method = 'POST', headers = {}, bodyText, path = '/event-shadow/discover' } = {}) {
+  const init = { method, headers };
+  if (bodyText !== undefined) init.body = bodyText;
+  return new Request(`https://worker.test${path}`, init);
 }
 
 const AUTH_HEADERS = { 'x-ingest-token': INGEST_TOKEN, 'content-type': 'application/json' };
@@ -707,8 +771,8 @@ t('le contrat request<T> reste exactement \'GET\' | \'POST\' | \'PATCH\' (typage
 // ---------------------------------------------------------------------
 // 5. Intégration Worker — statique (backend/worker.ts, wrangler.toml).
 // ---------------------------------------------------------------------
-t('worker.ts importe handleEventShadowRequest depuis ./event_engine/shadow_runtime.js',
-  /import \{ handleEventShadowRequest \} from '\.\/event_engine\/shadow_runtime\.js';/.test(workerSource));
+t('worker.ts importe handleEventShadowRequest depuis ./event_engine/shadow_runtime.js (PR9 : aux côtés de handleEventShadowDiscoverRequest, même import)',
+  /import \{ handleEventShadowRequest, handleEventShadowDiscoverRequest \} from '\.\/event_engine\/shadow_runtime\.js';/.test(workerSource));
 t('la route exacte /event-shadow existe (comparaison stricte ===, jamais startsWith)',
   /if \(path === '\/event-shadow'\) return handleEventShadowRequest\(request, env\);/.test(workerSource));
 {
@@ -761,6 +825,334 @@ t('shadow_runtime.ts n\'appelle JAMAIS directement rpc/fn_event_create_event_ver
 t('shadow_runtime.ts n\'importe jamais backend/ingest.ts', !/backend\/ingest/.test(liveRuntimeSource));
 t('shadow_runtime.ts ne lit jamais process.env', !/process\.env/.test(liveRuntimeSource));
 t('shadow_runtime.ts ne référence jamais news_articles directement (aucune sélection RAW automatique — PR5 seul lit news_articles)', !liveRuntimeSource.includes('news_articles'));
+
+// =========================================================================
+// 7. OPS-023 PR9 — POST /event-shadow/discover (manual discovered batch).
+// =========================================================================
+
+// ---------------------------------------------------------------------
+// 7.1 AUTH / HTTP.
+// ---------------------------------------------------------------------
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: { 'content-type': 'application/json' }, bodyText: JSON.stringify({ maxCandidates: 5 }) }),
+    ENV,
+  ));
+  t('PR9 auth manquante => 401', res.status === 401);
+  t('PR9 auth manquante => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: { 'x-ingest-token': 'wrong-token', 'content-type': 'application/json' }, bodyText: JSON.stringify({ maxCandidates: 5 }) }),
+    ENV,
+  ));
+  t('PR9 auth incorrecte => 401', res.status === 401);
+  t('PR9 auth incorrecte => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ method: 'GET', headers: AUTH_HEADERS }), ENV));
+  t('PR9 GET => 405', res.status === 405);
+  t('PR9 GET => en-tête Allow: POST', res.headers.get('allow') === 'POST');
+  t('PR9 GET => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: '{not valid json' }), ENV));
+  t('PR9 JSON malformé => 400', res.status === 400);
+  t('PR9 JSON malformé => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify([1, 2, 3]) }), ENV));
+  t('PR9 corps non-objet (tableau) => 400', res.status === 400);
+  t('PR9 corps tableau => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify('just a string') }), ENV));
+  t('PR9 corps non-objet (chaîne) => 400', res.status === 400);
+  t('PR9 corps chaîne => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({}) }), ENV));
+  t('PR9 maxCandidates manquant => 400', res.status === 400);
+  const json = await res.json();
+  t('PR9 maxCandidates manquant => code MISSING_MAX_CANDIDATES', json.code === 'MISSING_MAX_CANDIDATES');
+  t('PR9 maxCandidates manquant => ZÉRO appel DB', calls.length === 0);
+}
+for (const [label, extraField] of [
+  ['observationIds', { observationIds: ['x'] }],
+  ['lane', { lane: 'FRESH' }],
+  ['triggerType', { triggerType: 'cron' }],
+  ['processorVersion', { processorVersion: 'ops023-deterministic-event-processor-v1' }],
+  ['orchestratorVersion', { orchestratorVersion: 'ops023-event-shadow-orchestrator-v1' }],
+  ['clusterId', { clusterId: 'x' }],
+  ['decisionId', { decisionId: 'x' }],
+  ['backfill', { backfill: true }],
+  ['cursor', { cursor: 'x' }],
+  ['timestamp', { timestamp: '2026-09-01T00:00:00.000Z' }],
+  ['dryRun', { dryRun: true }],
+  ['dbParameter', { apikey: 'evil-injected-key' }],
+]) {
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 5, ...extraField }) }), ENV,
+  ));
+  t(`PR9 champ inattendu "${label}" (jamais accepté) => 400`, res.status === 400);
+  const json = await res.json();
+  t(`PR9 champ inattendu "${label}" => code UNEXPECTED_FIELD`, json.code === 'UNEXPECTED_FIELD');
+  t(`PR9 champ inattendu "${label}" => ZÉRO appel DB`, calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 0 }) }), ENV));
+  t('PR9 maxCandidates=0 => 400', res.status === 400);
+  const json = await res.json();
+  t('PR9 maxCandidates=0 => code INVALID_MAX_CANDIDATES', json.code === 'INVALID_MAX_CANDIDATES');
+  t('PR9 maxCandidates=0 => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 26 }) }), ENV));
+  t('PR9 maxCandidates=26 => 400', res.status === 400);
+  const json = await res.json();
+  t('PR9 maxCandidates=26 => code INVALID_MAX_CANDIDATES', json.code === 'INVALID_MAX_CANDIDATES');
+  t('PR9 maxCandidates=26 => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch, calls } = makeFakeFetch([]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 5.5 }) }), ENV));
+  t('PR9 maxCandidates flottant (non entier) => 400', res.status === 400);
+  const json = await res.json();
+  t('PR9 maxCandidates flottant => code INVALID_MAX_CANDIDATES', json.code === 'INVALID_MAX_CANDIDATES');
+  t('PR9 maxCandidates flottant => ZÉRO appel DB', calls.length === 0);
+}
+{
+  const { fakeFetch } = makeFakeFetch([], { discovery: { recoveryRows: [], freshRows: [] } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 1 }) }), ENV));
+  t('PR9 maxCandidates=1 (borne basse) accepté => 200', res.status === 200);
+}
+{
+  const { fakeFetch } = makeFakeFetch([], { discovery: { recoveryRows: [], freshRows: [] } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV));
+  t('PR9 maxCandidates=25 (borne haute) accepté => 200', res.status === 200);
+}
+
+// ---------------------------------------------------------------------
+// 7.2 DISCOVERY — exactement UNE invocation, maxCandidates forwarded,
+//     résultat préservé dans la réponse.
+// ---------------------------------------------------------------------
+{
+  const { fakeFetch, calls } = makeFakeFetch([], { discovery: { recoveryRows: [], freshRows: [] } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 7 }) }), ENV,
+  ));
+  const discoveryCalls = calls.filter((c) => c.path === 'rpc/fn_event_shadow_discover_candidates');
+  t('PR9 exactement 2 appels RPC de découverte (RECOVERY puis FRESH) => discoverEventShadowCandidates invoquée exactement une fois', discoveryCalls.length === 2);
+  t('PR9 le premier appel de découverte est RECOVERY', discoveryCalls[0].body.p_lane === 'RECOVERY');
+  t('PR9 le second appel de découverte est FRESH', discoveryCalls[1].body.p_lane === 'FRESH');
+  t('PR9 maxCandidates EXACT transmis comme p_limit sur les deux appels', discoveryCalls[0].body.p_limit === 7 && discoveryCalls[1].body.p_limit === 7);
+  t('PR9 200 pour une découverte vide', res.status === 200);
+  const json = await res.json();
+  t('PR9 résultat de découverte préservé dans la réponse (maxCandidates/selected)', json.discovery.maxCandidates === 7 && Array.isArray(json.discovery.selected) && json.discovery.selected.length === 0);
+}
+
+// ---------------------------------------------------------------------
+// 7.3 EMPTY — sélection vide : 200, NO_CANDIDATES, batch=null, zéro
+//     appel de verrou/batch.
+// ---------------------------------------------------------------------
+{
+  const { fakeFetch, calls } = makeFakeFetch([], { discovery: { recoveryRows: [], freshRows: [] } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV,
+  ));
+  t('PR9 sélection vide => HTTP 200', res.status === 200);
+  const json = await res.json();
+  t('PR9 sélection vide => ok true', json.ok === true);
+  t('PR9 sélection vide => status NO_CANDIDATES explicite', json.status === 'NO_CANDIDATES');
+  t('PR9 sélection vide => batch = null (aucune métrique fabriquée)', json.batch === null);
+  const lockCalls = calls.filter((c) => c.path === 'ingestion_runs?select=id' || c.path.startsWith('ingestion_runs?id=eq.'));
+  t('PR9 sélection vide => runEventShadowBatch JAMAIS appelé (zéro appel de verrou ingestion_runs)', lockCalls.length === 0);
+  t('PR9 sélection vide => aucun appel rpc/fn_event_assign_observation', calls.every((c) => c.path !== 'rpc/fn_event_assign_observation'));
+}
+
+// ---------------------------------------------------------------------
+// 7.4 NON-EMPTY — ordre exact préservé, batch appelé une fois, combiné.
+// ---------------------------------------------------------------------
+{
+  const idA = uid('discover-nonempty-a');
+  const idB = uid('discover-nonempty-b');
+  const obsA = makeObservation(idA);
+  const obsB = makeObservation(idB);
+  const freshRows = [
+    makeFreshDiscoveryRow(idA, { ingested_at: '2026-09-01T18:00:00.000Z' }),
+    makeFreshDiscoveryRow(idB, { ingested_at: '2026-09-01T18:01:00.000Z' }),
+  ];
+  const { fakeFetch, calls } = makeFakeFetch([obsA, obsB], { discovery: { recoveryRows: [], freshRows } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV,
+  ));
+  t('PR9 sélection non-vide => HTTP 200', res.status === 200);
+  const json = await res.json();
+  t('PR9 sélection non-vide => status BATCH_EXECUTED', json.status === 'BATCH_EXECUTED');
+  t('PR9 discovery.selectedObservationIds transmis EXACTEMENT dans l\'ordre de découverte', json.discovery.selectedObservationIds.join(',') === [idA, idB].join(','));
+  const acquireCalls = calls.filter((c) => c.method === 'POST' && c.path === 'ingestion_runs?select=id');
+  t('PR9 runEventShadowBatch appelé EXACTEMENT une fois (un seul acquireLock)', acquireCalls.length === 1);
+  t('PR9 trigger_type inséré = littéral "manual"', acquireCalls[0].body[0].trigger_type === 'manual');
+  t('PR9 réponse combinée : discovery ET batch présents', typeof json.discovery === 'object' && typeof json.batch === 'object' && json.batch !== null);
+  t('PR9 report.status = success pour un batch entièrement réussi', json.batch.status === 'success');
+  const assignCalls = calls.filter((c) => c.path === 'rpc/fn_event_assign_observation');
+  t('PR9 observations traitées dans l\'ordre EXACT de découverte (idA puis idB, jamais réordonné)', assignCalls.map((c) => c.body.p_observation_id).join(',') === [idA, idB].join(','));
+}
+
+// ---------------------------------------------------------------------
+// 7.5 BUSY.
+// ---------------------------------------------------------------------
+{
+  const id = uid('discover-busy');
+  const obs = makeObservation(id);
+  const freshRows = [makeFreshDiscoveryRow(id)];
+  const { fakeFetch } = makeFakeFetch([obs], { discovery: { recoveryRows: [], freshRows }, forceAlreadyRunning: true });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV,
+  ));
+  t('PR9 verrou déjà pris (après découverte non-vide) => 409', res.status === 409);
+  const json = await res.json();
+  t('PR9 code EVENT_SHADOW_ALREADY_RUNNING propagé', json.code === 'EVENT_SHADOW_ALREADY_RUNNING');
+}
+
+// ---------------------------------------------------------------------
+// 7.6 REPORT SEMANTICS — partial/failed restent HTTP 200 (convention PR7).
+// ---------------------------------------------------------------------
+{
+  const idFail = uid('discover-partial-fail');
+  const idOk = uid('discover-partial-ok');
+  const obsFail = makeObservation(idFail, { assignBehavior: () => new Response(JSON.stringify([{ cluster_id: 'bad', decision_id: 'bad', cluster_created_now: true, replayed: false }]), { status: 200 }) });
+  const obsOk = makeObservation(idOk);
+  const freshRows = [makeFreshDiscoveryRow(idFail), makeFreshDiscoveryRow(idOk)];
+  const { fakeFetch } = makeFakeFetch([obsFail, obsOk], { discovery: { recoveryRows: [], freshRows } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV,
+  ));
+  t('PR9 rapport PARTIAL => TOUJOURS HTTP 200', res.status === 200);
+  const json = await res.json();
+  t('PR9 batch.status = partial reflété fidèlement', json.batch.status === 'partial');
+}
+{
+  const idFail1 = uid('discover-allfail-1');
+  const idFail2 = uid('discover-allfail-2');
+  const malformed = () => new Response(JSON.stringify([{ cluster_id: 'bad', decision_id: 'bad', cluster_created_now: true, replayed: false }]), { status: 200 });
+  const obsFail1 = makeObservation(idFail1, { assignBehavior: malformed });
+  const obsFail2 = makeObservation(idFail2, { assignBehavior: malformed });
+  const freshRows = [makeFreshDiscoveryRow(idFail1), makeFreshDiscoveryRow(idFail2)];
+  const { fakeFetch } = makeFakeFetch([obsFail1, obsFail2], { discovery: { recoveryRows: [], freshRows } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV,
+  ));
+  t('PR9 rapport FAILED => TOUJOURS HTTP 200', res.status === 200);
+  const json = await res.json();
+  t('PR9 batch.status = failed reflété fidèlement', json.batch.status === 'failed');
+}
+
+// ---------------------------------------------------------------------
+// 7.7 FAIL-CLOSED.
+// ---------------------------------------------------------------------
+{
+  // Invariant PR8 (ligne RPC de découverte malformée) => 500, jamais 400 :
+  // maxCandidates était déjà validé côté enveloppe, donc cette erreur ne
+  // peut PAS provenir d'une entrée appelant.
+  const id = uid('discover-invariant');
+  const freshRows = [{ ...makeFreshDiscoveryRow(id), extra_unexpected_field: 'x' }];
+  const { fakeFetch, calls } = makeFakeFetch([], { discovery: { recoveryRows: [], freshRows } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV,
+  ));
+  t('PR9 ligne RPC de découverte malformée (invariant PR8) => 500', res.status === 500);
+  const json = await res.json();
+  t('PR9 code UNEXPECTED_ROW_SHAPE propagé (validation reste la responsabilité de la couche découverte, jamais réimplémentée ici)', json.code === 'UNEXPECTED_ROW_SHAPE');
+  const lockCalls = calls.filter((c) => c.path === 'ingestion_runs?select=id');
+  t('PR9 invariant de découverte => runEventShadowBatch JAMAIS appelé', lockCalls.length === 0);
+}
+{
+  // Échec réseau/PostgREST brut sur l'appel RPC de découverte lui-même.
+  const { fakeFetch } = makeFakeFetch([], { discoveryRpcFailure: true });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV,
+  ));
+  t('PR9 échec RPC de découverte brut (réseau/PostgREST) => 500', res.status === 500);
+  const bodyText = await res.text();
+  t('PR9 aucun corps de réponse amont brut exposé dans la réponse finale', !bodyText.includes('simulated discovery RPC failure'));
+}
+{
+  // Aucune fuite de secret sur un run complet non-vide.
+  const id = uid('discover-no-leak');
+  const obs = makeObservation(id);
+  const freshRows = [makeFreshDiscoveryRow(id)];
+  const { fakeFetch } = makeFakeFetch([obs], { discovery: { recoveryRows: [], freshRows } });
+  const res = await withFakeFetch(fakeFetch, () => handleEventShadowDiscoverRequest(
+    makeDiscoverRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ maxCandidates: 25 }) }), ENV,
+  ));
+  const text = await res.text();
+  t('PR9 aucune fuite : ni le service-role key ni INGEST_TOKEN dans la réponse HTTP finale', !text.includes(SERVICE_ROLE_KEY) && !text.includes(INGEST_TOKEN));
+}
+{
+  t('PR9 shadow_runtime.ts ne réimplémente pas la validation des lignes RPC de découverte (aucune duplication de EXPECTED_ROW_KEYS/validateRow, propriété exclusive de PR8)',
+    !liveRuntimeSource.includes('EXPECTED_ROW_KEYS') && !liveRuntimeSource.includes('function validateRow'));
+}
+
+// ---------------------------------------------------------------------
+// 7.8 ROUTING — statique (backend/worker.ts). L'import combiné est déjà
+// vérifié en section 5 ci-dessus.
+// ---------------------------------------------------------------------
+t('PR9 la route exacte /event-shadow/discover existe (comparaison stricte ===, jamais startsWith)',
+  /if \(path === '\/event-shadow\/discover'\) return handleEventShadowDiscoverRequest\(request, env\);/.test(workerSource));
+t('PR9 la route exacte /event-shadow (PR7) reste INCHANGÉE',
+  /if \(path === '\/event-shadow'\) return handleEventShadowRequest\(request, env\);/.test(workerSource));
+{
+  const discoverIdx = workerSource.indexOf("path === '/event-shadow/discover'");
+  const explicitIdx = workerSource.indexOf("path === '/event-shadow'");
+  t('PR9 la route /event-shadow/discover est vérifiée AVANT la route /event-shadow explicite (ordre recommandé)',
+    discoverIdx > -1 && explicitIdx > -1 && discoverIdx < explicitIdx);
+}
+{
+  const codeOnlyWorkerSource = workerSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  t('PR9 aucune route large startsWith(\'/event-shadow/discover\') dans le code exécutable', !codeOnlyWorkerSource.includes("startsWith('/event-shadow/discover')"));
+  t('PR9 aucun startsWith(\'/event-shadow\') général dans le code exécutable (les deux routes restent === strictes)', !codeOnlyWorkerSource.includes("startsWith('/event-shadow')"));
+}
+
+// ---------------------------------------------------------------------
+// 7.9 ISOLATION — aucun cron/scheduled/JobName/resolveJob/wrangler.
+// ---------------------------------------------------------------------
+t('PR9 aucune référence à CRON_EVENT_SHADOW (worker.ts)', !workerSource.includes('CRON_EVENT_SHADOW'));
+{
+  const jobNameLine = workerSource.split('\n').find((l) => l.includes('export type JobName'));
+  t('PR9 : le type JobName n\'inclut toujours jamais event_shadow', jobNameLine != null && !/event[_-]shadow/i.test(jobNameLine));
+}
+{
+  const resolveJobStart = workerSource.indexOf('export function resolveJob');
+  const fetchStart = workerSource.indexOf('async fetch(request');
+  const resolveJobSection = workerSource.slice(resolveJobStart, fetchStart);
+  t('PR9 : resolveJob() ne référence toujours jamais event_shadow (même après l\'ajout de la route /discover)', !/event[_-]shadow/i.test(resolveJobSection));
+}
+{
+  const scheduledStart = workerSource.indexOf('async scheduled(');
+  const scheduledSection = workerSource.slice(scheduledStart);
+  t('PR9 : scheduled() ne lance/ne référence toujours jamais event-shadow (ni discover)',
+    !/event[_-]shadow/i.test(scheduledSection) && !scheduledSection.includes('handleEventShadowDiscoverRequest'));
+}
+t('PR9 : wrangler.toml crons toujours inchangés (exactement les trois expressions d\'origine, aucune quatrième)',
+  wranglerSource.includes('crons = ["*/5 * * * *", "7-59/15 * * * *", "0 * * * *"]'));
+t('PR9 : wrangler.toml toujours aucune référence à event_shadow/event-shadow', !/event[_-]shadow/i.test(wranglerSource));
+t('PR9 shadow_runtime.ts importe discoverEventShadowCandidates depuis ./shadow_candidate_discovery.js (jamais réimplémenté)',
+  /from '\.\/shadow_candidate_discovery\.js'/.test(liveRuntimeSource));
+t('PR9 shadow_runtime.ts ne crée pas une seconde classe d\'adaptateur PostgREST (une seule export class Postgrest...)',
+  (liveRuntimeSource.match(/export class Postgrest\w*/g) || []).length === 1);
+t('PR9 shadow_runtime.ts ne référence jamais un curseur/watermark (aucun "last_processed"/"cursor"/"watermark")',
+  !/last_processed|cursor|watermark/i.test(liveRuntimeSource));
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f ? 1 : 0);

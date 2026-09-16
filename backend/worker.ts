@@ -64,7 +64,7 @@ import {
   type Env as CommitteeEnv,
   type RecalcScope,
 } from './ai_engine/committee_orchestrator.js';
-import { handleEventShadowRequest } from './event_engine/shadow_runtime.js';
+import { handleEventShadowRequest, handleEventShadowDiscoverRequest } from './event_engine/shadow_runtime.js';
 
 /**
  * Environnement consolidé du Worker. Toutes les valeurs proviennent des
@@ -163,10 +163,19 @@ export default {
     if (path.startsWith('/committee')) return handleCommitteeRequest(request, env);
     if (path.startsWith('/news')) return handleNewsRequest(request, env);
     // Exact match only — deliberately NOT startsWith('/event-shadow'), and
-    // deliberately NOT wired into scheduled()/resolveJob()/JobName below:
-    // OPS-023 PR7 is a controlled MANUAL endpoint only. Automatic candidate
-    // discovery + cron wiring belong to a later PR, after this endpoint is
-    // proven against live Supabase with controlled observation IDs.
+    // deliberately NOT wired into scheduled()/resolveJob()/JobName below.
+    // OPS-023 PR9 adds a SECOND controlled MANUAL endpoint that composes
+    // the merged PR8 discovery with the merged PR6 batch runner — checked
+    // BEFORE the explicit-ID route below so the longer exact path is never
+    // shadowed, though both are strict === comparisons against mutually
+    // exclusive literal strings, so match order does not itself change
+    // behavior. Still purely manual: an operator must issue this request;
+    // automatic background draining of the discovered backlog remains out
+    // of scope for a later, independently reviewed PR.
+    if (path === '/event-shadow/discover') return handleEventShadowDiscoverRequest(request, env);
+    // OPS-023 PR7 explicit-ID endpoint — unchanged, fully backward
+    // compatible. Automatic candidate discovery is PR8 (above); cron
+    // wiring remains explicitly out of scope for both endpoints.
     if (path === '/event-shadow') return handleEventShadowRequest(request, env);
 
     if (path.startsWith('/health')) {
