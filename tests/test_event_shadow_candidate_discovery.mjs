@@ -162,15 +162,45 @@ if (fnSrc !== null) {
 
   // ---------------------------------------------------------------------
   // A8. Mapping de catégorie EXACT par autorité (parité resolveEventType()).
+  //
+  // btrim() DOIT être appelé à DEUX arguments avec v_js_trim_chars —
+  // btrim(text) à UN argument ne trime que l'espace ASCII U+0020, jamais
+  // les autres WhiteSpace/LineTerminator ECMAScript que
+  // `providerCategory.trim()` retire côté PR4 (deterministic_processor.ts).
+  // Voir DECLARE v_js_trim_chars en tête de fonction.
   // ---------------------------------------------------------------------
-  t('FED : monetary_policy_press_release OU speech',
-    /n\.source_code = 'federalreserve' AND btrim\(n\.provider_category\) IN \('monetary_policy_press_release', 'speech'\)/.test(fnSrc));
-  t('ECB : press_communication OU statistical_press_release',
-    /n\.source_code = 'ecb' AND btrim\(n\.provider_category\) IN \('press_communication', 'statistical_press_release'\)/.test(fnSrc));
-  t('TREASURY : press_release uniquement',
-    /n\.source_code = 'us_treasury' AND btrim\(n\.provider_category\) = 'press_release'/.test(fnSrc));
-  t('OFAC : toute catégorie non-null et non-vide',
-    /n\.source_code = 'ofac' AND n\.provider_category IS NOT NULL AND length\(btrim\(n\.provider_category\)\) > 0/.test(fnSrc));
+  t('FED : monetary_policy_press_release OU speech (btrim à 2 arguments, v_js_trim_chars)',
+    /n\.source_code = 'federalreserve' AND btrim\(n\.provider_category, v_js_trim_chars\) IN \('monetary_policy_press_release', 'speech'\)/.test(fnSrc));
+  t('ECB : press_communication OU statistical_press_release (btrim à 2 arguments, v_js_trim_chars)',
+    /n\.source_code = 'ecb' AND btrim\(n\.provider_category, v_js_trim_chars\) IN \('press_communication', 'statistical_press_release'\)/.test(fnSrc));
+  t('TREASURY : press_release uniquement (btrim à 2 arguments, v_js_trim_chars)',
+    /n\.source_code = 'us_treasury' AND btrim\(n\.provider_category, v_js_trim_chars\) = 'press_release'/.test(fnSrc));
+  t('OFAC : toute catégorie non-null et non-vide (btrim à 2 arguments, v_js_trim_chars)',
+    /n\.source_code = 'ofac' AND n\.provider_category IS NOT NULL AND length\(btrim\(n\.provider_category, v_js_trim_chars\)\) > 0/.test(fnSrc));
+  t('v_js_trim_chars utilisé exactement 8 fois dans les prédicats de catégorie (4 par voie : FED/ECB/TREASURY/OFAC × FRESH/RECOVERY)',
+    (fnSrc.match(/btrim\(n\.provider_category, v_js_trim_chars\)/g) || []).length === 8);
+  t('aucun résidu de btrim(provider_category) à UN seul argument (espace ASCII uniquement — non équivalent à PR4 trim())',
+    !/btrim\(n\.provider_category\)/.test(fnSrc));
+  // Déclaration de v_js_trim_chars : CONSTANT TEXT, échappement Unicode
+  // U&'...', couvrant EXACTEMENT le jeu ECMAScript WhiteSpace +
+  // LineTerminator listé dans la revue indépendante — jamais la locale du
+  // serveur comme autorité sémantique.
+  t('v_js_trim_chars déclaré CONSTANT TEXT via U&\'...\' (échappement Unicode déterministe, pas de dépendance locale)',
+    /v_js_trim_chars\s+CONSTANT\s+TEXT\s*:=\s*\n?\s*U&'/.test(fnSrc));
+  const JS_TRIM_CODEPOINTS = [
+    '0009', '000B', '000C', 'FEFF', // WhiteSpace hors espace
+    '0020', '00A0', '1680', '2000', '2001', '2002', '2003', '2004', '2005',
+    '2006', '2007', '2008', '2009', '200A', '202F', '205F', '3000', // Space_Separator
+    '000A', '000D', '2028', '2029', // LineTerminator
+  ];
+  const trimDeclMatch = /v_js_trim_chars\s+CONSTANT\s+TEXT\s*:=\s*\n?\s*U&'([^']*)'/.exec(fnSrc);
+  const trimDeclValue = trimDeclMatch ? trimDeclMatch[1] : '';
+  t('v_js_trim_chars extrait pour analyse', trimDeclMatch !== null);
+  for (const cp of JS_TRIM_CODEPOINTS) {
+    t(`v_js_trim_chars contient \\${cp}`, trimDeclValue.includes(`\\${cp}`));
+  }
+  t(`v_js_trim_chars contient EXACTEMENT les ${JS_TRIM_CODEPOINTS.length} points de code attendus, aucun de plus`,
+    (trimDeclValue.match(/\\[0-9A-Fa-f]{4}/g) || []).length === JS_TRIM_CODEPOINTS.length);
 
   // ---------------------------------------------------------------------
   // A9. Porte qualité PR4 V1 EXACTE (parité passesQualityGate()).
@@ -179,6 +209,20 @@ if (fnSrc !== null) {
     /n\.ingest_quality_state = 'VALID' AND cardinality\(n\.ingest_quality_reasons\) = 0/.test(fnSrc));
   t('DEGRADED exige cardinality(ingest_quality_reasons) > 0',
     /n\.ingest_quality_state = 'DEGRADED'\s*\n\s*AND cardinality\(n\.ingest_quality_reasons\) > 0/.test(fnSrc));
+  // array_ndims(...) = 1 : news_articles.ingest_quality_reasons est TEXT[]
+  // NOT NULL DEFAULT '{}' sans contrainte de dimension — PostgreSQL
+  // autorise un tableau multidimensionnel. unnest() flatte tout tableau
+  // multidimensionnel, alors que PR4 (reasons.every(reason =>
+  // DEGRADED_REASON_ALLOWLIST.has(reason))) itère le tableau JS TEL QUEL ;
+  // un élément multidimensionnel arriverait côté PR4 comme un Array JS
+  // imbriqué (représentation PostgREST d'un tableau Postgres 2D+), que
+  // Set.has() rejette toujours. Sans cette garde, unnest() accepterait à
+  // tort [['publication_timestamp_parse_failed']].
+  const ARRAY_NDIMS_RE = /AND cardinality\(n\.ingest_quality_reasons\) > 0\s*\n\s*AND array_ndims\(n\.ingest_quality_reasons\) = 1\s*\n\s*AND NOT EXISTS \(/g;
+  t('DEGRADED exige array_ndims(ingest_quality_reasons) = 1, juste après cardinality > 0 et avant le NOT EXISTS',
+    new RegExp(ARRAY_NDIMS_RE.source).test(fnSrc));
+  t('array_ndims(...) = 1 apparaît EXACTEMENT 2 fois (une fois par voie FRESH/RECOVERY)',
+    (fnSrc.match(ARRAY_NDIMS_RE) || []).length === 2);
   // Prédicat fail-closed EXACT : NULL OU not-in-allowlist est invalide.
   // Un élément NULL de ingest_quality_reasons ne doit JAMAIS être traité
   // comme implicitement autorisé — `NULL NOT IN (...)` s'évalue à NULL en
@@ -225,6 +269,13 @@ if (fnSrc !== null) {
   // live PostgreSQL (hors périmètre, voir en-tête PARTIE A) — c'est une
   // reformulation exécutable du même prédicat, pour verrouiller l'intention.
   // ---------------------------------------------------------------------
+  // Réplique fidèle de PR4 passesQualityGate() DEGRADED branch :
+  // `reasons.every((reason) => DEGRADED_REASON_ALLOWLIST.has(reason))`.
+  // Set.has() compare par identité/valeur stricte — un élément Array (la
+  // forme JS d'un élément de tableau Postgres multidimensionnel via
+  // PostgREST) n'est JAMAIS une des 3 chaînes autorisées, donc
+  // `.includes(reason)` ci-dessous le rejette naturellement, sans code
+  // spécial — exactement comme Set.has() côté PR4 réel.
   function degradedReasonsAreEligible(reasons) {
     if (!Array.isArray(reasons) || reasons.length === 0) return false; // cardinality > 0
     return reasons.every((reason) => reason !== null && ALLOWED_DEGRADED_REASONS.includes(reason));
@@ -235,12 +286,48 @@ if (fnSrc !== null) {
     { name: 'DEGRADED + [publication_timestamp_parse_failed, NULL] : NULL mélangé à une raison valide', reasons: ['publication_timestamp_parse_failed', null], expectedEligible: false },
     { name: 'DEGRADED + [\'unknown_reason\'] : chaîne hors allowlist', reasons: ['unknown_reason'], expectedEligible: false },
     { name: 'DEGRADED + [] : tableau vide (cardinality > 0 échoue)', reasons: [], expectedEligible: false },
+    { name: 'DEGRADED + [[allowed_reason]] : tableau multidimensionnel (élément Array, jamais une chaîne — Set.has() rejette toujours)', reasons: [['publication_timestamp_parse_failed']], expectedEligible: false },
     { name: 'DEGRADED + [publication_timestamp_parse_failed] : raison unique autorisée', reasons: ['publication_timestamp_parse_failed'], expectedEligible: true },
     { name: 'DEGRADED + les 3 raisons autorisées', reasons: [...ALLOWED_DEGRADED_REASONS], expectedEligible: true },
   ];
   for (const fixture of DEGRADED_FIXTURES) {
     t(`fixture régression — ${fixture.name} => eligible=${fixture.expectedEligible}`,
       degradedReasonsAreEligible(fixture.reasons) === fixture.expectedEligible);
+  }
+
+  // ---------------------------------------------------------------------
+  // A8bis. Fixture de régression documentée — sémantique EXACTE
+  // ECMAScript String.prototype.trim() pour provider_category.
+  //
+  // Utilise le VRAI `.trim()` du moteur JS exécutant ce test (Node.js),
+  // pas une réimplémentation — c'est la définition la plus fidèle possible
+  // de ce que PR4 fait réellement (providerCategory.trim()), sans
+  // dépendance base de données ni locale serveur PostgreSQL.
+  // ---------------------------------------------------------------------
+  function categoryEligible(sourceCode, providerCategory) {
+    if (providerCategory === null) return false;
+    const trimmed = providerCategory.trim();
+    switch (sourceCode) {
+      case 'federalreserve': return trimmed === 'monetary_policy_press_release' || trimmed === 'speech';
+      case 'ecb': return trimmed === 'press_communication' || trimmed === 'statistical_press_release';
+      case 'us_treasury': return trimmed === 'press_release';
+      case 'ofac': return trimmed.length > 0;
+      default: return false;
+    }
+  }
+
+  const CATEGORY_FIXTURES = [
+    { name: 'FED "\\tspeech\\t" (tabulations) => eligible', sourceCode: 'federalreserve', category: '\tspeech\t', expectedEligible: true },
+    { name: 'TREASURY "\\npress_release\\r" (LF/CR) => eligible', sourceCode: 'us_treasury', category: '\npress_release\r', expectedEligible: true },
+    { name: 'ECB categorie entouree de NBSP (U+00A0, \\u00A0) => eligible', sourceCode: 'ecb', category: '\u00A0press_communication\u00A0', expectedEligible: true },
+    { name: 'FED categorie entouree de U+FEFF ZERO WIDTH NO-BREAK SPACE (\\uFEFF) => eligible', sourceCode: 'federalreserve', category: '\uFEFFmonetary_policy_press_release\uFEFF', expectedEligible: true },
+    { name: 'OFAC "\\t\\n" (whitespace pur) => ineligible (trim => chaine vide)', sourceCode: 'ofac', category: '\t\n', expectedEligible: false },
+    { name: 'OFAC uniquement des Space_Separator Unicode (U+2003 EM SPACE \\u2003, U+2007 FIGURE SPACE \\u2007) => ineligible', sourceCode: 'ofac', category: '\u2003\u2007', expectedEligible: false },
+    { name: 'OFAC categorie dynamique ordinaire non-vide => eligible', sourceCode: 'ofac', category: 'sanctions_update', expectedEligible: true },
+  ];
+  for (const fixture of CATEGORY_FIXTURES) {
+    t(`fixture régression trim — ${fixture.name}`,
+      categoryEligible(fixture.sourceCode, fixture.category) === fixture.expectedEligible);
   }
 
   // ---------------------------------------------------------------------

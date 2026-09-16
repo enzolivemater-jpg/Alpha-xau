@@ -134,6 +134,18 @@ STABLE
 SECURITY INVOKER
 SET search_path = ''
 AS $$
+DECLARE
+  -- Ensemble de caractères EXACTEMENT équivalent à ECMAScript
+  -- String.prototype.trim() (WhiteSpace + LineTerminator), jamais la
+  -- locale du serveur PostgreSQL ni le simple espace ASCII de btrim()
+  -- à un argument. btrim(text, v_js_trim_chars) doit produire EXACTEMENT
+  -- le même résultat que `providerCategory.trim()` côté PR4
+  -- (backend/event_engine/deterministic_processor.ts). Voir §4/§5 de la
+  -- revue indépendante : \0009 \000B \000C \FEFF (WhiteSpace hors espace),
+  -- \0020 \00A0 \1680 \2000-\200A \202F \205F \3000 (Space_Separator
+  -- Unicode), \000A \000D \2028 \2029 (LineTerminator).
+  v_js_trim_chars CONSTANT TEXT :=
+    U&'\0009\000B\000C\FEFF\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\202F\205F\3000\000A\000D\2028\2029';
 BEGIN
   IF p_lane IS NULL OR p_lane NOT IN ('FRESH', 'RECOVERY') THEN
     RAISE EXCEPTION
@@ -167,21 +179,31 @@ BEGIN
         OR (n.provider = 'us_treasury' AND n.source_code = 'us_treasury' AND n.source_domain = 'home.treasury.gov')
         OR (n.provider = 'ofac' AND n.source_code = 'ofac' AND n.source_domain = 'ofac.treasury.gov')
       )
-      -- Mapping de catégorie EXACT par autorité (resolveEventType()).
+      -- Mapping de catégorie EXACT par autorité (resolveEventType()) :
+      -- btrim() à DEUX arguments avec v_js_trim_chars, jamais btrim() à un
+      -- seul argument (espace ASCII uniquement) — équivalence stricte avec
+      -- `providerCategory.trim()` côté PR4 (voir DECLARE ci-dessus).
       AND (
-        (n.source_code = 'federalreserve' AND btrim(n.provider_category) IN ('monetary_policy_press_release', 'speech'))
-        OR (n.source_code = 'ecb' AND btrim(n.provider_category) IN ('press_communication', 'statistical_press_release'))
-        OR (n.source_code = 'us_treasury' AND btrim(n.provider_category) = 'press_release')
-        OR (n.source_code = 'ofac' AND n.provider_category IS NOT NULL AND length(btrim(n.provider_category)) > 0)
+        (n.source_code = 'federalreserve' AND btrim(n.provider_category, v_js_trim_chars) IN ('monetary_policy_press_release', 'speech'))
+        OR (n.source_code = 'ecb' AND btrim(n.provider_category, v_js_trim_chars) IN ('press_communication', 'statistical_press_release'))
+        OR (n.source_code = 'us_treasury' AND btrim(n.provider_category, v_js_trim_chars) = 'press_release')
+        OR (n.source_code = 'ofac' AND n.provider_category IS NOT NULL AND length(btrim(n.provider_category, v_js_trim_chars)) > 0)
       )
       -- Porte qualité PR4 V1 EXACTE (passesQualityGate()) : VALID sans
       -- raison, OU DEGRADED avec au moins une raison, toutes dans
-      -- l'allowlist figée. UNVERIFIED n'est jamais traitable.
+      -- l'allowlist figée. UNVERIFIED n'est jamais traitable. DEGRADED
+      -- exige aussi array_ndims(...) = 1 : un tableau multidimensionnel
+      -- (jamais produit par PR4, qui itère reasons.every(...) sur un
+      -- tableau JS plat de chaînes) ne doit jamais être flatté par
+      -- unnest() puis accepté à tort — PostgREST représenterait un
+      -- élément multidimensionnel comme un Array JS imbriqué, que
+      -- Set.has() côté PR4 rejette toujours.
       AND (
         (n.ingest_quality_state = 'VALID' AND cardinality(n.ingest_quality_reasons) = 0)
         OR (
           n.ingest_quality_state = 'DEGRADED'
           AND cardinality(n.ingest_quality_reasons) > 0
+          AND array_ndims(n.ingest_quality_reasons) = 1
           AND NOT EXISTS (
             SELECT 1
             FROM unnest(n.ingest_quality_reasons) AS quality_reason(reason)
@@ -227,16 +249,17 @@ BEGIN
         OR (n.provider = 'ofac' AND n.source_code = 'ofac' AND n.source_domain = 'ofac.treasury.gov')
       )
       AND (
-        (n.source_code = 'federalreserve' AND btrim(n.provider_category) IN ('monetary_policy_press_release', 'speech'))
-        OR (n.source_code = 'ecb' AND btrim(n.provider_category) IN ('press_communication', 'statistical_press_release'))
-        OR (n.source_code = 'us_treasury' AND btrim(n.provider_category) = 'press_release')
-        OR (n.source_code = 'ofac' AND n.provider_category IS NOT NULL AND length(btrim(n.provider_category)) > 0)
+        (n.source_code = 'federalreserve' AND btrim(n.provider_category, v_js_trim_chars) IN ('monetary_policy_press_release', 'speech'))
+        OR (n.source_code = 'ecb' AND btrim(n.provider_category, v_js_trim_chars) IN ('press_communication', 'statistical_press_release'))
+        OR (n.source_code = 'us_treasury' AND btrim(n.provider_category, v_js_trim_chars) = 'press_release')
+        OR (n.source_code = 'ofac' AND n.provider_category IS NOT NULL AND length(btrim(n.provider_category, v_js_trim_chars)) > 0)
       )
       AND (
         (n.ingest_quality_state = 'VALID' AND cardinality(n.ingest_quality_reasons) = 0)
         OR (
           n.ingest_quality_state = 'DEGRADED'
           AND cardinality(n.ingest_quality_reasons) > 0
+          AND array_ndims(n.ingest_quality_reasons) = 1
           AND NOT EXISTS (
             SELECT 1
             FROM unnest(n.ingest_quality_reasons) AS quality_reason(reason)
