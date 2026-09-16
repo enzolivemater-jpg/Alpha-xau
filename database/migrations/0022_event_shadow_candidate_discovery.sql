@@ -184,12 +184,14 @@ BEGIN
           AND cardinality(n.ingest_quality_reasons) > 0
           AND NOT EXISTS (
             SELECT 1
-            FROM unnest(n.ingest_quality_reasons) AS reason
-            WHERE reason NOT IN (
-              'publication_timestamp_parse_failed',
-              'publication_date_parse_failed',
-              'publication_precision_unknown'
-            )
+            FROM unnest(n.ingest_quality_reasons) AS quality_reason(reason)
+            WHERE
+              quality_reason.reason IS NULL
+              OR quality_reason.reason NOT IN (
+                'publication_timestamp_parse_failed',
+                'publication_date_parse_failed',
+                'publication_precision_unknown'
+              )
           )
         )
       )
@@ -237,12 +239,14 @@ BEGIN
           AND cardinality(n.ingest_quality_reasons) > 0
           AND NOT EXISTS (
             SELECT 1
-            FROM unnest(n.ingest_quality_reasons) AS reason
-            WHERE reason NOT IN (
-              'publication_timestamp_parse_failed',
-              'publication_date_parse_failed',
-              'publication_precision_unknown'
-            )
+            FROM unnest(n.ingest_quality_reasons) AS quality_reason(reason)
+            WHERE
+              quality_reason.reason IS NULL
+              OR quality_reason.reason NOT IN (
+                'publication_timestamp_parse_failed',
+                'publication_date_parse_failed',
+                'publication_precision_unknown'
+              )
           )
         )
       )

@@ -179,20 +179,69 @@ if (fnSrc !== null) {
     /n\.ingest_quality_state = 'VALID' AND cardinality\(n\.ingest_quality_reasons\) = 0/.test(fnSrc));
   t('DEGRADED exige cardinality(ingest_quality_reasons) > 0',
     /n\.ingest_quality_state = 'DEGRADED'\s*\n\s*AND cardinality\(n\.ingest_quality_reasons\) > 0/.test(fnSrc));
-  t('DEGRADED valide chaque raison contre l\'allowlist figée (NOT EXISTS unnest(...) WHERE reason NOT IN (...))',
-    /NOT EXISTS \(\s*\n\s*SELECT 1\s*\n\s*FROM unnest\(n\.ingest_quality_reasons\) AS reason\s*\n\s*WHERE reason NOT IN \(/.test(fnSrc));
-  for (const reason of [
+  // Prédicat fail-closed EXACT : NULL OU not-in-allowlist est invalide.
+  // Un élément NULL de ingest_quality_reasons ne doit JAMAIS être traité
+  // comme implicitement autorisé — `NULL NOT IN (...)` s'évalue à NULL en
+  // logique ternaire PostgreSQL, jamais TRUE, donc un `WHERE reason NOT IN
+  // (...)` seul laisserait passer un tableau contenant NULL (la ligne
+  // NOT EXISTS ne trouverait aucune ligne "manifestement hors allowlist").
+  // La correction ajoute `reason IS NULL OR` pour fermer ce trou.
+  const NULL_REASON_PREDICATE_RE =
+    /NOT EXISTS \(\s*\n\s*SELECT 1\s*\n\s*FROM unnest\(n\.ingest_quality_reasons\) AS quality_reason\(reason\)\s*\n\s*WHERE\s*\n\s*quality_reason\.reason IS NULL\s*\n\s*OR quality_reason\.reason NOT IN \(/g;
+  t('DEGRADED rejette explicitement les raisons NULL : NULL OU not-in-allowlist est invalide (NOT EXISTS unnest(...) AS quality_reason(reason) WHERE reason IS NULL OR reason NOT IN (...))',
+    new RegExp(NULL_REASON_PREDICATE_RE.source).test(fnSrc));
+  t('le prédicat de rejet NULL apparaît EXACTEMENT 2 fois (une fois par voie FRESH/RECOVERY, jamais 0, jamais >2)',
+    (fnSrc.match(NULL_REASON_PREDICATE_RE) || []).length === 2);
+  t('aucun résidu du prédicat pré-correctif (unnest(...) AS reason sans alias de colonne explicite)',
+    !/FROM unnest\(n\.ingest_quality_reasons\) AS reason\b/.test(fnSrc));
+  const ALLOWED_DEGRADED_REASONS = [
     'publication_timestamp_parse_failed',
     'publication_date_parse_failed',
     'publication_precision_unknown',
-  ]) {
+  ];
+  for (const reason of ALLOWED_DEGRADED_REASONS) {
     t(`raison DEGRADED autorisée présente : ${reason}`, fnSrc.includes(`'${reason}'`));
+    t(`raison DEGRADED autorisée '${reason}' apparaît exactement 2 fois (une par voie)`,
+      (fnSrc.match(new RegExp(`'${reason}'`, 'g')) || []).length === 2);
   }
+  t('l\'allowlist DEGRADED contient EXACTEMENT ces 3 valeurs, aucune de plus (aucune autre chaîne \'publication_\' introduite)',
+    (fnSrc.match(/'publication_[a-z_]+'/g) || []).length === ALLOWED_DEGRADED_REASONS.length * 2);
   t('UNVERIFIED n\'apparaît JAMAIS comme état traitable autorisé (aucune branche ingest_quality_state = \'UNVERIFIED\')',
     !/ingest_quality_state = 'UNVERIFIED'/.test(fnSrc));
+  t('DEGRADED exige TOUJOURS cardinality(ingest_quality_reasons) > 0 (tableau DEGRADED vide reste exclu), exactement 2 fois',
+    (fnSrc.match(/n\.ingest_quality_state = 'DEGRADED'\s*\n\s*AND cardinality\(n\.ingest_quality_reasons\) > 0/g) || []).length === 2);
   // Exactement 2 occurrences de chaque bloc qualité (une par voie FRESH/RECOVERY).
   t('le bloc de porte qualité complet apparaît exactement 2 fois (FRESH + RECOVERY)',
     (fnSrc.match(/n\.ingest_quality_state = 'VALID' AND cardinality\(n\.ingest_quality_reasons\) = 0/g) || []).length === 2);
+
+  // ---------------------------------------------------------------------
+  // A9bis. Fixture de régression documentée — DEGRADED + [NULL].
+  //
+  // Reproduit en JS pur (aucune dépendance base de données) la sémantique
+  // EXACTE du prédicat SQL fail-closed ci-dessus, pour documenter noir sur
+  // blanc le cas qui motive ce correctif : un tableau ingest_quality_reasons
+  // DEGRADED contenant un élément NULL doit rendre l'observation INÉLIGIBLE,
+  // jamais silencieusement traitable. Ce n'est PAS une preuve d'exécution
+  // live PostgreSQL (hors périmètre, voir en-tête PARTIE A) — c'est une
+  // reformulation exécutable du même prédicat, pour verrouiller l'intention.
+  // ---------------------------------------------------------------------
+  function degradedReasonsAreEligible(reasons) {
+    if (!Array.isArray(reasons) || reasons.length === 0) return false; // cardinality > 0
+    return reasons.every((reason) => reason !== null && ALLOWED_DEGRADED_REASONS.includes(reason));
+  }
+
+  const DEGRADED_FIXTURES = [
+    { name: 'DEGRADED + [NULL] : élément NULL unique', reasons: [null], expectedEligible: false },
+    { name: 'DEGRADED + [publication_timestamp_parse_failed, NULL] : NULL mélangé à une raison valide', reasons: ['publication_timestamp_parse_failed', null], expectedEligible: false },
+    { name: 'DEGRADED + [\'unknown_reason\'] : chaîne hors allowlist', reasons: ['unknown_reason'], expectedEligible: false },
+    { name: 'DEGRADED + [] : tableau vide (cardinality > 0 échoue)', reasons: [], expectedEligible: false },
+    { name: 'DEGRADED + [publication_timestamp_parse_failed] : raison unique autorisée', reasons: ['publication_timestamp_parse_failed'], expectedEligible: true },
+    { name: 'DEGRADED + les 3 raisons autorisées', reasons: [...ALLOWED_DEGRADED_REASONS], expectedEligible: true },
+  ];
+  for (const fixture of DEGRADED_FIXTURES) {
+    t(`fixture régression — ${fixture.name} => eligible=${fixture.expectedEligible}`,
+      degradedReasonsAreEligible(fixture.reasons) === fixture.expectedEligible);
+  }
 
   // ---------------------------------------------------------------------
   // A10. FRESH — ZÉRO ligne de membership au total, jamais "pas de
