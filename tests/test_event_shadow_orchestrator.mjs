@@ -74,6 +74,7 @@ t('canonicalStringify est exporté (fonction)', typeof mod?.canonicalStringify =
 t('sha256Hex est exporté (fonction)', typeof mod?.sha256Hex === 'function');
 t('assertSupportedPlanShape est exporté (fonction)', typeof mod?.assertSupportedPlanShape === 'function');
 t('EventShadowInvariantError est exporté (classe)', typeof mod?.EventShadowInvariantError === 'function');
+t('deriveFinalKnowledgeCutoff est exporté (fonction)', typeof mod?.deriveFinalKnowledgeCutoff === 'function');
 
 if (mod === null) {
   console.log(`\nRESULT: ${p} passed, ${f} failed`);
@@ -87,6 +88,7 @@ const {
   assertSupportedPlanShape,
   EventShadowInvariantError,
   OPS023_EVENT_SHADOW_ORCHESTRATOR_VERSION,
+  deriveFinalKnowledgeCutoff,
 } = mod;
 
 // ---------------------------------------------------------------------
@@ -471,6 +473,118 @@ async function expectThrow(fn, label) {
 }
 
 // ---------------------------------------------------------------------
+// 5b. Précision microseconde PostgreSQL timestamptz — cutoff final.
+//     Le contrat MAX(knowledgeCutoffFloor, assigned_at) doit comparer et
+//     RETOURNER à précision microseconde, jamais via un round-trip
+//     Date/epoch-milliseconde. Un round-trip via new Date(...).toISOString()
+//     tronque jusqu'à 999 microsecondes et peut faire du cutoff final
+//     RETOURNÉ une valeur < assigned_at, violant l'invariant du predicate
+//     d'évidence RPC (assigned_at <= p_knowledge_cutoff) — c'est EXACTEMENT
+//     l'incident live PR7 : 4 memberships committées à assigned_at
+//     sub-milliseconde, 0 Event Version, 4x HTTP 400.
+//     deriveFinalKnowledgeCutoff est testé DIRECTEMENT ici (en plus des
+//     tests d'intégration plus bas) car plan.knowledgeCutoffFloor — dérivé
+//     par le processeur PR4 réel (deterministic_processor.ts, hors
+//     périmètre de ce hotfix) — ne peut lui-même transporter qu'une
+//     précision milliseconde ; seul un test direct de la fonction peut
+//     exercer le cas "floor microseconde gagne".
+// ---------------------------------------------------------------------
+{
+  // CASE 1 — assigned_at gagne DANS LA MÊME milliseconde (456 > 455 µs).
+  const floor = '2026-09-01T18:05:05.123455Z';
+  const assigned = '2026-09-01T18:05:05.123456+00:00';
+  const cutoff = deriveFinalKnowledgeCutoff(floor, assigned);
+  t('CASE 1 : assigned_at gagne à la microseconde près (456 > 455 µs), aucune perte des 456 µs finales', cutoff === assigned);
+}
+{
+  // CASE 2 — knowledgeCutoffFloor gagne DANS LA MÊME milliseconde (457 > 456 µs).
+  const floor = '2026-09-01T18:05:05.123457Z';
+  const assigned = '2026-09-01T18:05:05.123456+00:00';
+  const cutoff = deriveFinalKnowledgeCutoff(floor, assigned);
+  t('CASE 2 : knowledgeCutoffFloor gagne exactement à la microseconde près (457 > 456 µs)', cutoff === floor);
+}
+{
+  // CASE 3 — équivalence de fuseau horaire : +02:00 et Z doivent être
+  // comparés par INSTANT réel, jamais en tant que texte.
+  const floorSameInstant = '2026-09-01T20:05:05.500000+02:00'; // == 18:05:05.500000Z
+  const assignedOneMicrosLater = '2026-09-01T18:05:05.500001Z';
+  t('CASE 3a : assigned_at 1 µs plus tardif gagne à travers un offset de fuseau équivalent',
+    deriveFinalKnowledgeCutoff(floorSameInstant, assignedOneMicrosLater) === assignedOneMicrosLater);
+
+  const floorOneMicrosLater = '2026-09-01T20:05:05.500002+02:00'; // == 18:05:05.500002Z, 1 µs après assigned
+  t('CASE 3b : le floor décalé en fuseau horaire gagne quand il représente réellement l\'instant le plus tardif',
+    deriveFinalKnowledgeCutoff(floorOneMicrosLater, assignedOneMicrosLater) === floorOneMicrosLater);
+}
+{
+  // CASE 4 — timestamps millisecondes ordinaires : comportement pré-existant inchangé.
+  const floor = '2026-09-01T18:05:05.000Z';
+  const assignedEarlier = '2026-09-01T18:05:03.000Z';
+  const assignedLater = '2026-09-01T19:00:05.000Z';
+  t('CASE 4a : floor ordinaire l\'emporte quand plus tardif (comportement inchangé)', deriveFinalKnowledgeCutoff(floor, assignedEarlier) === floor);
+  t('CASE 4b : assigned_at ordinaire l\'emporte quand plus tardif (comportement inchangé)', deriveFinalKnowledgeCutoff(floor, assignedLater) === assignedLater);
+}
+{
+  // CASE 5 — timestamps malformés : échec fermé, jamais un NaN/Invalid Date silencieux.
+  const expectDeriveThrow = (floor, assigned, expectedCode, label) => {
+    try {
+      deriveFinalKnowledgeCutoff(floor, assigned);
+      t(label, false, 'expected a throw, none occurred');
+    } catch (e) {
+      t(label, e instanceof EventShadowInvariantError && e.code === expectedCode, e?.code);
+    }
+  };
+  expectDeriveThrow('not-a-timestamp', '2026-09-01T18:05:05.000Z', 'INVALID_KNOWLEDGE_CUTOFF_FLOOR',
+    'CASE 5a : knowledgeCutoffFloor malformé rejeté (INVALID_KNOWLEDGE_CUTOFF_FLOOR)');
+  expectDeriveThrow('2026-09-01T18:05:05.000Z', 'not-a-timestamp', 'INVALID_ASSIGNED_AT',
+    'CASE 5b : assigned_at malformé rejeté (INVALID_ASSIGNED_AT)');
+  expectDeriveThrow('2026-09-01T18:05:05.000+25:00', '2026-09-01T18:05:05.000Z', 'INVALID_KNOWLEDGE_CUTOFF_FLOOR',
+    'CASE 5c : offset numérique hors plage (+25:00) rejeté');
+  expectDeriveThrow('2026-13-01T18:05:05.000Z', '2026-09-01T18:05:05.000Z', 'INVALID_KNOWLEDGE_CUTOFF_FLOOR',
+    'CASE 5d : date civile invalide (mois 13) rejetée');
+  expectDeriveThrow('2026-09-01T18:05:05.000', '2026-09-01T18:05:05.000Z', 'INVALID_KNOWLEDGE_CUTOFF_FLOOR',
+    'CASE 5e : timestamp sans timezone explicite rejeté');
+}
+{
+  // CASE 6 — ANNÉE ANCIENNE À 4 CHIFFRES (0000-0099) : la conversion
+  // calendrier->epoch ne doit JAMAIS remapper une année 4-chiffres comme
+  // "0099" vers 1999, contrairement à la règle historique JS de
+  // Date.UTC(year, ...) pour un argument year numérique 0..99 (Date.UTC(99,
+  // 0, 1) => 1999-01-01, alors que Date.parse('0099-01-01T00:00:00Z') =>
+  // 0099-01-01, correctement). Ce test échouerait sous ce bug précis.
+  const floor0099 = '0099-01-01T00:00:00.123455Z';
+  const assigned0099 = '0099-01-01T00:00:00.123456Z';
+  t('CASE 6a : assigned_at gagne à la microseconde près pour une année 4-chiffres ancienne (0099), aucun remap 1900-based',
+    deriveFinalKnowledgeCutoff(floor0099, assigned0099) === assigned0099);
+
+  // Comparaison contre un instant clairement postérieur/antérieur : sous le
+  // bug Date.UTC (remap vers 1999), floor0099/assigned0099 seraient traités
+  // comme survenant en 1999, donc APRÈS 0100, faisant gagner l'année ancienne
+  // à tort. Avec le fix, 0099 reste authentiquement antérieur à 0100.
+  const laterYear0100 = '0100-01-01T00:00:00.000000Z';
+  t('CASE 6b : une année 4-chiffres ancienne (0099) reste authentiquement antérieure à une année clairement postérieure (0100)',
+    deriveFinalKnowledgeCutoff(floor0099, laterYear0100) === laterYear0100);
+  t('CASE 6c : une année 4-chiffres ancienne (0099) reste authentiquement postérieure à une année clairement antérieure (0098)',
+    deriveFinalKnowledgeCutoff('0098-12-31T23:59:59.999999Z', assigned0099) === assigned0099);
+}
+{
+  // Preuve d'intégration : le corps RPC RÉEL envoyé à
+  // fn_event_create_event_version porte p_knowledge_cutoff à précision
+  // microseconde EXACTE, jamais tronqué à la milliseconde — c'est
+  // précisément le predicate d'évidence assigned_at <= p_knowledge_cutoff
+  // qui a été violé en live (4x HTTP 400 sur ECB/Fed/Treasury/OFAC).
+  const preciseAssignedAt = '2026-09-15T20:54:12.981066+00:00';
+  const { db, calls } = makeFakeDb(happyPathHandlers({}, { assigned_at: preciseAssignedAt }));
+  const result = await processEventShadowObservation(db, makeRawRow().id);
+  const evCall = calls.find((c) => c.path === 'rpc/fn_event_create_event_version');
+  t('intégration : p_knowledge_cutoff préserve les 6 chiffres de microseconde de assigned_at (981066)',
+    evCall.body.p_knowledge_cutoff === preciseAssignedAt);
+  t('intégration : p_knowledge_cutoff n\'est PAS tronqué à la milliseconde (regression exacte du bug live)',
+    evCall.body.p_knowledge_cutoff !== '2026-09-15T20:54:12.981Z' && evCall.body.p_knowledge_cutoff !== '2026-09-15T20:54:12.981+00:00');
+  t('intégration : invariant RPC assigned_at <= p_knowledge_cutoff préservé (égalité exacte, jamais antérieur)',
+    result.kind === 'PROCESSED' && evCall.body.p_knowledge_cutoff === result.finalKnowledgeCutoff && result.finalKnowledgeCutoff === preciseAssignedAt);
+}
+
+// ---------------------------------------------------------------------
 // 6. Event Version — appelé seulement après validation de membership,
 //    payload exact, validation de réponse stricte V1.
 // ---------------------------------------------------------------------
@@ -735,6 +849,46 @@ async function expectThrow(fn, label) {
 
   const eventVersionCalls = calls.filter((c) => c.path === 'rpc/fn_event_create_event_version');
   t('exactement UN appel Event Version a eu lieu sur l\'ensemble du scénario (jamais après la première perte)', eventVersionCalls.length === 1 && eventVersionCallCount === 1);
+}
+
+// ---------------------------------------------------------------------
+// 8c. Récupération live EXACTE post-hotfix (fixture PR7) : la membership
+//     fondatrice est DÉJÀ committée à précision microseconde (replayed=true
+//     dès le premier appel visible par l'orchestrateur — même topologie que
+//     les 4 event_clusters/memberships déjà persistés en live), AUCUN Event
+//     Version n'existe encore. L'orchestrateur doit relire cette membership,
+//     dériver un p_knowledge_cutoff à précision microseconde EXACTE, puis
+//     réussir fn_event_create_event_version (CREATED, pas replayed).
+// ---------------------------------------------------------------------
+{
+  const observation = makeRawRow({ id: 'c0ffeec0-ffee-4c0f-8fee-c0ffeec0ffee' });
+  const preciseAssignedAt = '2026-09-15T20:54:13.472031+00:00'; // OFAC live fixture
+  let eventVersionCallCount = 0;
+  const { db, calls } = makeFakeDb({
+    newsArticles: () => [observation],
+    // La membership fondatrice a déjà été committée server-side (comme les
+    // 4 clusters live) : l'assignation revient donc en replayed=true dès
+    // ce premier appel visible par l'orchestrateur.
+    assignObservation: () => [makeAssignResponseRow({ cluster_created_now: false, replayed: true })],
+    membership: () => [makeMembershipRow({ observation_id: observation.id, assigned_at: preciseAssignedAt })],
+    eventVersion: () => {
+      eventVersionCallCount++;
+      return [makeEventVersionResponseRow({ outcome: 'CREATED', replayed: false })];
+    },
+  });
+
+  const result = await processEventShadowObservation(db, observation.id);
+
+  t('récupération live PR7 : résultat PROCESSED', result.kind === 'PROCESSED', JSON.stringify(result));
+  t('récupération live PR7 : membershipReplayed=true (membership déjà committée)', result.membershipReplayed === true);
+  t('récupération live PR7 : eventVersionReplayed=false (Event Version créée pour la première fois)', result.eventVersionReplayed === false);
+  t('récupération live PR7 : exactement UN appel Event Version', eventVersionCallCount === 1);
+
+  const evCall = calls.find((c) => c.path === 'rpc/fn_event_create_event_version');
+  t('récupération live PR7 : p_knowledge_cutoff inclut la membership à précision microseconde exacte (472031)',
+    evCall.body.p_knowledge_cutoff === preciseAssignedAt);
+  t('récupération live PR7 : invariant RPC assigned_at <= p_knowledge_cutoff satisfait (égalité exacte)',
+    result.finalKnowledgeCutoff === preciseAssignedAt);
 }
 
 // ---------------------------------------------------------------------

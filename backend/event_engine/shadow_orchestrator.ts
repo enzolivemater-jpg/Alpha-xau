@@ -594,11 +594,19 @@ function isValidNumericOffset(offset: string): boolean {
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
 }
 
-function parseStrictIsoTimestampToEpochMs(value: string): number | null {
+/**
+ * Parses a strict explicit-timezone ISO-8601 timestamp to whole MICROSECONDS
+ * since the Unix epoch, as a BigInt — never through toISOString() for the
+ * final value, since a JS Date only carries millisecond resolution and
+ * PostgreSQL timestamptz carries microsecond resolution. Fractional digits
+ * beyond the 6th (microseconds) are truncated, never rounded: we never
+ * invent precision the source did not supply.
+ */
+function parseStrictIsoTimestampToEpochMicros(value: string): bigint | null {
   const trimmed = value.trim();
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})$/.exec(trimmed);
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})$/.exec(trimmed);
   if (!m) return null;
-  const [, y, mo, d, h, mi, s, tz] = m;
+  const [, y, mo, d, h, mi, s, frac, tz] = m;
   const year = Number(y);
   const month = Number(mo);
   const day = Number(d);
@@ -610,31 +618,53 @@ function parseStrictIsoTimestampToEpochMs(value: string): number | null {
   if (hour > 23 || minute > 59 || second > 59) return null;
   if (tz !== 'Z' && !isValidNumericOffset(tz)) return null;
 
-  const ms = Date.parse(trimmed);
-  return Number.isNaN(ms) ? null : ms;
+  // Reconstruct the SAME instant at WHOLE-SECOND precision, preserving the
+  // original 4-digit year and exact supplied timezone, and let Date.parse()
+  // — never Date.UTC(), which silently remaps a 2-digit numeric year 0-99 to
+  // 1900-1999 even when it came from a 4-digit "0099" field — resolve the
+  // calendar/timezone-to-epoch conversion. Civil-date/time-of-day validity
+  // was already checked above, so Date.parse() here only performs the
+  // conversion, never decides validity. Because the reconstructed string has
+  // no fractional seconds, the resulting epoch milliseconds are always an
+  // exact multiple of 1000.
+  const epochMsWholeSecond = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}${tz}`);
+  if (!Number.isFinite(epochMsWholeSecond)) return null;
+
+  const fracDigits = (frac ?? '').padEnd(6, '0').slice(0, 6);
+  const fracMicros = BigInt(fracDigits);
+
+  return BigInt(epochMsWholeSecond / 1000) * 1_000_000n + fracMicros;
 }
 
 /**
  * Final Event Version knowledge_cutoff = MAX(plan.knowledgeCutoffFloor,
  * persisted membership.assigned_at) — the frozen PR3 temporal-integrity
  * contract. Never publishedAt/publishedDate/Date.now()/new Date().
+ *
+ * Compares both supplied timestamps at microsecond precision (PostgreSQL
+ * timestamptz resolution) via BigInt epoch-microsecond arithmetic — never by
+ * round-tripping through a JS Date/epoch-millisecond value, which would
+ * silently floor away up to 999 microseconds and could make a later instant
+ * compare as earlier (or equal) to an unrelated one. The winning timestamp is
+ * returned EXACTLY as supplied (only whitespace-trimmed), so its original
+ * fractional precision and timezone-offset formatting are never rewritten.
  */
-function deriveFinalKnowledgeCutoff(knowledgeCutoffFloor: string, assignedAt: string): string {
-  const floorMs = parseStrictIsoTimestampToEpochMs(knowledgeCutoffFloor);
-  if (floorMs === null) {
+export function deriveFinalKnowledgeCutoff(knowledgeCutoffFloor: string, assignedAt: string): string {
+  const floorMicros = parseStrictIsoTimestampToEpochMicros(knowledgeCutoffFloor);
+  if (floorMicros === null) {
     throw new EventShadowInvariantError(
       'INVALID_KNOWLEDGE_CUTOFF_FLOOR',
       `plan.knowledgeCutoffFloor is not a valid explicit-timezone ISO-8601 timestamp: ${knowledgeCutoffFloor}`,
     );
   }
-  const assignedMs = parseStrictIsoTimestampToEpochMs(assignedAt);
-  if (assignedMs === null) {
+  const assignedMicros = parseStrictIsoTimestampToEpochMicros(assignedAt);
+  if (assignedMicros === null) {
     throw new EventShadowInvariantError(
       'INVALID_ASSIGNED_AT',
       `persisted membership assigned_at is not a valid explicit-timezone ISO-8601 timestamp: ${assignedAt}`,
     );
   }
-  return new Date(Math.max(floorMs, assignedMs)).toISOString();
+  return assignedMicros >= floorMicros ? assignedAt.trim() : knowledgeCutoffFloor.trim();
 }
 
 // ---------------------------------------------------------------------------
