@@ -502,9 +502,13 @@ SETUP" banner, keyed off the same rejected/data-insufficient/conflict
 verdicts). Those verdicts map conceptually onto
 `RISK_VETO`/`DATA_QUALITY_INSUFFICIENT`/`SIGNAL_CONFLICT`.
 `EVENT_ALREADY_PRICED` cannot exist yet (§ 6, § 8 — no pricing-state
-concept exists to trigger it), and `WAIT_FOR_CONFIRMATION` has no
-dedicated mechanism (it depends on event versioning, § 5, which does not
-exist yet).
+concept exists to trigger it). Event versioning itself now exists and is
+live-proven (§ 5), but `WAIT_FOR_CONFIRMATION` still has **no dedicated
+actionability/wait-state mechanism** that consumes it: nothing today
+reads an Event Version's `transition_type` to decide whether the
+terminal should wait for confirmation before acting, and no live
+`CONFIRMATION` transition has ever occurred to exercise such a mechanism
+against — only `NOVELTY` has been live-proven (§ 5).
 
 ---
 
@@ -608,10 +612,16 @@ changed?**
 Status: `CURRENT` for internal recalculation dispatch;
 `NOT_IMPLEMENTED` for operator-facing alerting, unless and until a real
 delivery channel is proven to exist. Most of the candidate triggers above
-have no corresponding mechanism today, because the underlying state
-objects they'd key off (event versions, a tracked PM bias value, a
-final-action-risk-gate veto, invalidation-breach detection) do not exist
-yet.
+still have no corresponding mechanism today. Event Versions themselves
+now exist and are live-proven (§ 5), but no operator-facing alert wiring
+consumes them yet — nothing today watches for a new Event Version or a
+`transition_type` change and turns it into a delivered alert; only
+`NOVELTY` has ever been live-exercised, so "official confirmation of an
+existing event," "a major correction," and "a reversal" as alert
+triggers remain entirely theoretical. The other three underlying state
+objects these triggers would key off — a tracked PM bias value, a
+final-action-risk-gate veto, and invalidation-breach detection — remain
+absent, as before.
 
 ---
 
@@ -873,11 +883,13 @@ imply that already-proven safeguards are absent.
 
 ## 21. Implementation Gap Map
 
-Strict status for every capability this document depends on. This map is
-intended to constrain OPS-023 and future implementation planning — it is
-the boundary of what may be assumed to already exist, and it deliberately
-does not collapse "existing shell" and "target enrichment" into one
-status where they differ.
+Strict status for every capability this document depends on. OPS-023's
+own Event Cluster/Event Version foundation work is now complete and
+live-proven (§ 5); this map is intended to constrain **Event Impact and
+every downstream implementation stage** — it is the boundary of what may
+be assumed to already exist, and it deliberately does not collapse
+"existing shell" and "target enrichment" into one status where they
+differ.
 
 | Capability | Status |
 |---|---|
@@ -916,18 +928,23 @@ status where they differ.
 
 ## 22. Relationship to Other Governance Documents
 
-This document is the second in a fixed sequence agreed in
+This document is the second in a fixed sequence that was agreed in
 `docs/XAU_V2_RESOURCE_REGISTRY.md`'s Near-Term Action Queue:
 
 **Resource Registry → Daily Operating Model → OPS-023 implementation
 planning.**
 
+**That sequence is now historical, not the current next step.**
+Resource Registry and this Daily Operating Model both already exist, and
+OPS-023's RAW → Event Cluster → Event Version implementation work (§ 5)
+is complete and live-proven. The current next architecture stage is
+**Event Impact** (§ 6), not "OPS-023 implementation planning" as an
+open item.
+
 This document does not re-litigate the resource registry's evidence
 states, architecture dispositions, or standing decisions — it assumes
-them. OPS-023's RAW → Event Cluster → Event Version implementation work
-(§ 5) is now complete and live-proven against this sequence. Any further
-implementation work — Event Impact (§ 6) and every stage downstream of
-it — must be scoped against the gap map in § 21, not against an assumed
-capability this document has marked `NOT_IMPLEMENTED` or `PARTIAL`, and
-must not overstate what the existing frontend shell (§ 15) already
-provides.
+them. Any further implementation work — Event Impact (§ 6) and every
+stage downstream of it — must be scoped against the gap map in § 21, not
+against an assumed capability this document has marked `NOT_IMPLEMENTED`
+or `PARTIAL`, and must not overstate what the existing frontend shell
+(§ 15) already provides.

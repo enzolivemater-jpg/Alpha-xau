@@ -1371,9 +1371,14 @@ registry does not do.
 
 ## Near-Term Action Queue
 
-Ordered; none of these actions is performed by this task. Reflects the
-latest validated project decision on sequencing: Resource Registry →
-Daily Operating Model → OPS-023 implementation planning.
+Ordered; none of these actions is performed by this task. This queue
+originally reflected the sequencing decision Resource Registry → Daily
+Operating Model → OPS-023 implementation planning. That sequence is now
+historical: this Resource Registry and the Daily Operating Model both
+already exist, and OPS-023's Event Cluster/Event Version foundation
+(see `docs/XAU_V2_DAILY_OPERATING_MODEL.md` § 5) is complete and
+live-proven. Event Impact architecture/implementation planning (see
+item 11 below) is the current next step.
 
 1. Verify exact Google AI Pro / Gemini capabilities available to Enzo
 2. Verify LSEG entitlement / API / data rights
@@ -1385,14 +1390,15 @@ Daily Operating Model → OPS-023 implementation planning.
 8. Design a mandatory GitHub Actions CI quality gate (fixing the missing
    `tsconfig.json` is a prerequisite)
 9. Design a staging architecture
-10. **Create `docs/XAU_V2_DAILY_OPERATING_MODEL.md`** — defines how the
-    production terminal operates every day, end to end: data sources →
-    quality/freshness → RAW observation → event cluster → event version
-    → novelty/confirmation/correction/reversal → event impact → gold
-    transmission → market pricing/positioning/regime → H1-H5 → AI
-    committee → portfolio manager → risk committee → abstention/action
-    → command center → alerts/audit trail. Documentation/architecture
-    only — **not created by this task.**
+10. **`docs/XAU_V2_DAILY_OPERATING_MODEL.md` — COMPLETE.** The document
+    now exists and defines how the production terminal operates every
+    day, end to end: data sources → quality/freshness → RAW observation
+    → event cluster → event version → novelty/confirmation/correction/
+    reversal → event impact → gold transmission → market
+    pricing/positioning/regime → H1-H5 → AI committee → portfolio
+    manager → risk committee → abstention/action → command center →
+    alerts/audit trail. Documentation/architecture only; kept here as
+    completed history rather than removed.
 11. RAW event-clustering architecture work (OPS-023) is complete and
     live-proven for the Event Cluster/Event Version foundation. The next
     queued step is Event Impact architecture planning, scoped against
