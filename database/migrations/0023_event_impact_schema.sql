@@ -130,15 +130,25 @@
 --      trigger BEFORE INSERT qui rejette toute interprétation enfant
 --      dont le parent n'est pas ASSESSED.
 --
---  SÉCURITÉ : SECURITY INVOKER (jamais DEFINER) sur toutes les
---  fonctions introduites ici, SET search_path = '' dès la création,
---  qualification complète de schéma sur chaque référence de relation
---  dans le corps des fonctions — même discipline que 0012/0013/0020.
---  RLS activée sur les deux tables, EXECUTE/DML explicitement révoqué
---  de PUBLIC/anon/authenticated/service_role puis SELECT, INSERT
---  ACCORDÉ à service_role uniquement (jamais UPDATE, jamais DELETE —
---  les triggers append-only restent une défense en profondeur même pour
---  un accès privilégié).
+--  SÉCURITÉ : SECURITY INVOKER (jamais DEFINER) sur les CINQ fonctions
+--  introduites ici, SET search_path = '' dès la création, qualification
+--  complète de schéma sur chaque référence de relation dans le corps
+--  des fonctions — même discipline que 0012/0013/0020. TROIS couches de
+--  privilège distinctes, jamais confondues (voir §8 ci-dessous pour le
+--  détail exact) :
+--    - RLS activée sur les deux tables ;
+--    - DML de TABLE explicitement réinitialisé/révoqué de PUBLIC/anon/
+--      authenticated/service_role puis SELECT, INSERT réaccordé à
+--      service_role uniquement (jamais UPDATE, jamais DELETE — les
+--      triggers append-only restent une défense en profondeur même pour
+--      un accès privilégié) ;
+--    - EXECUTE de FONCTION, pour CHACUNE des cinq fonctions,
+--      explicitement réinitialisé/révoqué de PUBLIC/anon/authenticated/
+--      service_role puis réaccordé à service_role uniquement. RLS NE
+--      SÉCURISE PAS L'INVOCATION DE FONCTION : sans ce REVOKE/GRANT
+--      explicite au niveau fonction, un schéma public exposé accorderait
+--      par défaut EXECUTE à PUBLIC sur ces cinq fonctions,
+--      indépendamment de toute policy RLS posée sur les tables.
 --
 --  TRANSACTIONNELLE : BEGIN ... COMMIT. IDEMPOTENTE (fichier) :
 --  IF NOT EXISTS / CREATE OR REPLACE / DROP+CREATE TRIGGER — rejouable
@@ -622,13 +632,32 @@ CREATE CONSTRAINT TRIGGER trg_event_impact_assessments_require_interpretation
   FOR EACH ROW EXECUTE FUNCTION public.fn_check_event_impact_assessment_completeness();
 
 -- ---------------------------------------------------------------------
--- 8. RLS / PRIVILÈGES — deux couches distinctes (RLS + GRANT), même
---    discipline que 0012 : deny-all PUBLIC/anon/authenticated/
---    service_role, puis SELECT, INSERT accordé à service_role
---    UNIQUEMENT. Jamais UPDATE, jamais DELETE — pas de dynamique SQL
---    ici, deux tables seulement, instructions explicites plus
---    lisibles qu'une boucle.
+-- 8. PRIVILÈGES — TROIS couches distinctes, jamais confondues :
+--
+--      (a) RLS sur les deux tables ;
+--      (b) DML de table explicitement réinitialisé/révoqué puis
+--          SELECT, INSERT réaccordé à service_role UNIQUEMENT —
+--          jamais UPDATE, jamais DELETE ;
+--      (c) EXECUTE de FONCTION explicitement réinitialisé/révoqué puis
+--          réaccordé à service_role UNIQUEMENT, pour CHACUNE des cinq
+--          fonctions introduites par cette migration.
+--
+--    RLS NE SÉCURISE PAS L'INVOCATION DE FONCTION : une fonction créée
+--    dans le schéma exposé public reçoit par défaut PostgreSQL EXECUTE
+--    pour PUBLIC, indépendamment de toute policy RLS posée sur les
+--    tables qu'elle référence. Sans REVOKE/GRANT explicite au niveau
+--    fonction, les rôles anon/authenticated pourraient invoquer ces
+--    fonctions trigger directement (hors du contexte trigger normal)
+--    sous les paramètres par défaut d'un projet Supabase existant.
+--    Les cinq fonctions sont donc durcies individuellement ci-dessous,
+--    en plus — jamais à la place — du GRANT de table (b).
+--
+--    Pas de dynamique SQL ici : sept objets seulement (deux tables,
+--    cinq fonctions), instructions explicites plus lisibles et plus
+--    auditables qu'une boucle.
 -- ---------------------------------------------------------------------
+
+-- (a) + (b) — tables.
 ALTER TABLE public.event_impact_assessments ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.event_impact_assessments FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT ON public.event_impact_assessments TO service_role;
@@ -636,5 +665,25 @@ GRANT SELECT, INSERT ON public.event_impact_assessments TO service_role;
 ALTER TABLE public.event_impact_interpretations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.event_impact_interpretations FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT ON public.event_impact_interpretations TO service_role;
+
+-- (c) — fonctions. EXECUTE réinitialisé/révoqué de PUBLIC/anon/
+-- authenticated/service_role puis réaccordé à service_role UNIQUEMENT,
+-- pour CHACUNE des cinq fonctions Event Impact introduites ci-dessus.
+-- Aucune fonction OPS-023 préexistante (migrations 0001-0022,
+-- notamment fn_event_schema_append_only) n'est touchée ici.
+REVOKE ALL ON FUNCTION public.fn_event_impact_append_only() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_event_impact_append_only() TO service_role;
+
+REVOKE ALL ON FUNCTION public.fn_check_event_impact_assessment_cutoff() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_check_event_impact_assessment_cutoff() TO service_role;
+
+REVOKE ALL ON FUNCTION public.fn_check_event_impact_interpretation_parent_status() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_check_event_impact_interpretation_parent_status() TO service_role;
+
+REVOKE ALL ON FUNCTION public.fn_check_event_impact_horizon_has_primary() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_check_event_impact_horizon_has_primary() TO service_role;
+
+REVOKE ALL ON FUNCTION public.fn_check_event_impact_assessment_completeness() FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_check_event_impact_assessment_completeness() TO service_role;
 
 COMMIT;
