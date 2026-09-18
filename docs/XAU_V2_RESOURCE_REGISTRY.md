@@ -740,7 +740,7 @@ project's governance model. Stated once, here only:
 - Fallback/alternative: n/a (primary source for its own authority)
 - Evidence reference: repository source files; live behavior confirmed across OPS-018 and OPS-022
 - Owner: Enzo (data is public; the integration is project-owned)
-- Next action: candidate first source for a future event-clustering pipeline (OPS-023); RAW → cluster/version pipeline not yet implemented
+- Next action: RAW → Event Cluster/Event Version pipeline implemented and live-proven via controlled manual runtime (OPS-023); automatic/cron backlog draining remains a deliberate, undecided future step
 
 ### ECB (official RAW source)
 - Category: I
@@ -759,7 +759,7 @@ project's governance model. Stated once, here only:
 - Fallback/alternative: n/a
 - Evidence reference: repository source files; live behavior confirmed across OPS-018 and OPS-022
 - Owner: Enzo
-- Next action: RAW → cluster/version pipeline not yet implemented
+- Next action: RAW → Event Cluster/Event Version pipeline implemented and live-proven via controlled manual runtime (OPS-023); automatic/cron backlog draining remains a deliberate, undecided future step
 
 ### US Treasury (official RAW source)
 - Category: I
@@ -778,7 +778,7 @@ project's governance model. Stated once, here only:
 - Fallback/alternative: n/a
 - Evidence reference: repository source files; live behavior confirmed across OPS-018 and OPS-022
 - Owner: Enzo
-- Next action: RAW → cluster/version pipeline not yet implemented
+- Next action: RAW → Event Cluster/Event Version pipeline implemented and live-proven via controlled manual runtime (OPS-023); automatic/cron backlog draining remains a deliberate, undecided future step
 
 ### OFAC (official RAW source)
 - Category: I
@@ -797,7 +797,7 @@ project's governance model. Stated once, here only:
 - Fallback/alternative: n/a
 - Evidence reference: repository source files; own source-registry entry; live behavior confirmed across OPS-018 and OPS-022
 - Owner: Enzo
-- Next action: identified (OPS-023) as the recommended first slice for a future event-clustering pipeline (smallest volume, cleanest canonical matching); RAW → cluster/version pipeline not yet implemented
+- Next action: OFAC was the first slice exercised for the RAW → Event Cluster/Event Version pipeline (OPS-023), now implemented and live-proven via controlled manual runtime; automatic/cron backlog draining remains a deliberate, undecided future step
 
 ---
 
@@ -1327,10 +1327,14 @@ These are standing decisions, not defaults to be silently revisited.
 - A mandatory quality CI gate is absent — no typecheck/test/lint workflow
   exists.
 - A staging architecture/environment is not yet established.
-- The official RAW → event-cluster/event-version pipeline is not yet
-  implemented (RAW ingestion for Fed/ECB/Treasury/OFAC stops at storage
-  today; OPS-023 is the architecture audit for the next stage, not an
-  implementation).
+- The official RAW → Event Cluster/Event Version pipeline is implemented
+  and live-proven (OPS-023): deterministic official-source processing,
+  append-only cluster/membership/version persistence, and a controlled
+  authenticated manual runtime independently reconciled up to a
+  25-candidate batch in one call. It runs manually only — no automatic
+  or cron-driven backlog draining exists. The downstream Event Impact
+  stage (and everything after it in the target pipeline) remains not
+  implemented.
 
 ---
 
@@ -1367,9 +1371,14 @@ registry does not do.
 
 ## Near-Term Action Queue
 
-Ordered; none of these actions is performed by this task. Reflects the
-latest validated project decision on sequencing: Resource Registry →
-Daily Operating Model → OPS-023 implementation planning.
+Ordered; none of these actions is performed by this task. This queue
+originally reflected the sequencing decision Resource Registry → Daily
+Operating Model → OPS-023 implementation planning. That sequence is now
+historical: this Resource Registry and the Daily Operating Model both
+already exist, and OPS-023's Event Cluster/Event Version foundation
+(see `docs/XAU_V2_DAILY_OPERATING_MODEL.md` § 5) is complete and
+live-proven. Event Impact architecture/implementation planning (see
+item 11 below) is the current next step.
 
 1. Verify exact Google AI Pro / Gemini capabilities available to Enzo
 2. Verify LSEG entitlement / API / data rights
@@ -1381,14 +1390,16 @@ Daily Operating Model → OPS-023 implementation planning.
 8. Design a mandatory GitHub Actions CI quality gate (fixing the missing
    `tsconfig.json` is a prerequisite)
 9. Design a staging architecture
-10. **Create `docs/XAU_V2_DAILY_OPERATING_MODEL.md`** — defines how the
-    production terminal operates every day, end to end: data sources →
-    quality/freshness → RAW observation → event cluster → event version
-    → novelty/confirmation/correction/reversal → event impact → gold
-    transmission → market pricing/positioning/regime → H1-H5 → AI
-    committee → portfolio manager → risk committee → abstention/action
-    → command center → alerts/audit trail. Documentation/architecture
-    only — **not created by this task.**
-11. Resume the RAW event-clustering architecture work (OPS-023
-    implementation planning) only after the Daily Operating Model above
-    exists — not before it
+10. **`docs/XAU_V2_DAILY_OPERATING_MODEL.md` — COMPLETE.** The document
+    now exists and defines how the production terminal operates every
+    day, end to end: data sources → quality/freshness → RAW observation
+    → event cluster → event version → novelty/confirmation/correction/
+    reversal → event impact → gold transmission → market
+    pricing/positioning/regime → H1-H5 → AI committee → portfolio
+    manager → risk committee → abstention/action → command center →
+    alerts/audit trail. Documentation/architecture only; kept here as
+    completed history rather than removed.
+11. RAW event-clustering architecture work (OPS-023) is complete and
+    live-proven for the Event Cluster/Event Version foundation. The next
+    queued step is Event Impact architecture planning, scoped against
+    the Daily Operating Model's gap map (§ 21) — not yet started.
