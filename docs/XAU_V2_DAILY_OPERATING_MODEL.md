@@ -77,7 +77,7 @@ not a numbered horizon.
 | Official RAW collectors (Fed, ECB, US Treasury, OFAC) | `CURRENT` |
 | GDELT / NewsAPI legacy scored news flow → notifications → Committee | `CURRENT` |
 | Internal engine-to-engine Committee recalculation trigger | `CURRENT` — see § 13 |
-| Official RAW flow reaching event clustering | `NOT_IMPLEMENTED` — RAW flow stops at storage today |
+| Official RAW flow reaching event clustering | `PARTIAL` — Event Cluster/Event Version foundation implemented and live-proven (deterministic official-source processing, append-only membership/version persistence, 45 live Event Versions independently reconciled as of this review); reachable only through a controlled authenticated manual runtime — no automatic/cron backlog draining exists |
 | H1–H5 scenario contract (schema, validation, generation) | `CURRENT` for direction/probability/target/invalidation/confidence/reasoning; `NOT_IMPLEMENTED` for event-level magnitude — see § 6 |
 | AI Committee architecture (multi-agent LLM pipeline) | `CURRENT` |
 | Anthropic (Committee's LLM provider) | `CURRENT` integration, **currently blocked** (insufficient account credit) — not reactivated by this document or this task |
@@ -196,17 +196,34 @@ to optional enrichment or ambiguity resolution — never a required
 ingestion dependency. This mirrors the resource registry's standing
 architectural decision that AI must not be required for raw ingestion.
 
-Status: `NOT_IMPLEMENTED`. RAW observations exist today exactly as
-described (immutable, append-only, correction-safe). Event clusters and
-event versions do not exist. A read-only architecture audit (OPS-023)
-was initiated and identified this exact RAW → EVENT CLUSTER → EVENT
-VERSION gap — **that audit is not closed or finalized**, and no
-implementation design from it has been built or approved. OPS-023's
-implementation architecture must now be resumed against this Daily
-Operating Model, not treated as already settled. The legacy
-GDELT/NewsAPI path has a much weaker, article-level notion of identity
-(exact-title deduplication only), which is not a substitute for event
-clustering.
+Status: `PARTIAL`. RAW observations exist today exactly as described
+(immutable, append-only, correction-safe). The Event Cluster / Event
+Observation Membership / Event Version / Event Version Evidence
+foundation is now **implemented and live-proven** (OPS-023):
+deterministic official-source processing for Fed/ECB/Treasury/OFAC RAW
+observations, append-only cluster/membership/version persistence, and a
+controlled authenticated **manual** runtime that has independently
+reconciled 45 live Event Versions end to end (creation, idempotent
+replay, and bounded discovered-batch proofs up to 25 candidates in one
+authenticated call). Every live-exercised version so far is
+`transition_type = NOVELTY` against a `SINGLE_EDITORIAL_ORIGIN` source;
+`CONFIRMATION`/`CORRECTION`/`REVERSAL` classification and the other three
+`source_independence_state` values exist in the schema's fixed
+vocabulary but have **no live-exercised example yet**. Event cluster
+relation topology and strong-identity-claim primitives also exist in the
+schema but remain unexercised in production (zero relation operations,
+zero relation edges, zero identity claims as of this review). **There is
+no automatic or cron-driven backlog draining** — every mutation to date
+was operator-triggered through the authenticated manual endpoint;
+discovery is state-derived (never a cursor/watermark), so the remaining
+backlog stays reachable on demand at whatever pace an operator chooses.
+The legacy GDELT/NewsAPI path has a much weaker, article-level notion of
+identity (exact-title deduplication only), which remains not a
+substitute for event clustering. OPS-023's implementation work is
+complete for this Event Cluster/Event Version foundation; the next
+architecture stage — Event Impact (§ 6) — remains a separate,
+`NOT_IMPLEMENTED` effort, not automatically advanced by this
+foundation's completion.
 
 ---
 
@@ -227,14 +244,17 @@ competing interpretations** when analysts or sources disagree on what an
 event means.
 
 The Event Impact object described above belongs at **EVENT VERSION**
-level (§ 5). Because event clusters and event versions do not exist yet,
-**the institutional Event Impact object is `NOT_IMPLEMENTED` as an
-end-to-end stage** — there is no single object, tied to a specific event
-version, that carries direction/magnitude/confidence/horizon/pricing
-together today. The Committee's per-scenario
-direction/confidence/horizon fields are real, but they belong to a
-scenario, not to a versioned event, and must not be read as if they were
-already the target Event Impact object.
+level (§ 5). The Event Cluster/Event Version foundation this object
+would attach to now exists and is live-proven (§ 5) — but that upstream
+existence does not by itself advance Event Impact: **the institutional
+Event Impact object remains `NOT_IMPLEMENTED` as an end-to-end stage** —
+there is no single object, tied to a specific event version, that
+carries direction/magnitude/confidence/horizon/pricing together today,
+and no implementation work on Event Impact itself has been built or
+approved. The Committee's per-scenario direction/confidence/horizon
+fields are real, but they belong to a scenario, not to a versioned
+event, and must not be read as if they were already the target Event
+Impact object.
 
 **TARGET EVENT IMPACT OBJECT:** `NOT_IMPLEMENTED`
 
@@ -630,8 +650,8 @@ current status:
 |---|---|
 | 1. System status | `NOT_IMPLEMENTED` (unified) — see § 4 |
 | 2. XAUUSD / market state | `CURRENT` |
-| 3. Dominant event | `PARTIAL` — no event-cluster concept yet (§ 5), but the Committee's current top-line narrative approximates it |
-| 4. Event confidence / source status | `NOT_IMPLEMENTED` — no source-independence tracking yet (§ 5) |
+| 3. Dominant event | `PARTIAL` — the event-cluster concept now exists at the backend (§ 5), but is not yet surfaced by the Command Center; the Committee's current top-line narrative approximates it |
+| 4. Event confidence / source status | `NOT_IMPLEMENTED` — source-independence is now tracked at the backend (§ 5), but no operator-facing confidence/source-status display exists yet |
 | 5. Gold transmission | `PARTIAL` — see § 7 |
 | 6. Market pricing | `NOT_IMPLEMENTED` — see § 8 |
 | 7. Positioning / crowding | `NOT_IMPLEMENTED` — see § 8 |
@@ -739,16 +759,22 @@ Committee analysis) is largely traceable today: analyses are new rows,
 never mutated in place, and are linked back to the news items that fed
 them. RAW official observations are immutably append-only by design (a
 database trigger blocks any update or delete outright, even for elevated
-database roles). **The pre-PM Risk Committee/evidence-risk gate is not
-missing** — it exists today with deterministic, code-enforced blocking
-behavior (§ 10) and is part of what an audit can already inspect. What is
-missing is: event cluster, event version, and Event Impact (§ 5, § 6),
-which do not exist yet, and the distinct **post-PM final action risk
-gate** (§ 10), which also does not exist yet. As a result, the audit
-trail currently jumps directly from a raw legacy article to a Committee
-analysis (which already includes the pre-PM gate's verdict), with no
-cluster/version/impact/transmission/pricing stages, and no post-PM
-final-action-gate stage, in between to audit.
+database roles). The Event Cluster / Event Version chain (§ 5) is now
+**also** auditable end to end for its live-exercised path: each Event
+Version is append-only and immutably linked, via Event Version Evidence,
+to the exact membership decisions that produced it — an independent
+reconciliation can already trace a live Event Version back to its
+founding RAW observation today. **The pre-PM Risk Committee/evidence-risk
+gate is not missing** — it exists today with deterministic, code-enforced
+blocking behavior (§ 10) and is part of what an audit can already
+inspect. What is still missing is: **Event Impact** (§ 6), **Gold
+Transmission**, **pricing/positioning**, and the distinct **post-PM final
+action risk gate** (§ 10) — none of which exist yet. As a result, the
+audit trail today has two separate traceable segments (the legacy
+article-to-Committee-analysis path, and the RAW-to-Event-Version path)
+with no impact/transmission/pricing stage bridging the Event Version
+path onward to a decision, and no post-PM final-action-gate stage, in
+between to audit.
 
 ---
 
@@ -861,10 +887,10 @@ status where they differ.
 | Enriched target Scenario Tree (counter-drivers, pricing state, data-quality caveat, scenario-change trigger) | `PARTIAL` |
 | Macro Driver Matrix (shell + static labels for available drivers) | `PARTIAL` |
 | Data-quality presentation (unified, operator-facing) | `PARTIAL` |
-| Event cluster | `NOT_IMPLEMENTED` |
-| Event version | `NOT_IMPLEMENTED` |
-| Novelty / confirmation / correction / reversal classification | `NOT_IMPLEMENTED` |
-| Source independence tracking | `NOT_IMPLEMENTED` |
+| Event cluster | `PARTIAL` — implemented and live-proven (manual runtime only; see § 5) |
+| Event version | `PARTIAL` — implemented and live-proven (manual runtime only; see § 5) |
+| Novelty / confirmation / correction / reversal classification | `PARTIAL` — `NOVELTY` implemented and live-proven; `CONFIRMATION`/`CORRECTION`/`REVERSAL` exist in the fixed vocabulary but have no live-exercised example yet |
+| Source independence tracking | `PARTIAL` — `SINGLE_EDITORIAL_ORIGIN` implemented and live-observed; the other three states exist in the fixed vocabulary but have no live-exercised example yet |
 | Event Impact object (EVENT VERSION-level direction/magnitude/confidence/horizon/pricing) | `NOT_IMPLEMENTED`, with `PARTIAL` precursor signals only (legacy `gold_direction_impact`, legacy transmission metadata, Committee scenario direction/confidence/horizon) |
 | Event magnitude | `NOT_IMPLEMENTED` |
 | Gold transmission (structured, always-populated) | `PARTIAL` |
@@ -898,7 +924,10 @@ planning.**
 
 This document does not re-litigate the resource registry's evidence
 states, architecture dispositions, or standing decisions — it assumes
-them. Any future RAW event-clustering implementation work (OPS-023) must
-be scoped against the gap map in § 21, not against an assumed capability
-this document has marked `NOT_IMPLEMENTED` or `PARTIAL`, and must not
-overstate what the existing frontend shell (§ 15) already provides.
+them. OPS-023's RAW → Event Cluster → Event Version implementation work
+(§ 5) is now complete and live-proven against this sequence. Any further
+implementation work — Event Impact (§ 6) and every stage downstream of
+it — must be scoped against the gap map in § 21, not against an assumed
+capability this document has marked `NOT_IMPLEMENTED` or `PARTIAL`, and
+must not overstate what the existing frontend shell (§ 15) already
+provides.
