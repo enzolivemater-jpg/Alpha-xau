@@ -116,9 +116,24 @@
 --  doit exister et porter sur la MÊME event_version_id.
 --
 --  INVARIANTS DE COMPLÉTUDE TRANSACTIONNELS (CONSTRAINT TRIGGER
---  DEFERRABLE INITIALLY DEFERRED) : permettent à une future persistance
---  atomique d'insérer parent + enfants dans UNE seule transaction sans
---  ordre imposé.
+--  DEFERRABLE INITIALLY DEFERRED). L'ordre parent -> enfant reste
+--  IMPOSÉ, comme pour toute FK standard : la ligne event_impact_
+--  assessments doit exister avant qu'une interprétation ne puisse la
+--  référencer (FK), et le trigger BEFORE INSERT de §5 relit ce parent à
+--  chaque insertion d'enfant pour exiger assessment_status='ASSESSED'.
+--  Ce que le report en fin de transaction autorise, ce n'est PAS un
+--  ordre parent/enfant libre, mais deux choses plus étroites :
+--    - une évaluation ASSESSED nouvellement insérée peut rester
+--      TEMPORAIREMENT incomplète (zéro interprétation) à l'intérieur de
+--      la même transaction, le temps que ses interprétations enfants
+--      soient insérées à leur tour — au lieu d'exiger que les enfants
+--      existent déjà AVANT l'insertion du parent (ce qui serait
+--      impossible, la FK l'interdit) ;
+--    - à l'intérieur d'un même horizon représenté, les lignes PRIMARY
+--      et ALTERNATIVE peuvent être insérées dans n'importe quel ordre
+--      relatif ENTRE ELLES, du moment qu'une PRIMARY existe à la fin de
+--      la transaction.
+--  Invariants vérifiés :
 --    - chaque (assessment_id, horizon) représenté doit porter AU MOINS
 --      une interprétation PRIMARY à la fin de la transaction (l'index
 --      UNIQUE partiel garantit déjà AU PLUS une PRIMARY — ce trigger
@@ -642,14 +657,22 @@ CREATE CONSTRAINT TRIGGER trg_event_impact_assessments_require_interpretation
 --          réaccordé à service_role UNIQUEMENT, pour CHACUNE des cinq
 --          fonctions introduites par cette migration.
 --
---    RLS NE SÉCURISE PAS L'INVOCATION DE FONCTION : une fonction créée
---    dans le schéma exposé public reçoit par défaut PostgreSQL EXECUTE
---    pour PUBLIC, indépendamment de toute policy RLS posée sur les
---    tables qu'elle référence. Sans REVOKE/GRANT explicite au niveau
---    fonction, les rôles anon/authenticated pourraient invoquer ces
---    fonctions trigger directement (hors du contexte trigger normal)
---    sous les paramètres par défaut d'un projet Supabase existant.
---    Les cinq fonctions sont donc durcies individuellement ci-dessous,
+--    LE PRIVILÈGE EXECUTE DE FONCTION EST INDÉPENDANT DE LA RLS DE
+--    TABLE : la RLS ne contrôle JAMAIS les privilèges de fonction, quelle
+--    que soit la table que le corps de la fonction référence. Une
+--    fonction créée dans le schéma exposé public peut hériter des
+--    GRANT EXECUTE par défaut de PostgreSQL/du projet (par défaut,
+--    PostgreSQL accorde EXECUTE à PUBLIC sur toute fonction nouvellement
+--    créée). Ces cinq fonctions restent des AUXILIAIRES DE TRIGGER :
+--    leur chemin d'exécution prévu est exclusivement au travers de leur
+--    définition CREATE TRIGGER / CREATE CONSTRAINT TRIGGER ci-dessus —
+--    ce durcissement n'affirme PAS qu'un appelant Data API ordinaire
+--    pourrait autrement invoquer avec succès un auxiliaire
+--    RETURNS TRIGGER comme un RPC normal. Le REVOKE/GRANT explicite
+--    ci-dessous n'a d'autre but que de rendre la surface de privilège
+--    MINIMALE ET AUDITABLE, en ne retenant service_role que comme seul
+--    rôle applicatif autorisé — jamais de laisser un GRANT EXECUTE par
+--    défaut implicite et non documenté subsister sur ces cinq fonctions,
 --    en plus — jamais à la place — du GRANT de table (b).
 --
 --    Pas de dynamique SQL ici : sept objets seulement (deux tables,
