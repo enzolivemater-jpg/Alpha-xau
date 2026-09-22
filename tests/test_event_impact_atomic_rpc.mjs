@@ -180,6 +180,8 @@ if (fnSrc !== null) {
     /item ->> 'horizon'/.test(fnSrc) && /item ->> 'interpretation_key'/.test(fnSrc));
   t('magnitude_value/confidence_value castés en NUMERIC depuis le texte JSON',
     /\(item ->> 'magnitude_value'\)::NUMERIC/.test(fnSrc) && /\(item ->> 'confidence_value'\)::NUMERIC/.test(fnSrc));
+  t('confiance canonique à la précision NUMERIC(5,4) de la colonne (rejeu après arrondi)',
+    /\(item ->> 'confidence_value'\)::NUMERIC\(5,4\)/.test(fnSrc));
   t('forme canonique par défaut un tableau JSON vide (COALESCE(..., \'[]\'::jsonb)), au moins 3 fois',
     (fnSrc.match(/COALESCE\(jsonb_agg\(/g) || []).length >= 3
     && (fnSrc.match(/'\[\]'::jsonb\)/g) || []).length >= 3);
@@ -213,7 +215,7 @@ if (fnSrc !== null) {
       searchFrom = idx + 1;
     }
   }
-  t('exactement 3 lookups par idempotency_fingerprint (précheck, récupération post-conflit)',
+  t('exactement 2 lookups par idempotency_fingerprint (précheck, récupération post-conflit)',
     idempotencyWhereIndices.length === 2, `trouvé ${idempotencyWhereIndices.length}`);
 
   // ---------------------------------------------------------------------
