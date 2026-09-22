@@ -235,6 +235,17 @@ for (const [label, ids, expectedCode] of [
 }
 
 {
+  const { db, calls } = makeDb();
+  await expectError(
+    () => runEventImpactShadowBatch(db, null),
+    'liste non-array rejetée',
+    (error) => error instanceof EventImpactShadowBatchInvariantError
+      && error.code === 'INVALID_EVENT_VERSION_LIST',
+  );
+  testCase('liste non-array: aucune DB', calls.length === 0);
+}
+
+{
   const many = Array.from({ length: MAX_EVENT_IMPACT_SHADOW_BATCH_SIZE + 1 }, (_, i) =>
     `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
   );
