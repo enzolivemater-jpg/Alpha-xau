@@ -78,14 +78,18 @@ export class EventImpactShadowBatchInvariantError extends Error {
 function redactString(value: string): string {
   return value
     .replace(
+      /(Authorization\s*[:=]\s*Bearer\s+)[A-Za-z0-9._~+\/-]+/gi,
+      '$1[REDACTED]',
+    )
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+\/-]+/gi, '$1[REDACTED]')
+    .replace(
       /([?&](?:apiKey|api_key|apikey|token|access_token|key)=)[^&\s]+/gi,
       '$1[REDACTED]',
     )
     .replace(
       /((?:apiKey|api_key|apikey|token|access_token|authorization)\s*[:=]\s*)("[^"]*"|'[^']*'|[^,\s}\]]+)/gi,
       '$1[REDACTED]',
-    )
-    .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/gi, '$1[REDACTED]');
+    );
 }
 
 function safeErrorMessage(error: unknown): string {
@@ -99,6 +103,12 @@ function validateBatchInput(
   eventVersionIds: readonly string[],
   triggerType: string,
 ): void {
+  if (!Array.isArray(eventVersionIds)) {
+    throw new EventImpactShadowBatchInvariantError(
+      'INVALID_EVENT_VERSION_LIST',
+      'eventVersionIds must be an array of UUID strings.',
+    );
+  }
   if (eventVersionIds.length === 0) {
     throw new EventImpactShadowBatchInvariantError(
       'EMPTY_EVENT_VERSION_LIST',
