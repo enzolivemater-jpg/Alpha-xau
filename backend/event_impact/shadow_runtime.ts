@@ -88,7 +88,7 @@ const EVENT_IMPACT_SHADOW_RUNTIME_TRIGGER_TYPE = 'manual' as const;
 
 function redactString(value: string): string {
   return value
-    .replace(/([?&](?:apiKey|api_key|apikey|token|key)=)[^&\s]+/gi, '$1[REDACTED]')
+    .replace(/([?&](?:apiKey|api_key|apikey|access_token|token|key)=)[^&\s]+/gi, '$1[REDACTED]')
     .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/gi, '$1[REDACTED]')
     .replace(/("?(?:apikey|authorization)"?\s*:\s*"?)[^",\s]+/gi, '$1[REDACTED]');
 }
@@ -339,11 +339,20 @@ const SUPPORTED_DB_METHODS: ReadonlySet<string> = new Set(['GET', 'POST', 'PATCH
 export class PostgrestEventImpactShadowDb implements EventImpactShadowBatchDb {
   private readonly base: string;
   private readonly apiKey: string;
+  // Retained ONLY for defensive exact-value redaction of any error that
+  // might otherwise escape this adapter (see the network-failure catch
+  // below) — never sent as a header, never logged, never echoed. A raw
+  // network-error message could in principle embed either secret's
+  // literal bytes with no recognizable "token="/Bearer/apikey prefix for
+  // the generic pattern-based redactString() above to catch, so both
+  // known exact secret values are redacted here regardless of shape.
+  private readonly ingestToken: string;
 
   constructor(env: EventImpactShadowRuntimeEnv) {
     const url = validateSupabaseUrl(env.SUPABASE_URL);
     this.base = `${url.origin}${url.pathname.replace(/\/+$/, '')}/rest/v1`;
     this.apiKey = env.SUPABASE_SERVICE_ROLE_KEY;
+    this.ingestToken = env.INGEST_TOKEN;
   }
 
   async request<T>(
@@ -376,7 +385,12 @@ export class PostgrestEventImpactShadowDb implements EventImpactShadowBatchDb {
       throw new EventImpactShadowDbError(
         isAbort
           ? `PostgREST request timed out after ${POSTGREST_TIMEOUT_MS}ms.`
-          : `PostgREST network failure: ${redactExactSecrets(errorMessage(err), [this.apiKey])}`,
+          // Exact-value redaction for BOTH known secrets — never only the
+          // credential this specific adapter call used. A raw network
+          // error can embed either secret's literal bytes with no
+          // "token="/Bearer/apikey-shaped prefix, so pattern-based
+          // redactString() alone cannot be relied on here.
+          : `PostgREST network failure: ${redactExactSecrets(errorMessage(err), [this.apiKey, this.ingestToken])}`,
       );
     } finally {
       clearTimeout(timer);

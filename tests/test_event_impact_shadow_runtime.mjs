@@ -242,6 +242,23 @@ function makeFakeFetch(eventVersions, options = {}) {
       throw new Error(`simulated network failure containing a fake secret: ${SERVICE_ROLE_KEY}`);
     }
 
+    // Per-item network-level failure (fetch itself throws, not a non-2xx
+    // Response) on the RPC call for one specific Event Version — this is
+    // the EXACT escape path an independent review flagged: PostgREST
+    // adapter error -> EI-5 per-item FAILED.safeErrorMessage -> structured
+    // HTTP 200 report. `message` is the raw, uncrafted error text (the
+    // caller controls its exact shape, including with NO recognizable
+    // token=/Bearer/apikey prefix) to prove exact-value redaction, not
+    // just pattern-based redaction.
+    if (
+      options.perItemNetworkFailure
+      && method === 'POST'
+      && restPath === 'rpc/fn_event_impact_create_assessment'
+      && body?.p_event_version_id === options.perItemNetworkFailure.eventVersionId
+    ) {
+      throw new Error(options.perItemNetworkFailure.message);
+    }
+
     if (restPath === 'rpc/fn_reclaim_stale_runs') {
       return new Response(JSON.stringify([{ reclaimed: 0 }]), { status: 200 });
     }
@@ -712,6 +729,97 @@ for (const field of ['maxCandidates', 'lane', 'processorVersion', 'orchestratorV
   t('AC) erreur réseau contenant un faux secret => jamais exposée en clair dans la réponse HTTP',
     !text.includes(SERVICE_ROLE_KEY));
   t('AC) échec réseau non caractérisé => 500 générique', res.status === 500);
+}
+
+// ---------------------------------------------------------------------
+// SECURITY FIX REGRESSION — independent review BLOCKER: the PostgREST
+// network-error path previously exact-redacted only this.apiKey
+// (SUPABASE_SERVICE_ROLE_KEY), never INGEST_TOKEN, so a raw INGEST_TOKEN
+// literal with no recognizable "token="/Bearer prefix could in principle
+// flow: PostgREST adapter network error -> EI-5 per-item
+// FAILED.safeErrorMessage -> structured HTTP 200 report, unredacted.
+// Fixed by having PostgrestEventImpactShadowDb also retain INGEST_TOKEN
+// and pass BOTH known secrets to redactExactSecrets() in the
+// network-failure catch, and by adding access_token= to the generic
+// pattern-based redactString(). These four cases exercise the EXACT
+// per-item escape path (fetch() itself throws on the RPC call for one
+// specific Event Version, caught by EI-5's per-item try/catch, embedded
+// in the batch report EI-6 returns with HTTP 200) — not the
+// lock-acquisition network failure already covered by AC above, and not
+// the non-2xx upstream-body path already covered by AB above.
+// ---------------------------------------------------------------------
+{
+  // A. Raw literal SUPABASE_SERVICE_ROLE_KEY, no token=/Bearer prefix.
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1)], {
+    perItemNetworkFailure: { eventVersionId: EV1, message: `connection failed: ${SERVICE_ROLE_KEY}` },
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1] }) }), ENV,
+  ));
+  const text = await res.text();
+  t('SECURITY FIX A) SUPABASE_SERVICE_ROLE_KEY brut (sans préfixe token=/Bearer) sur le chemin per-item => jamais exposé', res.status === 200 && !text.includes(SERVICE_ROLE_KEY));
+}
+{
+  // B. Raw literal INGEST_TOKEN, no token=/Bearer prefix — the exact gap
+  //    the independent review identified.
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1)], {
+    perItemNetworkFailure: { eventVersionId: EV1, message: `connection failed: ${INGEST_TOKEN}` },
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1] }) }), ENV,
+  ));
+  const text = await res.text();
+  t('SECURITY FIX B) INGEST_TOKEN brut (sans préfixe token=/Bearer) sur le chemin per-item => jamais exposé', res.status === 200 && !text.includes(INGEST_TOKEN));
+  const json = JSON.parse(text);
+  t('SECURITY FIX B) le rapport structuré confirme l\'item FAILED avec message expurgé', json.report.items[0].kind === 'FAILED' && json.report.items[0].safeErrorMessage.includes('[REDACTED]'));
+}
+{
+  // C. access_token= query-style pattern (generic redaction extension).
+  const FAKE = 'FAKE_ACCESS_TOKEN_SECRET';
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1)], {
+    perItemNetworkFailure: { eventVersionId: EV1, message: `upstream redirected to https://example.test/callback?access_token=${FAKE}` },
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1] }) }), ENV,
+  ));
+  const text = await res.text();
+  t('SECURITY FIX C) access_token=... jamais exposé en clair', res.status === 200 && !text.includes(FAKE));
+}
+{
+  // D. Authorization: Bearer <secret> shape.
+  const FAKE = 'FAKE_BEARER_SECRET_VALUE';
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1)], {
+    perItemNetworkFailure: { eventVersionId: EV1, message: `upstream rejected request: Authorization: Bearer ${FAKE}` },
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1] }) }), ENV,
+  ));
+  const text = await res.text();
+  t('SECURITY FIX D) Authorization: Bearer <secret> jamais exposé en clair', res.status === 200 && !text.includes(FAKE));
+}
+{
+  // E. Existing partial-batch HTTP 200 behavior is unchanged by the fix:
+  //    one failing item + one succeeding item => still 200/partial.
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1), makeEventVersion(EV2)], {
+    perItemNetworkFailure: { eventVersionId: EV1, message: `connection failed: ${INGEST_TOKEN}` },
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1, EV2] }) }), ENV,
+  ));
+  const json = await res.json();
+  t('SECURITY FIX E) comportement partial-batch HTTP 200 inchangé (un échec isolé n\'empêche pas le second item)',
+    res.status === 200 && json.report.status === 'partial' && json.report.failed === 1 && json.report.processed === 1
+    && json.report.items[1].kind === 'PROCESSED');
+}
+{
+  // F. Successful (no-failure) path is unchanged by the fix.
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1)]);
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1] }) }), ENV,
+  ));
+  const json = await res.json();
+  t('SECURITY FIX F) chemin de succès inchangé (report.status=success, une évaluation créée)',
+    res.status === 200 && json.report.status === 'success' && json.report.assessmentsCreated === 1);
 }
 
 // ---------------------------------------------------------------------
