@@ -89,13 +89,15 @@ const EVENT_IMPACT_SHADOW_RUNTIME_TRIGGER_TYPE = 'manual' as const;
 function redactString(value: string): string {
   return value
     .replace(/([?&](?:apiKey|api_key|apikey|access_token|token|key)=)[^&\s]+/gi, '$1[REDACTED]')
-    .replace(/(Bearer\s+)[A-Za-z0-9._\-]+/gi, '$1[REDACTED]')
+    // token68 (RFC 6750 §2.1): A-Z a-z 0-9 - . _ ~ + / , with optional
+    // trailing "=" padding. The previous character class
+    // ([A-Za-z0-9._-]) omitted +, / and ~ — a token containing any of
+    // those bytes was only PARTIALLY matched, leaving the unmatched tail
+    // (and any "=" padding) unredacted. "/" is escaped because this is a
+    // "/"-delimited regex literal, not because it is special inside a
+    // character class.
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, '$1[REDACTED]')
     .replace(/("?(?:apikey|authorization)"?\s*:\s*"?)[^",\s]+/gi, '$1[REDACTED]');
-}
-
-function errorMessage(err: unknown): string {
-  const raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-  return redactString(raw).slice(0, MAX_ERROR_DETAIL_LENGTH);
 }
 
 /**
@@ -113,6 +115,26 @@ function redactExactSecrets(value: string, secrets: readonly (string | undefined
     }
   }
   return result;
+}
+
+/**
+ * BLOCKER FIX (independent review, second pass): redaction — BOTH the
+ * exact-known-secret pass (redactExactSecrets) and the generic
+ * pattern-based pass (redactString) — MUST run on the FULL, untruncated
+ * message. Truncating first (as a prior version of this function did,
+ * applying `.slice(0, MAX_ERROR_DETAIL_LENGTH)` before
+ * redactExactSecrets was called at the call site) can cut a secret in
+ * half at the length boundary: the surviving fragment no longer equals
+ * the full secret, so an exact-value `.split(secret)` silently fails to
+ * match it, and that fragment survives into FAILED.safeErrorMessage and
+ * the HTTP report. Truncation therefore happens LAST, strictly after
+ * every redaction pass, never before.
+ */
+function errorMessage(err: unknown, exactSecrets: readonly (string | undefined)[] = []): string {
+  const raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  const secretsRedacted = redactExactSecrets(raw, exactSecrets);
+  const patternRedacted = redactString(secretsRedacted);
+  return patternRedacted.slice(0, MAX_ERROR_DETAIL_LENGTH);
 }
 
 function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
@@ -389,8 +411,10 @@ export class PostgrestEventImpactShadowDb implements EventImpactShadowBatchDb {
           // credential this specific adapter call used. A raw network
           // error can embed either secret's literal bytes with no
           // "token="/Bearer/apikey-shaped prefix, so pattern-based
-          // redactString() alone cannot be relied on here.
-          : `PostgREST network failure: ${redactExactSecrets(errorMessage(err), [this.apiKey, this.ingestToken])}`,
+          // redactString() alone cannot be relied on here. Secrets are
+          // passed INTO errorMessage() (redacted before truncation), never
+          // wrapped around its already-truncated output.
+          : `PostgREST network failure: ${errorMessage(err, [this.apiKey, this.ingestToken])}`,
       );
     } finally {
       clearTimeout(timer);

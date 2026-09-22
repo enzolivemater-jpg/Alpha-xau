@@ -823,6 +823,87 @@ for (const field of ['maxCandidates', 'lane', 'processorVersion', 'orchestratorV
 }
 
 // ---------------------------------------------------------------------
+// SECURITY FIX (ROOT CAUSE) — second independent-review pass on the same
+// PR: the first fix redacted BOTH known secrets, but errorMessage()
+// still truncated to MAX_ERROR_DETAIL_LENGTH (400 chars) BEFORE the
+// caller applied redactExactSecrets() to its (already-truncated) output.
+// If a secret straddled the 400-char boundary, only a PARTIAL fragment
+// of it remained inside the truncated string, that fragment no longer
+// equals the full secret, so the exact-value `.split(secret)` pass
+// silently failed to match it — the leaking fragment survived into
+// FAILED.safeErrorMessage and the structured HTTP 200 report.
+//
+// Fixed by passing the exact-secret list INTO errorMessage() itself and
+// reordering it to: exact-redact -> pattern-redact -> truncate (LAST).
+// The Bearer pattern was also widened from [A-Za-z0-9._-] to the
+// token68 charset [A-Za-z0-9._~+/-] plus trailing "=" padding, since a
+// token containing +, / or ~ was previously only partially matched.
+//
+// These three cases exercise the REAL end-to-end runtime path (fetch
+// failure -> PostgrestEventImpactShadowDb -> EI-5
+// FAILED.safeErrorMessage -> HTTP report), not a bare helper-function
+// unit test, so the actual protected path is what gets proven.
+// ---------------------------------------------------------------------
+{
+  // G. Fake SUPABASE_SERVICE_ROLE_KEY deliberately straddling the
+  //    400-char MAX_ERROR_DETAIL_LENGTH boundary: "Error: " (7 chars) +
+  //    padding sized so the secret starts 5 chars before the boundary,
+  //    guaranteeing under the OLD (truncate-then-redact) ordering that
+  //    only the secret's first 5 characters would survive truncation —
+  //    a fragment too short to equal the full secret, so the old
+  //    exact-value pass would have missed it entirely.
+  const PREFIX_LEN = 'Error: '.length;
+  const STRADDLE_OFFSET = 5;
+  const padding = 'x'.repeat(400 - PREFIX_LEN - STRADDLE_OFFSET);
+  const leakingFragment = SERVICE_ROLE_KEY.slice(0, STRADDLE_OFFSET);
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1)], {
+    perItemNetworkFailure: { eventVersionId: EV1, message: `${padding}${SERVICE_ROLE_KEY}` },
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1] }) }), ENV,
+  ));
+  const text = await res.text();
+  t('SECURITY FIX G) SUPABASE_SERVICE_ROLE_KEY à cheval sur la limite de troncature => secret complet absent', res.status === 200 && !text.includes(SERVICE_ROLE_KEY));
+  t('SECURITY FIX G) le fragment de 5 caractères qui fuyait avec l\'ancienne implémentation (troncature avant redaction) n\'apparaît plus', !text.includes(leakingFragment));
+}
+{
+  // H. Same straddle proof for INGEST_TOKEN — the exact gap the FIRST
+  //    review pass fixed for the "no prefix" case; this proves it also
+  //    holds at the truncation boundary, the SECOND review pass's gap.
+  const PREFIX_LEN = 'Error: '.length;
+  const STRADDLE_OFFSET = 5;
+  const padding = 'x'.repeat(400 - PREFIX_LEN - STRADDLE_OFFSET);
+  const leakingFragment = INGEST_TOKEN.slice(0, STRADDLE_OFFSET);
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1)], {
+    perItemNetworkFailure: { eventVersionId: EV1, message: `${padding}${INGEST_TOKEN}` },
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1] }) }), ENV,
+  ));
+  const text = await res.text();
+  t('SECURITY FIX H) INGEST_TOKEN à cheval sur la limite de troncature => secret complet absent', res.status === 200 && !text.includes(INGEST_TOKEN));
+  t('SECURITY FIX H) le fragment de 5 caractères qui fuyait avec l\'ancienne implémentation n\'apparaît plus', !text.includes(leakingFragment));
+}
+{
+  // I. Authorization: Bearer token containing +, / and ~ (token68 chars
+  //    the OLD [A-Za-z0-9._-] class did not recognize) plus trailing "="
+  //    padding. Under the old regex, matching stopped at the first
+  //    unrecognized character, leaving the remainder — including the
+  //    padding — as literal unredacted text.
+  const BEARER_TOKEN = 'FAKE+BEARER/TOKEN~VALUE==';
+  const leakingTail = '+BEARER/TOKEN~VALUE==';
+  const { fakeFetch } = makeFakeFetch([makeEventVersion(EV1)], {
+    perItemNetworkFailure: { eventVersionId: EV1, message: `upstream rejected request: Authorization: Bearer ${BEARER_TOKEN}` },
+  });
+  const res = await withFakeFetch(fakeFetch, () => handleEventImpactShadowRequest(
+    makeRequest({ headers: AUTH_HEADERS, bodyText: JSON.stringify({ eventVersionIds: [EV1] }) }), ENV,
+  ));
+  const text = await res.text();
+  t('SECURITY FIX I) Authorization: Bearer <token avec +, / et ~> => valeur complète absente', res.status === 200 && !text.includes(BEARER_TOKEN));
+  t('SECURITY FIX I) le fragment (incluant le padding "=") qui fuyait avec l\'ancienne regex Bearer n\'apparaît plus', !text.includes(leakingTail));
+}
+
+// ---------------------------------------------------------------------
 // AD covered above (auth success path). Additional check: even on error
 // responses, no secret leaks.
 // ---------------------------------------------------------------------
