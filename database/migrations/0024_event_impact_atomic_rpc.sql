@@ -270,6 +270,9 @@ BEGIN
   -- explicite — équivalence automatique. Tri déterministe par
   -- (horizon, interpretation_key, interpretation_role) : l'ordre du
   -- tableau d'entrée n'affecte jamais la forme canonique.
+  -- La confiance est normalisée à NUMERIC(5,4), comme la colonne
+  -- 0023 : sinon un premier INSERT arrondit 0.123456 à 0.1235 et
+  -- son rejeu strictement identique serait refusé à tort.
   -- ---------------------------------------------------------------
   SELECT COALESCE(jsonb_agg(
     jsonb_build_object(
@@ -299,7 +302,7 @@ BEGIN
         item ->> 'magnitude_unit'                        AS magnitude_unit,
         item ->> 'magnitude_basis'                        AS magnitude_basis,
         item ->> 'confidence_state'                        AS confidence_state,
-        (item ->> 'confidence_value')::NUMERIC               AS confidence_value,
+        (item ->> 'confidence_value')::NUMERIC(5,4)          AS confidence_value,
         item ->> 'pricing_state'                               AS pricing_state,
         item ->> 'rationale'                                    AS rationale
       FROM jsonb_array_elements(p_interpretations) AS item
