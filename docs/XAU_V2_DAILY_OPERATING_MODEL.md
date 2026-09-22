@@ -244,23 +244,30 @@ competing interpretations** when analysts or sources disagree on what an
 event means.
 
 The Event Impact object described above belongs at **EVENT VERSION**
-level (§ 5). The Event Cluster/Event Version foundation this object
-would attach to now exists and is live-proven (§ 5) — but that upstream
-existence does not by itself advance Event Impact: **the institutional
-Event Impact object remains `NOT_IMPLEMENTED` as an end-to-end stage** —
-there is no single object, tied to a specific event version, that
-carries direction/magnitude/confidence/horizon/pricing together today,
-and no implementation work on Event Impact itself has been built or
-approved. The Committee's per-scenario direction/confidence/horizon
-fields are real, but they belong to a scenario, not to a versioned
-event, and must not be read as if they were already the target Event
-Impact object.
+level (§ 5). Its implementation is now **`PARTIAL`** and deliberately
+separated into reviewed layers:
 
-**TARGET EVENT IMPACT OBJECT:** `NOT_IMPLEMENTED`
+- the append-only Event Impact schema is live (`event_impact_assessments`
+  and `event_impact_interpretations`);
+- the single atomic parent-first persistence RPC is live and replay-safe;
+- the deterministic domain processor is pure and fail-closed. With the
+  current canonical Event Version state (`event_type`, `subject`,
+  `detail`) and no Gold Transmission evidence, it returns
+  `INSUFFICIENT_EVIDENCE` with zero interpretations rather than inventing
+  a direction, horizon, magnitude, confidence, or pricing state.
 
-**CURRENT FOUNDATIONS / PRECURSORS:** `PARTIAL` — the following exist
-today and are usable building blocks, but are not yet assembled into one
-event-version-level Event Impact object:
+There is still no Event Impact orchestration/runtime, no automatic
+processing, and no persisted production assessment. Therefore Event
+Impact is **not yet implemented end to end**. The Committee's
+per-scenario direction/confidence/horizon fields remain scenario-level
+signals and must not be read or copied as Event Impact.
+
+**TARGET EVENT IMPACT OBJECT:** `PARTIAL` — schema + atomic persistence +
+pure deterministic domain contract; runtime/orchestration/live proof still
+missing.
+
+**CURRENT FOUNDATIONS / PRECURSORS:** the following legacy signals still
+exist but are not inputs to the Event Impact processor:
 - legacy article-level `gold_direction_impact` (a per-article directional
   tag in the legacy news schema)
 - legacy transmission metadata (the scoring engine's keyword-rule channel
@@ -269,10 +276,10 @@ event-version-level Event Impact object:
   per-event-version)
 
 Status by dimension:
-- **direction, confidence, horizon**: `PARTIAL` — real precursor signals
-  exist (legacy `gold_direction_impact`, and the Committee's per-scenario
-  direction/probability/horizon fields), but none of them are yet
-  expressed as a single event-version-level Event Impact object.
+- **direction, confidence, horizon**: `PARTIAL` at schema-contract level,
+  but intentionally unpopulated by deterministic V1. `UNKNOWN` remains a
+  valid future structured result; it is never silently replaced by
+  `NEUTRAL`.
 - **magnitude**: `NOT_IMPLEMENTED`. There is no populated, distinct
   event-level magnitude field today. The legacy news schema carries an
   `expected_move_usd` type, but current scoring deliberately leaves it
@@ -903,7 +910,7 @@ differ.
 | Event version | `PARTIAL` — implemented and live-proven (manual runtime only; see § 5) |
 | Novelty / confirmation / correction / reversal classification | `PARTIAL` — `NOVELTY` implemented and live-proven; `CONFIRMATION`/`CORRECTION`/`REVERSAL` exist in the fixed vocabulary but have no live-exercised example yet |
 | Source independence tracking | `PARTIAL` — `SINGLE_EDITORIAL_ORIGIN` implemented and live-observed; the other three states exist in the fixed vocabulary but have no live-exercised example yet |
-| Event Impact object (EVENT VERSION-level direction/magnitude/confidence/horizon/pricing) | `NOT_IMPLEMENTED`, with `PARTIAL` precursor signals only (legacy `gold_direction_impact`, legacy transmission metadata, Committee scenario direction/confidence/horizon) |
+| Event Impact object (EVENT VERSION-level direction/magnitude/confidence/horizon/pricing) | `PARTIAL` — live append-only schema and atomic replay-safe RPC; pure deterministic V1 domain processor returns explicit `INSUFFICIENT_EVIDENCE` without Gold Transmission evidence; orchestration/runtime/live assessment proof still missing |
 | Event magnitude | `NOT_IMPLEMENTED` |
 | Gold transmission (structured, always-populated) | `PARTIAL` |
 | Pricing model | `NOT_IMPLEMENTED` |
@@ -937,9 +944,9 @@ planning.**
 **That sequence is now historical, not the current next step.**
 Resource Registry and this Daily Operating Model both already exist, and
 OPS-023's RAW → Event Cluster → Event Version implementation work (§ 5)
-is complete and live-proven. The current next architecture stage is
-**Event Impact** (§ 6), not "OPS-023 implementation planning" as an
-open item.
+is complete and live-proven. Event Impact is now partially implemented
+as described in § 6; its next controlled substep is orchestration/shadow
+runtime, not "OPS-023 implementation planning" and not Gold Transmission.
 
 This document does not re-litigate the resource registry's evidence
 states, architecture dispositions, or standing decisions — it assumes
