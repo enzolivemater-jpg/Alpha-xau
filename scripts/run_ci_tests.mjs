@@ -42,6 +42,7 @@ const TEST_FILES = [
   'tests/test_event_identity_claim_contract.mjs',
   'tests/test_event_impact_atomic_rpc.mjs',
   'tests/test_event_impact_deterministic_processor.mjs',
+  'tests/test_event_impact_shadow_orchestrator.mjs',
   'tests/test_event_membership_reassign_contract.mjs',
   'tests/test_event_membership_supersession_contract.mjs',
   'tests/test_event_rpc_contract.mjs',

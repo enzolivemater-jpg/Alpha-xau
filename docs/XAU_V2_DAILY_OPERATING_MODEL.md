@@ -254,17 +254,21 @@ separated into reviewed layers:
   current canonical Event Version state (`event_type`, `subject`,
   `detail`) and no Gold Transmission evidence, it returns
   `INSUFFICIENT_EVIDENCE` with zero interpretations rather than inventing
-  a direction, horizon, magnitude, confidence, or pricing state.
+  a direction, horizon, magnitude, confidence, or pricing state;
+- the controlled shadow orchestrator accepts exactly one explicit Event
+  Version id, invokes that processor, derives domain-separated deterministic
+  fingerprints, persists through the single atomic RPC, and verifies the
+  persisted parent/zero-child result. It performs no discovery.
 
-There is still no Event Impact orchestration/runtime, no automatic
-processing, and no persisted production assessment. Therefore Event
-Impact is **not yet implemented end to end**. The Committee's
+There is still no Event Impact batch/runtime route, no automatic processing,
+and no persisted production assessment. Therefore Event Impact is **not yet
+implemented end to end**. The Committee's
 per-scenario direction/confidence/horizon fields remain scenario-level
 signals and must not be read or copied as Event Impact.
 
 **TARGET EVENT IMPACT OBJECT:** `PARTIAL` — schema + atomic persistence +
-pure deterministic domain contract; runtime/orchestration/live proof still
-missing.
+pure deterministic domain contract + single-version shadow orchestration;
+controlled batch/runtime and persisted live replay proof still missing.
 
 **CURRENT FOUNDATIONS / PRECURSORS:** the following legacy signals still
 exist but are not inputs to the Event Impact processor:
@@ -910,7 +914,7 @@ differ.
 | Event version | `PARTIAL` — implemented and live-proven (manual runtime only; see § 5) |
 | Novelty / confirmation / correction / reversal classification | `PARTIAL` — `NOVELTY` implemented and live-proven; `CONFIRMATION`/`CORRECTION`/`REVERSAL` exist in the fixed vocabulary but have no live-exercised example yet |
 | Source independence tracking | `PARTIAL` — `SINGLE_EDITORIAL_ORIGIN` implemented and live-observed; the other three states exist in the fixed vocabulary but have no live-exercised example yet |
-| Event Impact object (EVENT VERSION-level direction/magnitude/confidence/horizon/pricing) | `PARTIAL` — live append-only schema and atomic replay-safe RPC; pure deterministic V1 domain processor returns explicit `INSUFFICIENT_EVIDENCE` without Gold Transmission evidence; orchestration/runtime/live assessment proof still missing |
+| Event Impact object (EVENT VERSION-level direction/magnitude/confidence/horizon/pricing) | `PARTIAL` — live append-only schema and atomic replay-safe RPC; pure deterministic V1 processor and explicit single-version shadow orchestrator; controlled batch/runtime and persisted live replay proof still missing |
 | Event magnitude | `NOT_IMPLEMENTED` |
 | Gold transmission (structured, always-populated) | `PARTIAL` |
 | Pricing model | `NOT_IMPLEMENTED` |
@@ -945,8 +949,9 @@ planning.**
 Resource Registry and this Daily Operating Model both already exist, and
 OPS-023's RAW → Event Cluster → Event Version implementation work (§ 5)
 is complete and live-proven. Event Impact is now partially implemented
-as described in § 6; its next controlled substep is orchestration/shadow
-runtime, not "OPS-023 implementation planning" and not Gold Transmission.
+as described in § 6; its next controlled substep is an explicit bounded
+batch/runtime plus replay/live proof, not "OPS-023 implementation planning"
+and not Gold Transmission.
 
 This document does not re-litigate the resource registry's evidence
 states, architecture dispositions, or standing decisions — it assumes
