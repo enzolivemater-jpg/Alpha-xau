@@ -65,6 +65,7 @@ import {
   type RecalcScope,
 } from './ai_engine/committee_orchestrator.js';
 import { handleEventShadowRequest, handleEventShadowDiscoverRequest } from './event_engine/shadow_runtime.js';
+import { handleEventImpactShadowRequest } from './event_impact/shadow_runtime.js';
 
 /**
  * Environnement consolidé du Worker. Toutes les valeurs proviennent des
@@ -177,6 +178,11 @@ export default {
     // compatible. Automatic candidate discovery is PR8 (above); cron
     // wiring remains explicitly out of scope for both endpoints.
     if (path === '/event-shadow') return handleEventShadowRequest(request, env);
+    // EI-6 — Event Impact controlled manual runtime bridge (EI-5). Exact
+    // match only — deliberately NOT startsWith('/event-impact-shadow'), no
+    // sub-routes, no discovery equivalent, and deliberately NOT wired into
+    // scheduled()/resolveJob()/JobName below: manual only.
+    if (path === '/event-impact-shadow') return handleEventImpactShadowRequest(request, env);
 
     if (path.startsWith('/health')) {
       return new Response(
