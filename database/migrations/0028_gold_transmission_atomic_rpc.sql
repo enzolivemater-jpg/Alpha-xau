@@ -188,7 +188,8 @@ BEGIN
     END IF;
 
     SELECT count(*) INTO v_existing_path_count
-      FROM public.gold_transmission_paths WHERE assessment_id = v_existing.id;
+      FROM public.gold_transmission_paths AS existing_path
+     WHERE existing_path.assessment_id = v_existing.id;
     SELECT count(*) INTO v_existing_evidence_count
       FROM public.gold_transmission_driver_evidence AS gtde
       JOIN public.gold_transmission_paths AS gtp ON gtp.id = gtde.path_id
