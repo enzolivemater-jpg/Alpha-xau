@@ -171,21 +171,37 @@ similar.
 
 ## 6. Canonical release identity output
 
-A successful future resolver produces exactly the fields already consumed
-by the Event processor's curated strong-identity boundary:
+A successful future **pure resolver** produces a release identity proposal
+with exactly these three fields:
+
+```json
+{
+  "authorityNamespace": "xau_v2:official_release:<authority>:v1",
+  "identityType": "<reviewed_strategy>:<strategy_version>",
+  "identityValue": "<canonical_release_identity_json>"
+}
+```
+
+This proposal is **not yet** a `StrongIdentityContext`. A later
+orchestrator performs an exact active-claim lookup for the resulting
+strong-identity key and only then constructs the existing Event processor
+input:
 
 ```json
 {
   "kind": "CURATED_STRONG_IDENTITY",
-  "authorityNamespace": "xau_v2:official_release:<authority>:v1",
-  "identityType": "<reviewed_strategy>:<strategy_version>",
-  "identityValue": "<canonical_release_identity_json>",
-  "candidateClusterIds": []
+  "authorityNamespace": "<proposal.authorityNamespace>",
+  "identityType": "<proposal.identityType>",
+  "identityValue": "<proposal.identityValue>",
+  "candidateClusterIds": ["<exact active claim cluster id, when one exists>"]
 }
 ```
 
-`candidateClusterIds` is populated by a later exact database lookup, not by
-the pure identity resolver. The resolver never guesses a cluster id.
+The pure resolver never emits, defaults, or guesses `candidateClusterIds`.
+In particular, the orchestrator must not substitute an empty array when
+the lookup was skipped, failed, timed out, or returned a malformed result.
+Doing so could incorrectly plan `CREATE_NEW_CLUSTER` for an identity that
+already exists.
 
 ### 6.1 `authorityNamespace`
 
@@ -284,6 +300,23 @@ as safe CES V2 processing. `NONE` remains valid for legacy V1 event flow,
 but CES V2 activation requires a resolved release identity.
 
 ## 8. Grouping and version semantics
+
+### 8.0 Exact active-claim lookup
+
+After a `RESOLVED` proposal, the later orchestrator derives the exact
+strong-identity key using the existing database formula and reads active
+claims only:
+
+- 0 active claims -> `candidateClusterIds: []`; the Event processor may
+  plan a new cluster plus the exact identity claim proposal;
+- 1 active claim -> `candidateClusterIds: [cluster_id]`; the Event
+  processor may assign the observation to that exact cluster;
+- more than 1 active claim -> explicit invariant/corruption failure;
+- lookup unavailable, malformed, or ambiguous -> fail closed; never
+  substitute 0 candidates.
+
+Lookup is exact by strong-identity key. It never scans titles, URLs,
+metrics, periods, timestamps, or neighboring clusters.
 
 ### 8.1 Same identity
 
@@ -401,8 +434,9 @@ EF-1 does not change:
 - runtime routes, cron, deployment, or secrets.
 
 The future EF-2 adapter must map reviewed official source evidence into
-this contract. A later runtime milestone must perform exact active-claim
-lookup and pass `candidateClusterIds` to the existing Event processor.
+this contract. A later runtime milestone must perform §8.0's exact
+active-claim lookup and only then construct the existing
+`StrongIdentityContext` passed to the Event processor.
 
 ## 14. Required source-specific tests
 
