@@ -1,0 +1,41 @@
+{
+  "source": {
+    "authority": "US_BLS",
+    "provider": "bls",
+    "sourceCode": "bls_cpi_release",
+    "sourceDomain": "bls.gov"
+  },
+  "release": {
+    "releaseFamily": "US_CPI",
+    "releaseStage": "SINGLE",
+    "releaseId": "USDL-26-1496",
+    "headerTitle": "CONSUMER PRICE INDEX - AUGUST 2026",
+    "publicReleaseAtRaw": "8:30 a.m. (ET) Friday, September 11, 2026",
+    "archivePath": "/news.release/archives/cpi_09112026.htm"
+  },
+  "table1": {
+    "artifactPath": "/cpi/tables/supplemental-files/news-release-table1-202608.xlsx",
+    "tableTitle": "Table 1. Consumer Price Index for All Urban Consumers (CPI-U): U.S. city average, by expenditure category, August 2026",
+    "referencePeriod": {
+      "kind": "MONTH",
+      "year": 2026,
+      "month": 8
+    },
+    "columns": {
+      "unadjustedYoY": "Aug. 2025-Aug. 2026",
+      "seasonallyAdjustedMoM": "Jul. 2026-Aug. 2026"
+    },
+    "rows": [
+      {
+        "expenditureCategory": "All items",
+        "unadjustedYoY": 3.4,
+        "seasonallyAdjustedMoM": 0.4
+      },
+      {
+        "expenditureCategory": "All items less food and energy",
+        "unadjustedYoY": 2.4,
+        "seasonallyAdjustedMoM": 0.3
+      }
+    ]
+  }
+}
