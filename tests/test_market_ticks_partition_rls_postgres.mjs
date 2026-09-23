@@ -52,8 +52,9 @@ console.log('PASS direct child-table reads fail closed without child policies');
 
 assert.equal(sql("SELECT public.fn_create_market_ticks_partition('2026-10-01');"), 'market_ticks_2026_10 (created)');
 assert.equal(sql("SELECT relrowsecurity FROM pg_class WHERE oid='public.market_ticks_2026_10'::regclass;"), 't');
+sql('GRANT SELECT ON public.market_ticks_2026_10 TO anon, authenticated;');
 assert.equal(sql("SET ROLE anon; SELECT count(*) FROM public.market_ticks_2026_10;"), '0');
-console.log('PASS future partitions are born with RLS and fail closed directly');
+console.log('PASS future partitions are born with RLS and fail closed directly even when granted');
 
 assert.equal(sql("ALTER TABLE public.market_ticks_2026_10 DISABLE ROW LEVEL SECURITY; SELECT public.fn_create_market_ticks_partition('2026-10-01');"), 'market_ticks_2026_10 (already exists)');
 assert.equal(sql("SELECT relrowsecurity FROM pg_class WHERE oid='public.market_ticks_2026_10'::regclass;"), 't');
