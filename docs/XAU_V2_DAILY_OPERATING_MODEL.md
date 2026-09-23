@@ -336,8 +336,12 @@ replay-safe persistence RPC are now live. A pure deterministic V1 processor
 validates one Event Version and returns `INSUFFICIENT_EVIDENCE` with zero paths
 because Canonical Event State V1 has no typed actual/forecast/previous/unit
 facts; it never mines prose for a directional chain. There is still no runtime
-wiring and no persisted production assessment. Model R remains separate and
-deferred. See `docs/XAU_V2_GOLD_TRANSMISSION_GT0_CLOSURE.md`.
+wiring and no persisted production assessment. A controlled shadow adapter can
+process exactly one explicit Event Version, derive domain-separated
+fingerprints, persist only the reviewed zero-path plan through the atomic RPC,
+and verify its read-back; it performs no discovery or implicit retry. Model R
+remains separate and deferred. See
+`docs/XAU_V2_GOLD_TRANSMISSION_GT0_CLOSURE.md`.
 
 ---
 
