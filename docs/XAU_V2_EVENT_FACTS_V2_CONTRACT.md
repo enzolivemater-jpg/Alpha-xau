@@ -261,10 +261,12 @@ computed on demand by a consumer, never persisted, for the same
 "cannot become internally inconsistent" reason `surprise` is never
 persisted (§10).
 
-`prior_periods` may contain zero, one, or multiple entries. It is
-required (as a non-empty array) exactly for release families where a
-single official publication restates more than one prior period — NFP
-being the canonical case (§15 example C).
+`prior_periods` is always present on every CES V2 metric. It may be
+`[]` only when the current release restates no earlier period for that
+metric. It **must be non-empty whenever this release explicitly restates
+at least one earlier period** for that metric, and it may contain one or
+multiple entries. Non-emptiness never depends on whether a release family
+usually restates one period or several.
 
 Exact entry keys, frozen (§5bis): `reference_period`, `prior_value`,
 `revised_value` — no extra keys, no `vintage`, no `revision`.
@@ -1106,16 +1108,19 @@ reviewed:
    collector's output into this exact `facts` shape (no generic
    free-text/keyword parsing invented ad hoc), including, where
    applicable, the GDP-style staged-release identity rule (§4.1) and
-   correct `prior_periods[]` emission for release families that restate
-   more than one prior period per publication (§4.6, e.g. NFP).
+   correct `prior_periods[]` emission whenever the current release
+   explicitly restates at least one prior period for a metric (§4.6),
+   whether that means one entry or multiple entries (e.g. NFP).
 2. A reviewed decision on which `EventType`s are ever eligible to advance
    past schema version 1 (§13's initial-activation rule, and any future
    extension of it).
 3. A reviewed decision on where adapter-level evidence/provenance for a
    typed fact is stored (§11 — explicitly not CES, not designed here),
-   including `vintage`, any derived `revision`, and a future consensus
-   provider's `provider_observed_at`/`authoritative_official_public_
-   release_at` evidence (§9.1).
+   including any future-needed `vintage` or release-observation timestamps
+   and a future consensus provider's `provider_observed_at`/
+   `authoritative_official_public_release_at` evidence (§9.1). `revision`
+   remains derived on demand from `prior_value`/`revised_value` and is
+   never persisted in CES or in that evidence storage.
 4. A reviewed, additive-only migration that extends `canonical_event_
    state_schema_version` handling wherever it is currently gated to
    exactly `1` — including, explicitly, the EI-3 and GT-3 `SUPPORTED_*`
