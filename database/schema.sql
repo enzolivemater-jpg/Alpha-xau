@@ -317,18 +317,34 @@ CREATE INDEX idx_market_ticks_source_created
 CREATE OR REPLACE FUNCTION fn_create_market_ticks_partition(p_month DATE)
 RETURNS TEXT
 LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
 AS $$
 DECLARE
-  v_start DATE := date_trunc('month', p_month)::DATE;
-  v_end   DATE := (date_trunc('month', p_month) + INTERVAL '1 month')::DATE;
-  v_name  TEXT := format('market_ticks_%s', to_char(v_start, 'YYYY_MM'));
+  v_start DATE := pg_catalog.date_trunc('month', p_month)::DATE;
+  v_end   DATE := (pg_catalog.date_trunc('month', p_month) + INTERVAL '1 month')::DATE;
+  v_name  TEXT := pg_catalog.format('market_ticks_%s', pg_catalog.to_char(v_start, 'YYYY_MM'));
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = v_name) THEN
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class AS c
+      JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = v_name
+  ) THEN
+    EXECUTE pg_catalog.format(
+      'ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',
+      v_name
+    );
     RETURN v_name || ' (already exists)';
   END IF;
-  EXECUTE format(
-    'CREATE TABLE %I PARTITION OF market_ticks FOR VALUES FROM (%L) TO (%L)',
+  EXECUTE pg_catalog.format(
+    'CREATE TABLE public.%I PARTITION OF public.market_ticks FOR VALUES FROM (%L) TO (%L)',
     v_name, v_start, v_end
+  );
+  EXECUTE pg_catalog.format(
+    'ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',
+    v_name
   );
   RETURN v_name || ' (created)';
 END;
@@ -341,6 +357,7 @@ FROM generate_series(-2, 6) AS n;
 -- Filet de sécurité : aucune ingestion ne doit jamais échouer sur un
 -- trou de partition. À vider régulièrement (les lignes y sont non triées).
 CREATE TABLE market_ticks_default PARTITION OF market_ticks DEFAULT;
+ALTER TABLE market_ticks_default ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------
 -- 4 BIS. OBSERVABILITÉ DE L'INGESTION — ingestion_runs
