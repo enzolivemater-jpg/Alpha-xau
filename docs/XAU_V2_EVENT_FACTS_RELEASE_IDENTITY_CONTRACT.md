@@ -264,6 +264,24 @@ The existing database identity claim machinery hashes
 byte-level canonical stability is required before any database lookup or
 claim assertion.
 
+### 6.4 Existing strong-identity key compatibility
+
+The later orchestrator uses the already-deployed identity-claim formula,
+unchanged:
+
+```text
+lowercase_hex_sha256(
+  authorityNamespace || U+001F || identityType || U+001F || identityValue
+)
+```
+
+`U+001F` is the existing unit-separator byte used by the database
+contract. Namespace and type grammars are ASCII and cannot contain it;
+the canonical JSON serializer escapes control characters inside JSON
+strings, so `identityValue` cannot inject a literal separator byte. No
+caller trims, case-folds, reparses, or otherwise normalizes any of the
+three fields after the pure resolver emits them.
+
 ## 7. Resolver result states
 
 A future pure resolver returns one of these explicit states:
