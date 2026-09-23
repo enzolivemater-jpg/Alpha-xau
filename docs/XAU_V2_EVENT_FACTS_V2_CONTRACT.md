@@ -74,6 +74,11 @@ does not change either of them.
 
 ## 3. Exact V2 JSON contract
 
+**Review fix (second pass): `reference_period` moved from the release
+level into each metric object** — see §4.5 for why a single
+release-level period is not safe for multi-metric releases whose metrics
+can reference different underlying periods.
+
 ```json
 {
   "event_type": "STATISTICAL_RELEASE",
@@ -81,10 +86,10 @@ does not change either of them.
   "detail": null,
   "facts": {
     "release_family": "US_CPI",
-    "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
     "metrics": [
       {
         "metric_code": "CPI_HEADLINE_MOM",
+        "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
         "unit": "PERCENT_CHANGE_MOM",
         "actual": { "state": "KNOWN", "value": "0.3" },
         "consensus": { "state": "UNKNOWN", "value": null },
@@ -102,7 +107,8 @@ same types, same normalization rules
 URLs/timestamps/Gold analytical fields. `facts` is the only addition.
 `facts` is present if and only if `canonical_event_state_schema_version
 = 2` (see §14 for the rejection case where it is absent or malformed at
-that schema version).
+that schema version). Exact allowed keys at every level are frozen in
+§5bis — no additional key is ever permitted anywhere in this contract.
 
 ## 4. Field definitions
 
@@ -119,26 +125,38 @@ adapter that introduces it, under the same review discipline as adding a
 new `EventType` value — this document does not enumerate or freeze the
 family list itself.
 
-### 4.2 `facts.reference_period`
+**GDP / staged releases (explicit rule, not deferred ambiguously):**
+GDP is published in multiple vintages for the *same* reference quarter —
+commonly an Advance estimate, a Second estimate, and a Final/Third
+estimate, each separately scheduled and separately market-moving. A
+later vintage for the same quarter is **not** modeled as a revision of
+the earlier one (§10.2's `previous_reported`/`revised_previous` pair is
+for a *later release's* restatement of an *earlier period*, not for a
+*later vintage of the same period*). Vintage **must** be part of the
+release's identity, deterministically, never inferred or silently
+ignored. EF-0 freezes only the rule, not the mechanism — a future
+source-contract milestone must choose **one** of:
+- distinct `release_family` values per vintage (e.g. `US_GDP_ADVANCE`,
+  `US_GDP_SECOND`, `US_GDP_FINAL`); or
+- a future explicit `release_stage` field, defined and reviewed in that
+  same milestone, never added ad hoc.
+Neither mechanism is implemented in EF-0.
 
-See §8 (dedicated section — this is a load-bearing distinction from
-publication time and knowledge cutoff, called out separately per the
-task).
-
-### 4.3 `facts.metrics`
+### 4.2 `facts.metrics`
 
 A **non-empty array** of metric objects. A release with exactly one
 number (e.g. a single-print release) still uses a one-element array —
 never a bare scalar shape — so a release that later reveals additional
 sub-metrics does not require a shape migration, only a longer array.
 
-Each metric object:
+### 4.3 Metric object fields
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `metric_code` | string | yes | Stable identity within this release — see §4.4 |
+| `reference_period` | object (discriminated union, §8) | yes | **Per-metric.** The period THIS metric's `actual`/`consensus`/`previous_reported`/`revised_previous` describe — see §4.5 |
 | `unit` | string (frozen enum, §7) | yes | The unit `actual`/`consensus`/`previous_reported`/`revised_previous` are expressed in |
-| `actual` | typed value (§6) | yes | The officially reported value for this reference period |
+| `actual` | typed value (§6) | yes | The officially reported value for this metric's reference period |
 | `consensus` | typed value (§6) | yes | Market consensus/forecast, see §9 boundary — `UNKNOWN` unless a reviewed provider supplies it |
 | `previous_reported` | typed value (§6) | yes | The value AS ORIGINALLY REPORTED for the prior reference period, before any later revision |
 | `revised_previous` | typed value (§6) | yes | The value for the prior reference period AFTER a revision, if the current release explicitly states one |
@@ -150,7 +168,7 @@ Each metric object:
 `metric_code` is the identity of a metric **within its own
 `facts.metrics` array** — never global, never across release families.
 Grammar: uppercase ASCII, `A-Z0-9_` only. Examples used by the mandatory
-examples in §13: `CPI_HEADLINE_MOM`, `CPI_HEADLINE_YOY`, `CPI_CORE_MOM`,
+examples in §15: `CPI_HEADLINE_MOM`, `CPI_HEADLINE_YOY`, `CPI_CORE_MOM`,
 `CPI_CORE_YOY`, `NFP_PAYROLL_CHANGE`, `UNEMPLOYMENT_RATE`, `AVG_HOURLY_
 EARNINGS_MOM`, `PRIVATE_PAYROLLS`, `U6_UNDEREMPLOYMENT_RATE`,
 `INITIAL_CLAIMS`, `CONTINUING_CLAIMS`, `CLAIMS_4WK_AVERAGE`.
@@ -162,24 +180,41 @@ Impact's `p_interpretations` in `database/migrations/
 0024_event_impact_atomic_rpc.sql`) sorts metrics deterministically by
 `metric_code` before computing any fingerprint. `metric_code` **must be
 unique within one `facts.metrics` array** — a duplicate `metric_code` in
-the same payload is malformed (§14, example F).
+the same payload is malformed (§16, example F).
+
+### 4.5 Why `reference_period` is per-metric, not per-release (review fix)
+
+A single release-level period is not safe: `US_JOBLESS_CLAIMS` alone
+demonstrates it — `INITIAL_CLAIMS`/`CONTINUING_CLAIMS` are typically
+`WEEK_ENDING`-keyed but can reference **different** underlying weeks
+(continuing claims data lags initial claims by one week in the DOL's own
+published methodology), and `CLAIMS_4WK_AVERAGE` covers a **span**, not a
+single week, ending on the same date as one of the two. Forcing one
+shared `reference_period` for the whole release would either be wrong for
+at least one metric or would silently paper over a genuine difference
+that later matters for identity and comparison. Each metric therefore
+carries its own `reference_period`, and no two metrics are assumed to
+share one merely because they appear in the same release/payload — see
+§13 for how a future release-level concept, if ever needed, is kept
+separate rather than smuggled back in here.
 
 ## 5. Invariants
 
 1. `facts` is present if and only if `canonical_event_state_schema_version
    = 2`. Schema version 1 payloads never carry `facts`; this is enforced
-   structurally, not just by convention (see §12).
+   structurally, not just by convention (see §14).
 2. `facts.metrics` is a non-empty array when `facts` is present. An empty
-   array is malformed, not a valid "no facts" representation — see §11 for
+   array is malformed, not a valid "no facts" representation — see §12 for
    how "this event type genuinely has no quantitative facts" is actually
    expressed (it is expressed by **staying at schema version 1**, not by
    an empty V2 `facts.metrics`).
 3. Every `metric_code` is unique within its `facts.metrics` array.
 4. Every typed value field (`actual`/`consensus`/`previous_reported`/
    `revised_previous`) obeys the state/value pairing in §6 — `KNOWN`
-   requires a non-null `value` matching the numeric-string grammar in
-   §6.1; `UNKNOWN` requires `value: null`. A `KNOWN` state with a `null`
-   value, or an `UNKNOWN` state with a non-null value, is malformed.
+   requires a `value` matching the canonical decimal-string grammar in
+   §6.2 exactly; `UNKNOWN` requires `value: null`. A `KNOWN` state with a
+   `null` value, or an `UNKNOWN` state with a non-null value, is
+   malformed.
 5. `actual`, `consensus`, `previous_reported`, and `revised_previous` for
    the same metric object share the same `unit` implicitly (the metric
    object has exactly one `unit` field, not one per value) — a metric
@@ -187,8 +222,33 @@ the same payload is malformed (§14, example F).
    distinct concern for a future adapter to normalize before emission,
    not something this contract represents as mixed units on one metric.
 6. `facts` never contains `effective_time`/`effective_time_precision` —
-   those remain exclusively `event_versions` columns (§12.3).
-7. `facts` never contains collector/ingestion provenance (§10).
+   those remain exclusively `event_versions` columns (§13.2).
+7. `facts` never contains collector/ingestion provenance (§11).
+8. Every JSON object in this contract (the CES V2 object itself, `facts`,
+   each metric object, each typed-value object, each
+   `reference_period` variant) contains **only** the keys listed for it
+   in §5bis — an unrecognized additional key at any level is malformed
+   (§16, example G).
+
+## 5bis. Exact key policy (review fix — new)
+
+Frozen exactly, for deterministic canonicalization/fingerprinting. No
+level in this contract ever tolerates an unlisted key.
+
+| Object | Exact allowed keys |
+|---|---|
+| CES V2 top-level object (schema version 2) | `event_type`, `subject`, `detail`, `facts` |
+| `facts` | `release_family`, `metrics` |
+| metric object | `metric_code`, `reference_period`, `unit`, `actual`, `consensus`, `previous_reported`, `revised_previous` |
+| typed-value object | `state`, `value` |
+| `reference_period` (`kind: "MONTH"`) | `kind`, `year`, `month` |
+| `reference_period` (`kind: "QUARTER"`) | `kind`, `year`, `quarter` |
+| `reference_period` (`kind: "WEEK_ENDING"`) | `kind`, `date` |
+| `reference_period` (`kind: "DATE"`) | `kind`, `date` |
+
+(CES V1's top-level object keeps its already-frozen V1 key set —
+`event_type`, `subject`, `detail`, no `facts` — unchanged by this
+document.)
 
 ## 6. Null / unknown semantics — critical
 
@@ -221,37 +281,69 @@ it was not. *Why* it was not (no reviewed provider exists at all, vs. the
 adapter ran and could not parse this specific field this cycle) is
 provenance/diagnostic information, not a canonical factual state, and
 belongs to a future evidence/adapter-log concern explicitly kept outside
-CES (§10) — never a third value squeezed into the canonical fact itself.
+CES (§11) — never a third value squeezed into the canonical fact itself.
 
-### 6.2 Canonical numeric representation
+### 6.2 Canonical decimal normalization (review fix — was underspecified)
 
-`value` (when `state = "KNOWN"`) is always a **JSON string**, never a JSON
-number, matching exactly:
+The earlier draft of this contract described a decimal-string *grammar*
+but did not force a single canonical output for a given numeric meaning
+— `"0.30"` and `"0.3"` both matched it, which would let the same economic
+value produce two different CES fingerprints depending on incidental
+source formatting. That is fixed here with one exact, mandatory
+normalization rule. **The canonical value represents numeric meaning
+only — it is never a preservation of the source's original lexical
+precision.** (If preserving exactly how a source formatted a number is
+ever useful, that belongs to future non-canonical provenance/evidence,
+§11 — never to CES. This document does not claim both "canonical" and
+"preserves source precision" — those are incompatible, and canonical
+wins.)
+
+**Canonicalization algorithm** (applied by the adapter before a value is
+ever written to `facts`):
+
+1. Parse the source's reported numeric sign, integer part, and
+   fractional part.
+2. Strip leading zeros from the integer part, keeping a single `0` if
+   the integer part would otherwise be empty.
+3. Strip trailing zeros from the fractional part. If the fractional part
+   becomes empty, drop the decimal point entirely (no trailing `.`).
+4. If the resulting numeric value is arithmetically zero (regardless of
+   the source's original sign), the canonical form is the bare string
+   `"0"` — **never** `"-0"` or `"-0.0"`. Negative zero has no canonical
+   representation other than unsigned zero.
+5. Otherwise, keep the sign exactly as reported (a leading `-` only for
+   a genuinely negative, non-zero value).
+
+**Canonical output grammar** (what a stored `value` MUST match — this is
+a validated invariant, not merely descriptive):
 
 ```
-^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$
 ```
 
-- No thousands separators, no `%` sign, no unit suffix (`"4.1"`, never
-  `"4,1%"`, `"200K"`, or `"3 million"` — those are exactly what this
-  contract exists to reject).
-- No leading `+`, no leading zeros other than a bare `"0"`, no exponential
-  notation.
-- The decimal-string form is chosen specifically over a JSON number to
-  avoid floating-point round-tripping and JSON-serialization
-  non-determinism (e.g. `0.30` vs `0.3` vs IEEE-754 representation drift)
-  becoming a **fingerprint-instability** bug the same class as the GT-6
-  secret-redaction truncation-ordering defect fixed earlier in this
-  program — a canonical string is trivially stable under
-  `JSON.stringify`/re-parse and trivially validated by the regex above.
-- The contract does **not** mandate a fixed number of decimal places —
-  an adapter preserves exactly the precision the official source actually
-  reported (e.g. unemployment rate to one decimal, average hourly
-  earnings sometimes to two) rather than the contract inventing or
-  stripping precision.
-- `THOUSANDS_OF_PERSONS`/`PERSONS`-unit values (see §7) still use this
-  same decimal-string grammar — the *unit* says "thousands," the *value*
-  is not scaled/formatted by the contract.
+together with the explicit zero-sign rule from step 4 above (the regex
+alone permits the syntax `-0`; the additional rule forbids it as a
+stored value — no negative-zero string is ever canonical).
+
+Worked examples (exactly the review's required cases):
+
+| Raw source input | Canonical stored value |
+|---|---|
+| `"0.30"` | `"0.3"` |
+| `"4.0"` | `"4"` |
+| `"004.10"` | `"4.1"` |
+| `"-0.0"` | `"0"` |
+| `"0.000"` | `"0"` |
+
+No thousands separators, no `%` sign, no unit suffix, no leading `+`, no
+exponential notation at any stage — those were never valid and remain
+rejected outright (they are not "non-canonical forms to normalize," they
+are malformed input an adapter must reject rather than attempt to
+interpret).
+
+`THOUSANDS_OF_PERSONS`/`PERSONS`-unit values still use this same
+canonical grammar — the *unit* says "thousands," the *value* is not
+scaled/formatted by the contract.
 
 ### 6.3 Worked absence examples (mirroring the task's own list exactly)
 
@@ -268,15 +360,13 @@ number, matching exactly:
   never assumed to be zero (no change) unless the upstream source
   explicitly states the prior value was confirmed unchanged, in which
   case the adapter emits `revised_previous` as `KNOWN` with the same
-  numeric value as `previous_reported` — an explicit fact, not an
+  canonical value as `previous_reported` — an explicit fact, not an
   absence treated as "no change."
 
 ## 7. Unit model
 
 A frozen, explicit enum — never free text, never inferred from
-`metric_code` naming alone. EF-0 freezes the following initial set;
-extending it later follows the same review discipline as extending
-`EventType` or `release_family`:
+`metric_code` naming alone.
 
 | Unit | Meaning | Example |
 |---|---|---|
@@ -288,7 +378,22 @@ extending it later follows the same review discipline as extending
 | `INDEX_POINTS` | A raw index level or index-point change | ISM Manufacturing PMI level |
 | `PERSONS` | A raw count of persons | — |
 | `THOUSANDS_OF_PERSONS` | A count of persons, reported in thousands | Nonfarm payroll change, initial/continuing claims |
-| `CURRENCY_AMOUNT` | A monetary amount — **requires** an accompanying `currency_code` (ISO 4217, e.g. `"USD"`) on the same metric object | Durable goods orders value |
+
+**Review fix — `CURRENCY_AMOUNT` removed from the initial frozen enum.**
+The earlier draft listed `CURRENCY_AMOUNT` and said it "requires
+`currency_code`" without ever adding `currency_code` to the exact metric
+schema — an incomplete, half-designed sub-contract. None of the
+first-wave EF target release families (CPI, NFP, Jobless Claims, PCE,
+ISM, JOLTS, ADP, Durable Goods, GDP) require a currency-denominated
+metric value to launch. Freezing a currency contract now, before any
+adapter actually needs it, would add complexity with no near-term
+payoff and risk exactly the kind of "implied but not fully specified"
+gap this review pass exists to close. If a future release family
+genuinely needs a currency amount, `CURRENCY_AMOUNT` (with a fully
+specified `currency_code` field — required iff `unit = CURRENCY_AMOUNT`,
+null otherwise, ISO-4217 uppercase 3-letter grammar — added to §5bis's
+exact-key table at that time) is added in that same reviewed milestone,
+never implied in advance.
 
 **Cross-unit arithmetic is forbidden.** `actual`/`consensus`/`previous_
 reported`/`revised_previous` on one metric object are only ever compared
@@ -305,7 +410,8 @@ reference period. `effective_time` is not automatically reference
 period.** A CPI report released in September commonly refers to August —
 conflating the two would silently misdate every macro release.
 
-`facts.reference_period` is a discriminated union on `kind`:
+`reference_period` (per metric object — §4.5) is a discriminated union on
+`kind`:
 
 ```json
 { "kind": "MONTH", "year": 2026, "month": 8 }
@@ -323,10 +429,10 @@ conflating the two would silently misdate every macro release.
 - `DATE`: an exact single calendar date, for releases that reference a
   specific day rather than a period (`YYYY-MM-DD`).
 
-The mapping from a release's publication time to its reference period is
-**never derived automatically** by this contract or by any generic
-processor logic — it is supplied explicitly and deterministically by the
-future source-specific adapter that knows, for that exact release family,
+The mapping from a release's publication time to each metric's reference
+period is **never derived automatically** by this contract or by any
+generic processor logic — it is supplied explicitly and deterministically
+by the future source-specific adapter that knows, for that exact metric,
 which period a given publication covers. No inference from title text, no
 "most recent completed month" heuristic.
 
@@ -354,6 +460,23 @@ Rules, unchanged from the task's own framing:
   explicitly **out of scope for EF-0** — this document defines the shape
   consensus would occupy if and when that provider exists; it does not
   authorize or imply adding one.
+
+### 9.1 Consensus as-of rule (review fix — new, explicit)
+
+Consensus is a **pre-release market-expectation fact** — it describes
+what the market expected *before* the official number existed, not a
+value that can legitimately keep changing after the fact. Any future
+authorized consensus-provider contract **must** define a deterministic
+as-of selection rule (e.g. "the last consensus reading strictly before
+the official release's `knowledge_cutoff`") as part of its own review —
+never left implicit, never "whatever the provider's API returns right
+now." A consensus value created or updated **after** the official
+release's `knowledge_cutoff` must **never** silently populate the
+canonical `consensus` field for that release — doing so would let a
+provider's post-hoc "actual consensus, cleaned up after the fact" value
+masquerade as a genuine pre-release expectation. EF-0 does not choose a
+provider or an exact time window; it freezes only that the future
+contract must choose one explicitly, deterministically, and reviewably.
 
 ## 10. Surprise / revision — derived, never canonical
 
@@ -392,9 +515,12 @@ revision = revised_previous.value - previous_reported.value
 Defined **only** when both are `"KNOWN"` for the same metric object.
 `previous_reported` and `revised_previous` are always stored as two
 **distinct** fields (never one field silently overwritten by the other —
-see invariant discussion in §6.3) precisely so this derivation is always
-possible to compute correctly when the evidence exists, and is always
-`null` — never `0` — when it does not.
+see §6.3) precisely so this derivation is always possible to compute
+correctly when the evidence exists, and is always `null` — never `0` —
+when it does not. This is a within-metric restatement of an **earlier
+period**, and is a distinct concept from a **later vintage of the same
+period** (see §4.1's GDP staged-release rule) — the two must never be
+conflated.
 
 ## 11. Provenance boundary
 
@@ -423,47 +549,52 @@ belongs to a **separate, future, non-canonical** record (the same
 applied when it kept native market-driver provenance in its own table
 rather than folding it into `event_versions`). This document does not
 design that evidence record — only states plainly that CES must never
-become it.
+become it. Source lexical numeric precision (§6.2) is exactly this kind
+of provenance, not a canonical field.
 
 ## 12. Event identity boundary
 
 EF-0 does **not** implement strong identity for macro releases. It does
 not derive, compute, or persist any release-identity value. It states
 only what a **future, separately reviewed** milestone may build on top of
-this contract without contradicting it:
+this contract without contradicting it.
 
-A deterministic macro-release identity is representable, without any
-fuzzy text similarity, from the explicit tuple:
+**Review fix:** because `reference_period` is now per-metric (§4.5), a
+future deterministic identity is more precisely representable as the
+tuple:
 
 ```
-(authority, release_family, reference_period)
+(authority, release_family, metric_code, reference_period)
 ```
 
-— e.g. `(FEDERAL_RESERVE-equivalent BLS authority, US_CPI, {MONTH, 2026,
-8})` deterministically identifies "the August 2026 US CPI release,"
-independent of exact publication title wording, exactly mirroring the
-existing strong-identity discipline in `deterministic_processor.ts` §7
-(`StrongIdentityContext` — curated-only, never discovered from title/URL/
-provider text). This document only names the tuple's shape; it does not
-implement identity resolution, does not touch `StrongIdentityContext`,
-and does not weaken the existing rule that strong identity is only ever
-*consumed* when explicitly curated, never inferred.
+— identifying "the `INITIAL_CLAIMS` figure for the week ending
+2026-09-13," for example, independent of exact publication title
+wording, exactly mirroring the existing strong-identity discipline in
+`deterministic_processor.ts` §7 (`StrongIdentityContext` — curated-only,
+never discovered from title/URL/provider text). Whether a *release-level*
+identity concept (grouping several metrics published together) is also
+needed is explicitly **not decided here** — if a future milestone needs
+one, it must be a distinctly named, separately defined concept (never a
+reintroduced shared `reference_period`), because §4.5 already
+demonstrated that metrics within one release are not guaranteed to share
+a period. This document only names the per-metric tuple's shape; it does
+not implement identity resolution, does not touch
+`StrongIdentityContext`, and does not weaken the existing rule that
+strong identity is only ever *consumed* when explicitly curated, never
+inferred.
 
 ### 12.1 EventType — no change
 
-`EventType`'s frozen six-value union is unchanged by this document. A
-future decision on whether `STATISTICAL_RELEASE` alone is CES-V2-eligible,
-or whether other types could be, is explicitly deferred (§16) — not
-decided here.
+`EventType`'s frozen six-value union is unchanged by this document.
 
 ### 12.2 Effective time — no change
 
 `event_versions.effective_time`/`effective_time_precision` remain the
-**sole** effective-time fields, unchanged, and `facts.reference_period`
-is never a substitute for them or vice versa: reference period says *what
-period the number describes*; effective time (still always `null` in V1,
-per §2) says *when the event itself took legal/factual effect*. The two
-answer different questions and are never merged.
+**sole** effective-time fields, unchanged, and per-metric `reference_
+period` is never a substitute for them or vice versa: reference period
+says *what period the number describes*; effective time (still always
+`null` in V1, per §2) says *when the event itself took legal/factual
+effect*. The two answer different questions and are never merged.
 
 ### 12.3 No competing canonical table
 
@@ -475,26 +606,32 @@ for source adapters is a distinct, later, non-canonical concern (§11) —
 never a second table that could disagree with CES about what the facts
 are.
 
-## 13. Event types without quantitative facts — decision
+## 13. Event types without quantitative facts — initial activation rule (review fix)
 
-**Decision: Option A.** CES V2 (`facts` present, schema version 2)
-applies only to events that genuinely carry a typed quantitative payload.
-Every other event type — speeches, sanctions actions, qualitative
-central-bank communication, and any `STATISTICAL_RELEASE` for which no
-reviewed adapter yet exists — **remains CES schema version 1**,
-unconditionally, exactly as today.
+**Review fix:** the earlier draft said non-quantitative events remain CES
+V1 "permanently/unconditionally" in one section while another section
+deferred future V2 eligibility — an internal contradiction. Corrected
+rule, stated once, consistently:
 
-**Why not Option B** (an explicit typed "no quantitative facts" state):
-it would force every non-quantitative event through a schema-version
-bump and an empty/placeholder `facts` shape for no informational gain —
-exactly the "fake empty facts and unnecessary schema churn" the task
-warned against. Schema version itself already carries this information
-for free: schema version 1 already *means* "no typed facts here," with
-zero new vocabulary required. A future `resolveEventType()`-adjacent
-decision may determine which `EventType` values are ever eligible to
-advance to schema version 2 (the same review discipline as the ECB
-eligibility gate shipped in PR #45) — that gating decision is explicitly
-**not** made in this document.
+**Initial activation rule:** CES V2's *initial* activation is limited to
+reviewed typed quantitative release families (`STATISTICAL_RELEASE`-
+shaped events with an actual adapter). Speeches, sanctions actions, and
+qualitative central-bank communication remain CES V1 **unless and until**
+a **future, separately reviewed** contract/schema version explicitly
+extends typed facts to those event classes. This document does not
+authorize that extension and does not schedule it — it simply does not
+permanently foreclose it either.
+
+**Why not an explicit empty-facts V2 state for non-quantitative events
+right now:** it would force every non-quantitative event through a
+schema-version bump and a placeholder `facts` shape for no informational
+gain today — exactly the "fake empty facts and unnecessary schema churn"
+the task warned against for EF-0's initial scope. Schema version itself
+already carries this information for free in the near term: schema
+version 1 already *means* "no typed facts here." A future milestone
+remains free to revisit this if a genuine need for typed facts on a
+non-statistical event class emerges — that door is deliberately left
+open, not locked.
 
 ## 14. Compatibility with EI V1 / GT V1
 
@@ -503,21 +640,21 @@ any schema version other than `1` (§2), which is precisely the behavior
 this document relies on and preserves:
 
 - The moment a future milestone begins emitting schema version 2 Event
-  Versions (**not** in this PR — see §16), EI-3 and GT-3 will continue to
+  Versions (**not** in this PR — see §17), EI-3 and GT-3 will continue to
   return `UNAVAILABLE` / `UNSUPPORTED_CANONICAL_EVENT_STATE_SCHEMA` for
   those rows, exactly as they already do today for any unrecognized
   version — **not** a crash, **not** a silently wrong `INSUFFICIENT_
   EVIDENCE`, and **not** an accidental "it just works" outcome that was
   never reviewed.
 - EI V2 and GT V2 support are explicitly **future, separate, coordinated**
-  milestones (§16) — this document does not modify either processor's
+  milestones (§17) — this document does not modify either processor's
   source, does not add a schema-version-2 branch to either, and does not
   change `SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION` or
   `GOLD_TRANSMISSION_SUPPORTED_EVENT_SCHEMA_VERSION` from `1`.
 
 ## 15. Examples
 
-### A) CPI with actual + consensus + previous (valid)
+### A) CPI with actual + consensus + previous, per-metric reference period (valid)
 
 ```json
 {
@@ -526,10 +663,10 @@ this document relies on and preserves:
   "detail": null,
   "facts": {
     "release_family": "US_CPI",
-    "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
     "metrics": [
       {
         "metric_code": "CPI_HEADLINE_MOM",
+        "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
         "unit": "PERCENT_CHANGE_MOM",
         "actual": { "state": "KNOWN", "value": "0.3" },
         "consensus": { "state": "KNOWN", "value": "0.2" },
@@ -552,10 +689,10 @@ undefined/`null` (`revised_previous` is `UNKNOWN`).
   "detail": null,
   "facts": {
     "release_family": "US_CPI",
-    "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
     "metrics": [
       {
         "metric_code": "CPI_HEADLINE_MOM",
+        "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
         "unit": "PERCENT_CHANGE_MOM",
         "actual": { "state": "KNOWN", "value": "0.3" },
         "consensus": { "state": "UNKNOWN", "value": null },
@@ -570,7 +707,7 @@ Missing consensus is `UNKNOWN`, **not** `0` and not "no surprise" — a
 consumer computing surprise from this payload must produce `null`, never
 `0`.
 
-### C) NFP with a previous-value revision (valid)
+### C) NFP with a previous-value revision, two metrics (valid)
 
 ```json
 {
@@ -579,10 +716,10 @@ consumer computing surprise from this payload must produce `null`, never
   "detail": null,
   "facts": {
     "release_family": "US_NFP",
-    "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
     "metrics": [
       {
         "metric_code": "NFP_PAYROLL_CHANGE",
+        "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
         "unit": "THOUSANDS_OF_PERSONS",
         "actual": { "state": "KNOWN", "value": "142" },
         "consensus": { "state": "KNOWN", "value": "165" },
@@ -591,6 +728,7 @@ consumer computing surprise from this payload must produce `null`, never
       },
       {
         "metric_code": "UNEMPLOYMENT_RATE",
+        "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
         "unit": "LEVEL_PERCENT",
         "actual": { "state": "KNOWN", "value": "4.3" },
         "consensus": { "state": "KNOWN", "value": "4.2" },
@@ -601,26 +739,28 @@ consumer computing surprise from this payload must produce `null`, never
   }
 }
 ```
-Derived: `NFP_PAYROLL_CHANGE` surprise `= 142 - 165 = -23`; revision `=
-89 - 114 = -25` (the prior month was revised DOWN by 25k — this is
-computed from two distinct stored facts, never from an overwritten single
-field). `UNEMPLOYMENT_RATE` has no revision evidence this cycle:
-`revised_previous` stays `UNKNOWN`, never silently assumed equal to
-`previous_reported`.
+Both metrics happen to share the same `MONTH` reference period here — a
+valid coincidence, not an assumption the contract makes (see example D,
+where they do not coincide). Derived: `NFP_PAYROLL_CHANGE` surprise `=
+142 - 165 = -23`; revision `= 89 - 114 = -25` (the prior month was
+revised DOWN by 25k — computed from two distinct stored facts, never
+from an overwritten single field). `UNEMPLOYMENT_RATE` has no revision
+evidence this cycle: `revised_previous` stays `UNKNOWN`, never silently
+assumed equal to `previous_reported`.
 
-### D) Jobless Claims with several metrics from one release (valid)
+### D) Jobless Claims — metric-specific reference periods (valid, review fix applied)
 
 ```json
 {
   "event_type": "STATISTICAL_RELEASE",
-  "subject": "US Department of Labor releases jobless claims report for the week ended September 13, 2026",
+  "subject": "US Department of Labor releases jobless claims report",
   "detail": null,
   "facts": {
     "release_family": "US_JOBLESS_CLAIMS",
-    "reference_period": { "kind": "WEEK_ENDING", "date": "2026-09-13" },
     "metrics": [
       {
         "metric_code": "INITIAL_CLAIMS",
+        "reference_period": { "kind": "WEEK_ENDING", "date": "2026-09-13" },
         "unit": "THOUSANDS_OF_PERSONS",
         "actual": { "state": "KNOWN", "value": "231" },
         "consensus": { "state": "KNOWN", "value": "235" },
@@ -629,6 +769,7 @@ field). `UNEMPLOYMENT_RATE` has no revision evidence this cycle:
       },
       {
         "metric_code": "CONTINUING_CLAIMS",
+        "reference_period": { "kind": "WEEK_ENDING", "date": "2026-09-06" },
         "unit": "THOUSANDS_OF_PERSONS",
         "actual": { "state": "KNOWN", "value": "1926" },
         "consensus": { "state": "UNKNOWN", "value": null },
@@ -637,6 +778,7 @@ field). `UNEMPLOYMENT_RATE` has no revision evidence this cycle:
       },
       {
         "metric_code": "CLAIMS_4WK_AVERAGE",
+        "reference_period": { "kind": "WEEK_ENDING", "date": "2026-09-13" },
         "unit": "THOUSANDS_OF_PERSONS",
         "actual": { "state": "KNOWN", "value": "229.5" },
         "consensus": { "state": "UNKNOWN", "value": null },
@@ -647,12 +789,13 @@ field). `UNEMPLOYMENT_RATE` has no revision evidence this cycle:
   }
 }
 ```
-Three independent metrics, one release, one `reference_period` (a
-`WEEK_ENDING`, distinct from the `MONTH`/`QUARTER` shapes above) — proves
-`metric_code` is doing the identity work `facts.metrics` needs, not array
-position.
+This is the exact scenario §4.5 motivates: `CONTINUING_CLAIMS` genuinely
+references the week ending **2026-09-06**, one week behind `INITIAL_
+CLAIMS`' and `CLAIMS_4WK_AVERAGE`'s **2026-09-13**, in the same release —
+a single shared release-level period would have been wrong for one of
+the three metrics.
 
-### E) Event where quantitative facts are not applicable (valid — stays V1)
+### E) Event where quantitative facts are not applicable — initial activation only (valid — stays V1)
 
 ```json
 {
@@ -661,10 +804,12 @@ position.
   "detail": "The speaker discussed current labor market conditions without new data disclosures."
 }
 ```
-Schema version **1**, no `facts` key at all — per the §13 decision, this
-is not an error, not a degraded case, and not something EF-0 changes.
+Schema version **1**, no `facts` key at all — per the §13 initial
+activation rule, this is not an error and not something EF-0 changes.
+Unlike the earlier draft, this is **not** framed as a permanent
+prohibition — see §13 for the corrected wording.
 
-### F) Malformed / internally inconsistent payloads (MUST be rejected)
+### F) Malformed / internally inconsistent payload (MUST be rejected)
 
 ```json
 {
@@ -673,10 +818,10 @@ is not an error, not a degraded case, and not something EF-0 changes.
   "detail": null,
   "facts": {
     "release_family": "US_CPI",
-    "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
     "metrics": [
       {
         "metric_code": "CPI_HEADLINE_MOM",
+        "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
         "unit": "PERCENT_CHANGE_MOM",
         "actual": { "state": "KNOWN", "value": null },
         "consensus": { "state": "UNKNOWN", "value": "0.2" },
@@ -685,6 +830,7 @@ is not an error, not a degraded case, and not something EF-0 changes.
       },
       {
         "metric_code": "CPI_HEADLINE_MOM",
+        "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
         "unit": "PERCENT_CHANGE_YOY",
         "actual": { "state": "KNOWN", "value": "2,9%" },
         "consensus": { "state": "UNKNOWN", "value": null },
@@ -704,10 +850,63 @@ Rejected for **three independent** reasons, each alone sufficient:
    `facts.metrics` array, violating invariant §5.3 (unique within one
    payload) — even though the two entries claim different `unit`s, a
    duplicate `metric_code` is never disambiguated by `unit`.
-3. `"2,9%"` violates the canonical numeric-string grammar in §6.2 (comma
+3. `"2,9%"` violates the canonical decimal grammar in §6.2 (comma
    decimal separator and a literal `%` suffix are both forbidden — the
    unit is already carried by the `unit` field, never re-encoded into the
-   value string).
+   value string; this is malformed input to reject, not a non-canonical
+   form to normalize).
+
+### G) Malformed — unknown extra field (MUST be rejected, review fix — new example)
+
+```json
+{
+  "event_type": "STATISTICAL_RELEASE",
+  "subject": "US Bureau of Labor Statistics releases August 2026 CPI report",
+  "detail": null,
+  "facts": {
+    "release_family": "US_CPI",
+    "collector_run_id": "9f2c1b3a-...",
+    "metrics": [
+      {
+        "metric_code": "CPI_HEADLINE_MOM",
+        "reference_period": { "kind": "MONTH", "year": 2026, "month": 8 },
+        "unit": "PERCENT_CHANGE_MOM",
+        "actual": { "state": "KNOWN", "value": "0.3" },
+        "consensus": { "state": "UNKNOWN", "value": null },
+        "previous_reported": { "state": "KNOWN", "value": "0.2" },
+        "revised_previous": { "state": "UNKNOWN", "value": null }
+      }
+    ]
+  }
+}
+```
+Rejected: `facts.collector_run_id` is not in §5bis's exact key list for
+`facts` (`release_family`, `metrics` only) — precisely the class of
+transient collector metadata §11 forbids inside CES. Unknown keys are
+never silently ignored; the payload is malformed.
+
+### H) Canonical-decimal example — non-canonical input MUST be rejected, not silently accepted (review fix — new example)
+
+The literal string `"0.30"` is **not** a valid stored `value` even though
+it is numerically equal to a valid one. A payload containing:
+
+```json
+{ "state": "KNOWN", "value": "0.30" }
+```
+
+is malformed — it fails the canonical output grammar in §6.2 (trailing
+fractional zero). The only valid canonical form for this economic value
+is:
+
+```json
+{ "state": "KNOWN", "value": "0.3" }
+```
+
+An adapter is responsible for canonicalizing (§6.2's algorithm) **before**
+emitting a value into `facts` — a consumer of already-persisted CES data
+is never required to further normalize a stored `value`, because a
+non-canonical stored value is itself a contract violation, not an
+expected variant to tolerate.
 
 ## 16. Activation prerequisites
 
@@ -719,9 +918,11 @@ reviewed:
 1. A reviewed, source-specific adapter contract for at least one
    `release_family` that deterministically maps a specific official
    collector's output into this exact `facts` shape (no generic
-   free-text/keyword parsing invented ad hoc).
+   free-text/keyword parsing invented ad hoc), including, where
+   applicable, the GDP-style staged-release identity rule (§4.1).
 2. A reviewed decision on which `EventType`s are ever eligible to advance
-   past schema version 1 (§13's corollary — not decided here).
+   past schema version 1 (§13's initial-activation rule, and any future
+   extension of it).
 3. A reviewed decision on where adapter-level evidence/provenance for a
    typed fact is stored (§11 — explicitly not CES, not designed here).
 4. A reviewed, additive-only migration that extends `canonical_event_
@@ -732,8 +933,8 @@ reviewed:
    payload actually contains, never as an accidental side effect of a
    schema/persistence-only change.
 5. If/when a consensus provider is added: a separate, explicit Human
-   Gate authorization (§9) — not implied or pre-approved by this
-   document.
+   Gate authorization (§9), including that provider's own deterministic
+   as-of rule (§9.1) — not implied or pre-approved by this document.
 
 ## 17. Next implementation sequence (proposed, not authorized by this PR)
 
@@ -754,8 +955,8 @@ twice in this program:
   contract doesn't yet cover.
 - **EF-4+**: additional `release_family` adapters, each independently
   reviewed, each additive.
-- Consensus-provider activation (§9/§16.5) is its own, separately gated
-  track, not a numbered EF milestone by default.
+- Consensus-provider activation (§9/§9.1/§16.5) is its own, separately
+  gated track, not a numbered EF milestone by default.
 
 ---
 
