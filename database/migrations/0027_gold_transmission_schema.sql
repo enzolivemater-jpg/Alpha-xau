@@ -251,7 +251,7 @@ BEGIN
   IF v_symbol NOT IN ('DXY', 'US10Y', 'US10YR', 'VIX', 'WTI') THEN
     RAISE EXCEPTION 'symbol % is not canonical Gold Transmission driver evidence', v_symbol;
   END IF;
-  IF pg_catalog.greatest(NEW.market_tick_ts, v_tick_created_at) > v_cutoff THEN
+  IF NEW.market_tick_ts > v_cutoff OR v_tick_created_at > v_cutoff THEN
     RAISE EXCEPTION 'market driver evidence must have both observation and ingestion at or before assessment knowledge_cutoff';
   END IF;
 
