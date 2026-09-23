@@ -309,11 +309,14 @@ export interface TickRow {
   timeframe: string;
   source: string;
   ts: string;
-  dxy_value?: number | null;
-  us10y_yield?: number | null;
-  real_yield?: number | null;
-  vix?: number | null;
-  wti?: number | null;
+  // REQUIRED (not optional) on every row — see the PGRST102 incident note
+  // on buildTickRows() below. Native driver rows carry these as null; only
+  // the XAUUSD row overwrites them with the compatibility macro stamp.
+  dxy_value: number | null;
+  us10y_yield: number | null;
+  real_yield: number | null;
+  vix: number | null;
+  wti: number | null;
 }
 
 /**
@@ -322,6 +325,20 @@ export interface TickRow {
  * Une ligne native par instrument validé, plus le STAMPING macro sur la ligne
  * XAUUSD pour compatibilité. Les stamps ne portent pas l'autorité de source
  * ou de fraîcheur : celle-ci appartient à chaque ligne native.
+ *
+ * INCIDENT (post-deploy, first cron run after native-row restoration) :
+ * un précédent commit n'assignait dxy_value/us10y_yield/real_yield/vix/wti
+ * QUE sur la ligne XAUUSD (`row.dxy_value = ...`, jamais présent du tout sur
+ * les lignes natives). PostgREST exige que CHAQUE objet d'un batch INSERT
+ * expose EXACTEMENT le même jeu de clés (sinon PGRST102 « All object keys
+ * must match ») — la ligne XAUUSD portait 5 clés que les lignes natives
+ * n'avaient jamais, et le lot entier échouait, y compris l'or lui-même
+ * (persisted_count=0 malgré fetched_count=5). Corrigé en rendant ces cinq
+ * champs de `TickRow` NON optionnels et en les initialisant à `null` sur
+ * TOUTE ligne dès sa construction ; seule la ligne XAUUSD les écrase
+ * ensuite avec le stamp macro. Les lignes natives (US10Y/US10YR/VIX/WTI)
+ * ne portent JAMAIS de stamp — leur autorité reste exclusivement
+ * symbol/close/source/ts.
  *
  * `timeframe` vaut 'tick' : les points collectés sont des instantanés, pas
  * des bougies complètes. Le CHECK `chk_market_ticks_candle_completeness`
@@ -345,6 +362,9 @@ export function buildTickRows(points: readonly ValidatedDataPoint[]): TickRow[] 
     if (seen.has(key)) continue;
     seen.add(key);
 
+    // Les cinq champs de stamp sont TOUJOURS présents, initialisés à null
+    // sur CHAQUE ligne — jamais absents de l'objet — pour que toutes les
+    // lignes d'un même lot PostgREST exposent le même jeu de clés.
     const row: TickRow = {
       symbol: point.symbol,
       asset_type: ASSET_TYPE[point.symbol],
@@ -358,6 +378,11 @@ export function buildTickRows(points: readonly ValidatedDataPoint[]): TickRow[] 
       timeframe: 'tick',
       source: point.source,
       ts: point.observedAt,
+      dxy_value: null,
+      us10y_yield: null,
+      real_yield: null,
+      vix: null,
+      wti: null,
       // `spread` est GENERATED ALWAYS : jamais fourni.
     };
 
