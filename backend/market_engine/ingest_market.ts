@@ -58,9 +58,9 @@ const CONFIG = {
 
 /**
  * Correspondance colonne de stamping macro <- instrument.
- * `market_ticks` dénormalise le contexte macro sur la ligne XAUUSD
- * (pattern « market context stamping » déjà retenu par le schéma) : c'est
- * exactement ce que `loadContext()` du comité lit.
+ * `market_ticks` conserve ce contexte dénormalisé sur la ligne XAUUSD pour
+ * compatibilité. Les lignes natives par symbole restent l'autorité pour la
+ * provenance et la fraîcheur des drivers.
  *
  * DXY retiré (2026-08-18) : Twelve Data ne référence pas l'indice ICE
  * directement (seulement des ETF proxy comme UUP/UDN, catalogués via
@@ -152,14 +152,18 @@ export class MarketDb {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), CONFIG.DB_TIMEOUT_MS);
       try {
+        const headers: Record<string, string> = {};
+        for (const [name, value] of Object.entries(extraHeaders)) {
+          const lower = name.toLowerCase();
+          if (lower === 'apikey' || lower === 'authorization') continue;
+          headers[lower] = value;
+        }
+        headers['content-type'] = 'application/json';
+        headers.apikey = this.key;
+
         const response = await fetch(`${this.base}/${path}`, {
           method,
-          headers: {
-            apikey: this.key,
-            authorization: `Bearer ${this.key}`,
-            'content-type': 'application/json',
-            ...extraHeaders,
-          },
+          headers,
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: controller.signal,
         });
@@ -315,9 +319,9 @@ export interface TickRow {
 /**
  * Construit les lignes à insérer.
  *
- * Une ligne par instrument validé, plus le STAMPING macro sur la ligne
- * XAUUSD. Un champ macro non validé reste `null` sur le stamp — c'est ce
- * `null` que le comité lira comme "N/A".
+ * Une ligne native par instrument validé, plus le STAMPING macro sur la ligne
+ * XAUUSD pour compatibilité. Les stamps ne portent pas l'autorité de source
+ * ou de fraîcheur : celle-ci appartient à chaque ligne native.
  *
  * `timeframe` vaut 'tick' : les points collectés sont des instantanés, pas
  * des bougies complètes. Le CHECK `chk_market_ticks_candle_completeness`
@@ -336,24 +340,6 @@ export function buildTickRows(points: readonly ValidatedDataPoint[]): TickRow[] 
   }
 
   for (const point of points) {
-    // ------------------------------------------------------------------
-    // CONTRAINTE STRUCTURELLE : market_ticks.close porte CHECK (close > 0).
-    // Or le rendement réel EST négatif par périodes (DFII10 l'a été de 2020
-    // à 2022), et US10Y peut l'être aussi — le schéma l'admet d'ailleurs :
-    // real_yield accepte BETWEEN -10 AND 25, us10y_yield BETWEEN -5 AND 25.
-    //
-    // Le schéma désigne donc lui-même l'emplacement correct des macro :
-    // les COLONNES DE STAMPING, qui tolèrent le négatif, et non `close`,
-    // qui l'interdit. Les macro ne produisent aucune ligne propre ; elles
-    // sont estampillées sur le tick XAUUSD — exactement ce que lisent
-    // v_market_latest et le comité.
-    //
-    // Conséquence assumée : sans prix de l'or, aucune ligne n'est écrite.
-    // C'est cohérent avec la spécification, puisque sans or il n'y a de
-    // toute façon pas d'analyse possible.
-    // ------------------------------------------------------------------
-    if (STAMP_COLUMN[point.symbol]) continue;
-
     // Déduplication intra-lot, alignée sur l'index unique SQL.
     const key = dedupKey(point.symbol, 'tick', point.observedAt, point.source);
     if (seen.has(key)) continue;

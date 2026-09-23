@@ -223,7 +223,7 @@ CREATE TABLE market_ticks (
   open          NUMERIC(14,5) CHECK (open IS NULL OR open > 0),
   high          NUMERIC(14,5) CHECK (high IS NULL OR high > 0),
   low           NUMERIC(14,5) CHECK (low  IS NULL OR low  > 0),
-  close         NUMERIC(14,5) NOT NULL CHECK (close > 0),
+  close         NUMERIC(14,5) NOT NULL,
   volume        NUMERIC(20,4) CHECK (volume IS NULL OR volume >= 0),
   timeframe     timeframe_t   NOT NULL DEFAULT 'tick',
 
@@ -241,6 +241,19 @@ CREATE TABLE market_ticks (
   created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(), -- horodatage ingestion
 
   CONSTRAINT pk_market_ticks PRIMARY KEY (id, ts),
+
+  -- Rendements obligataires potentiellement négatifs ; prix ordinaires
+  -- strictement positifs. Les bornes reflètent le contrat applicatif.
+  CONSTRAINT market_ticks_close_check
+    CHECK (
+      CASE symbol
+        WHEN 'US10Y'  THEN close BETWEEN -5 AND 25
+        WHEN 'US10YR' THEN close BETWEEN -10 AND 25
+        WHEN 'VIX'    THEN close >= 0
+        WHEN 'WTI'    THEN close >= 0
+        ELSE close > 0
+      END
+    ),
 
   -- Intégrité du book
   CONSTRAINT chk_market_ticks_book
