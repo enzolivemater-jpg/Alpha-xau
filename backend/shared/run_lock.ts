@@ -38,7 +38,13 @@ export interface LockCapableDb {
 }
 
 /** Moteurs susceptibles de prendre un verrou. */
-export type EngineName = 'market_engine' | 'news_engine' | 'ai_committee' | 'event_shadow' | 'event_impact_shadow';
+export type EngineName =
+  | 'market_engine'
+  | 'news_engine'
+  | 'ai_committee'
+  | 'event_shadow'
+  | 'event_impact_shadow'
+  | 'gold_transmission_shadow';
 
 export type LockOutcome =
   | { readonly acquired: true; readonly runRowId: string }

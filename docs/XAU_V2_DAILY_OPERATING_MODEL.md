@@ -774,6 +774,15 @@ the system today.
 
 ## 17. Audit Trail / Explainability
 
+Gold Transmission GT-5 adds a controlled batch primitive over an explicit,
+caller-supplied list of at most 25 Event Version UUIDs. It acquires the shared
+PostgreSQL run lock, processes the list sequentially through the reviewed GT-4
+single-version orchestrator, records per-item outcomes and aggregate counters,
+and guarantees lock release. It performs no discovery, backlog scan, schedule,
+route handling, or batch-level retry. Until typed event facts exist, valid V1
+items remain zero-path `INSUFFICIENT_EVIDENCE`; this is a safety outcome, not a
+positive directional Gold Transmission signal.
+
 The operator must later be able to answer: **"Why was XAU V2
 bullish/bearish/neutral at time T?"**
 
