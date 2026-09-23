@@ -328,12 +328,16 @@ field** attached to every event impact — today the channel is either a
 fixed keyword-rule tag or embedded prose, not a first-class, consistently
 present part of the event's data contract.
 
-The GT-0 prerequisite decision is now closed for additive GT-1 schema work:
-V1 selects the semantic/ex-ante model, keeps Canonical Event State as the
-single versioned factual truth, accepts unknown effective time, and fails
-closed when typed event facts or native driver evidence are unavailable.
-Model R remains separate and deferred. See
-`docs/XAU_V2_GOLD_TRANSMISSION_GT0_CLOSURE.md`.
+The GT-0 prerequisite decision selected the semantic/ex-ante V1 model, keeps
+Canonical Event State as the single versioned factual truth, accepts unknown
+effective time, and fails closed when typed event facts or native driver
+evidence are unavailable. The append-only GT schema and its single atomic,
+replay-safe persistence RPC are now live. A pure deterministic V1 processor
+validates one Event Version and returns `INSUFFICIENT_EVIDENCE` with zero paths
+because Canonical Event State V1 has no typed actual/forecast/previous/unit
+facts; it never mines prose for a directional chain. There is still no runtime
+wiring and no persisted production assessment. Model R remains separate and
+deferred. See `docs/XAU_V2_GOLD_TRANSMISSION_GT0_CLOSURE.md`.
 
 ---
 
