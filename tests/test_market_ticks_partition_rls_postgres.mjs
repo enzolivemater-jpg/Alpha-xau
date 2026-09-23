@@ -61,5 +61,10 @@ assert.equal(sql("SELECT relrowsecurity FROM pg_class WHERE oid='public.market_t
 console.log('PASS existing-partition path self-heals RLS');
 
 assert.equal(sql("SELECT prosecdef FROM pg_proc WHERE oid='public.fn_create_market_ticks_partition(date)'::regprocedure;"), 'f');
-assert.equal(sql("SELECT proconfig @> ARRAY['search_path='] FROM pg_proc WHERE oid='public.fn_create_market_ticks_partition(date)'::regprocedure;"), 't');
+assert.equal(sql(`SELECT EXISTS (
+  SELECT 1
+    FROM pg_proc p, unnest(p.proconfig) AS setting
+   WHERE p.oid='public.fn_create_market_ticks_partition(date)'::regprocedure
+     AND setting IN ('search_path=', 'search_path=""')
+);`), 't');
 console.log('PASS partition function is SECURITY INVOKER with empty search_path');
