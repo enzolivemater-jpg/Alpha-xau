@@ -66,6 +66,7 @@ import {
 } from './ai_engine/committee_orchestrator.js';
 import { handleEventShadowRequest, handleEventShadowDiscoverRequest } from './event_engine/shadow_runtime.js';
 import { handleEventImpactShadowRequest } from './event_impact/shadow_runtime.js';
+import { handleGoldTransmissionShadowRequest } from './gold_transmission/shadow_runtime.js';
 
 /**
  * Environnement consolidé du Worker. Toutes les valeurs proviennent des
@@ -183,6 +184,12 @@ export default {
     // sub-routes, no discovery equivalent, and deliberately NOT wired into
     // scheduled()/resolveJob()/JobName below: manual only.
     if (path === '/event-impact-shadow') return handleEventImpactShadowRequest(request, env);
+    // GT-6 — Gold Transmission controlled manual runtime bridge (GT-5).
+    // Exact match only — deliberately NOT
+    // startsWith('/gold-transmission-shadow'), no sub-routes, no discovery
+    // equivalent, and deliberately NOT wired into
+    // scheduled()/resolveJob()/JobName below: manual only.
+    if (path === '/gold-transmission-shadow') return handleGoldTransmissionShadowRequest(request, env);
 
     if (path.startsWith('/health')) {
       return new Response(
