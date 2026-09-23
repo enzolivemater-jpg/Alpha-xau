@@ -58,6 +58,7 @@ const TEST_FILES = [
   'tests/test_federal_reserve_raw_integration.mjs',
   'tests/test_gdelt_429_retry_policy.mjs',
   'tests/test_gold_transmission_deterministic_processor.mjs',
+  'tests/test_gold_transmission_shadow_batch.mjs',
   'tests/test_gold_transmission_shadow_orchestrator.mjs',
   'tests/test_market_driver_provenance.mjs',
   'tests/test_notification_horizon_provider_circuit.mjs',
