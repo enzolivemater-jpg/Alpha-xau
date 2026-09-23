@@ -440,6 +440,17 @@ const ECB_RECURRING_RELEASE_TITLE_PREFIXES: readonly string[] = [
   'ECB publishes consolidated banking data',
 ];
 
+/** The ONLY path family the recurring-release TITLE fallback may apply
+ *  under (review fix, second pass): a recognized title prefix is NOT, on
+ *  its own, sufficient eligibility evidence on an arbitrary ECB path — it
+ *  narrows the generic `/press/pr/` family specifically, which is where
+ *  these recurring releases actually appear and where the item's precise
+ *  economic nature is otherwise ambiguous from the path alone. A title
+ *  match on any OTHER hostname-verified ECB path (e.g. an unreviewed
+ *  `/press/other/...` or a bare `/foo/...`) is NOT eligible — it must
+ *  clear one of the explicit structural path families above instead. */
+const ECB_GENERIC_PRESS_RELEASE_PATH_PREFIX = '/press/pr/';
+
 interface EcbUrlEvidence {
   readonly hostnameVerified: boolean;
   readonly pathname: string | null;
@@ -477,6 +488,10 @@ function isEcbStructurallyEligiblePath(pathname: string): boolean {
   return ECB_STRUCTURALLY_ELIGIBLE_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
+function isEcbGenericPressReleasePath(pathname: string): boolean {
+  return pathname.startsWith(ECB_GENERIC_PRESS_RELEASE_PATH_PREFIX);
+}
+
 function isEcbRecurringReleaseTitle(title: string): boolean {
   const normalized = normalizeWhitespace(title);
   return ECB_RECURRING_RELEASE_TITLE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
@@ -490,7 +505,17 @@ type EcbEligibilityDecision =
  *  (i.e. resolveEventType() would otherwise return CENTRAL_BANK_
  *  COMMUNICATION). Both branches require hostname-verified canonicalUrl —
  *  a title-pattern match alone, with no genuine ecb.europa.eu URL to
- *  corroborate it, is NOT eligible. */
+ *  corroborate it, is NOT eligible.
+ *
+ *  REVIEW FIX (second pass): the recurring-release TITLE branch requires
+ *  ALL of (1) verified https ECB hostname, (2) pathname under the generic
+ *  `/press/pr/` family specifically, (3) a matching title prefix — a
+ *  recognized title on any OTHER hostname-verified ECB path (e.g. an
+ *  unreviewed `/press/other/...` or a bare `/foo/...`) is NOT eligible via
+ *  this branch; it would need to independently clear one of the explicit
+ *  structural path families above instead. Previously the title branch
+ *  applied to ANY hostname-verified ECB path, which was broader than the
+ *  agreed precision-first contract. */
 function resolveEcbPressCommunicationEligibility(
   observation: PersistedRawObservation,
 ): EcbEligibilityDecision {
@@ -504,12 +529,16 @@ function resolveEcbPressCommunicationEligibility(
   if (evidence.pathname !== null && isEcbStructurallyEligiblePath(evidence.pathname)) {
     return { eligible: true };
   }
-  if (isEcbRecurringReleaseTitle(observation.title)) {
+  if (
+    evidence.pathname !== null
+    && isEcbGenericPressReleasePath(evidence.pathname)
+    && isEcbRecurringReleaseTitle(observation.title)
+  ) {
     return { eligible: true };
   }
   return {
     eligible: false,
-    reason: 'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern.',
+    reason: 'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern under the generic /press/pr/ family.',
   };
 }
 

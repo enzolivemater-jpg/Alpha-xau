@@ -435,7 +435,7 @@ assertAbstain(
     canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.pr260801.en.html',
   })),
   'EVENT_ELIGIBILITY_UNRESOLVED',
-  'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern.',
+  'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern under the generic /press/pr/ family.',
   'A) concert générique /press/pr/',
 );
 
@@ -445,6 +445,30 @@ assertProcess(planFor(ecbObservation({
   title: 'Monetary policy decisions',
   canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.mp260901.en.html',
 })), 'B) Monetary policy decisions');
+
+// B2) REVIEW FIX (second pass) — the SAME recognized recurring title,
+// hostname-verified, but NOT under /press/pr/: the title fallback must
+// NOT apply on an arbitrary/unreviewed ECB path. A recognized title alone
+// is not sufficient eligibility evidence outside the generic /press/pr/
+// family it was defined for.
+assertAbstain(
+  planFor(ecbObservation({
+    title: 'Monetary policy decisions',
+    canonicalUrl: 'https://www.ecb.europa.eu/press/other/date/2026/example.html',
+  })),
+  'EVENT_ELIGIBILITY_UNRESOLVED',
+  'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern under the generic /press/pr/ family.',
+  'B2) titre reconnu mais chemin /press/other/ non revu (rejeté)',
+);
+assertAbstain(
+  planFor(ecbObservation({
+    title: 'Monetary policy decisions',
+    canonicalUrl: 'https://www.ecb.europa.eu/foo/example.html',
+  })),
+  'EVENT_ELIGIBILITY_UNRESOLVED',
+  'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern under the generic /press/pr/ family.',
+  'B2) titre reconnu mais chemin arbitraire /foo/ (rejeté)',
+);
 
 // C) Monetary policy statement / press conference -> eligible via
 //    structurally-eligible path family, irrespective of title wording.
@@ -508,7 +532,7 @@ assertAbstain(
     canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.pr260915.en.html',
   })),
   'EVENT_ELIGIBILITY_UNRESOLVED',
-  'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern.',
+  'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern under the generic /press/pr/ family.',
   'K) autre communication générique /press/pr/',
 );
 
