@@ -76,10 +76,9 @@ export function buildField(
 /**
  * Assemble l'instantané à partir des lignes de `v_market_latest`.
  *
- * Les champs macro sont lus sur le STAMP de la ligne XAUUSD (dénormalisation
- * prévue par le schéma), avec repli sur la ligne dédiée de l'instrument
- * lorsque le stamp est vide — ce qui arrive quand la source macro était
- * indisponible au moment où le tick or a été écrit.
+ * Chaque driver macro est lu exclusivement sur sa ligne native. Les stamps
+ * historiques de la ligne XAUUSD restent compatibles avec l'ancien stockage,
+ * mais ne sont jamais utilisés comme preuve de provenance ou de fraîcheur.
  */
 export function buildSnapshot(rows: readonly MarketLatestRow[]): MarketSnapshot {
   const gold = rows.find((r) => r.symbol === 'XAUUSD');
@@ -109,14 +108,8 @@ export function buildSnapshot(rows: readonly MarketLatestRow[]): MarketSnapshot 
     };
   }
 
-  /** Stamp d'abord, ligne dédiée ensuite. Jamais de valeur par défaut. */
-  const macro = (
-    stamped: number | string | null,
-    symbol: MarketSymbol,
-  ): MarketField => {
-    const fromStamp = num(stamped);
-    if (fromStamp !== null) return buildField(fromStamp, goldAge, gold.ts, gold.source, symbol);
-
+  /** Ligne native uniquement. Une absence échoue fermée en UNAVAILABLE. */
+  const macro = (symbol: MarketSymbol): MarketField => {
     const own = rows.find((r) => r.symbol === symbol);
     if (!own) return UNAVAILABLE_FIELD;
     return buildField(num(own.close), num(own.staleness_seconds), own.ts, own.source, symbol);
@@ -133,10 +126,10 @@ export function buildSnapshot(rows: readonly MarketLatestRow[]): MarketSnapshot 
     // dxy_value reste NULL en permanence -> toujours UNAVAILABLE, jamais
     // une valeur inventée.
     dxy: UNAVAILABLE_FIELD,
-    us10y: macro(gold.us10y_yield, 'US10Y'),
-    realYield: macro(gold.real_yield, 'US10YR'),
-    vix: macro(gold.vix, 'VIX'),
-    wti: macro(gold.wti, 'WTI'),
+    us10y: macro('US10Y'),
+    realYield: macro('US10YR'),
+    vix: macro('VIX'),
+    wti: macro('WTI'),
     capturedAt: gold.ts,
   };
 }
@@ -159,7 +152,6 @@ export async function fetchMarketSnapshot(env: ContextEnv): Promise<MarketSnapsh
     const response = await fetch(url, {
       headers: {
         apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-        authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
         accept: 'application/json',
       },
       signal: controller.signal,
