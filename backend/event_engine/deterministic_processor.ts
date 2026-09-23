@@ -373,6 +373,147 @@ function resolveEventType(authority: OfficialAuthority, providerCategory: string
 }
 
 // ---------------------------------------------------------------------------
+// 8bis. EVENT ELIGIBILITY PRECISION GATE — ECB broad press_communication
+//   only, V1.
+//
+//   LIVE DEFECT THIS CLOSES: ECB's `press.html` RSS feed (providerCategory
+//   'press_communication') is broad — public-outreach items (a real
+//   persisted example: "ECB and Frankfurt Radio Symphony invite the public
+//   to Europa Open Air concert on 20 August 2026") were previously accepted
+//   into Event Version as event_type=CENTRAL_BANK_COMMUNICATION, exactly
+//   like a genuine monetary-policy communication. Accuracy is prioritized
+//   over coverage: a non-eligible or unresolved ECB press_communication
+//   item now fails CLOSED via an explicit ABSTAIN
+//   (EVENT_ELIGIBILITY_UNRESOLVED), never silently mapped to
+//   UNSUPPORTED_SOURCE and never silently processed.
+//
+//   SCOPE: applies ONLY to ECB authority + providerCategory
+//   'press_communication' (i.e. only where resolveEventType() above would
+//   otherwise resolve CENTRAL_BANK_COMMUNICATION). ECB
+//   'statistical_press_release' (STATISTICAL_RELEASE) is UNCHANGED —
+//   remains eligible unconditionally, exactly as before this gate.
+//   FEDERAL_RESERVE/US_TREASURY/OFAC categories are UNCHANGED. This gate
+//   does NOT redesign Event Types and is NOT Event Facts V2 — it is a
+//   narrow precision filter inserted between source/quality validation and
+//   Event Type resolution.
+//
+//   DETERMINISTIC EVIDENCE ONLY — no fuzzy similarity, no embeddings, no
+//   LLM, no relevance scoring, no inference from publication time:
+//     (a) canonicalUrl parses to a URL whose hostname is EXACTLY
+//         ecb.europa.eu (never a substring/suffix match — closes a
+//         spoofing vector where a non-ECB hostname could otherwise gain
+//         eligibility from an ECB-looking path), AND its pathname starts
+//         with one of a small, explicit set of URL path families known to
+//         represent structurally substantive central-bank communication
+//         (speeches, interviews, meeting accounts, the monetary policy
+//         statement / press conference); OR
+//     (b) the SAME hostname-verified canonicalUrl, combined with a title
+//         that starts with one of a small, explicit set of known recurring
+//         macro/monetary release title prefixes (the generic `/press/pr/`
+//         family carries these alongside non-eligible items, so title
+//         evidence — not the path alone — is what narrows it).
+//   canonicalUrl is used ONLY as structural routing evidence here — never
+//   as strong event identity, never to derive a cluster identity (the
+//   existing strong-identity boundary in §7 above is untouched).
+// ---------------------------------------------------------------------------
+
+const ECB_EXPECTED_HOSTNAME = 'ecb.europa.eu';
+const ECB_EXPECTED_HOSTNAME_SUFFIX = '.ecb.europa.eu';
+
+/** URL path families that alone represent structurally substantive ECB
+ *  central-bank communication, regardless of title wording. */
+const ECB_STRUCTURALLY_ELIGIBLE_PATH_PREFIXES: readonly string[] = [
+  '/press/key/',
+  '/press/inter/',
+  '/press/accounts/',
+  '/press/press_conference/monetary-policy-statement/',
+];
+
+/** Narrowly-defined recurring macro/monetary release TITLE prefixes found
+ *  under the generic `/press/pr/` family, where evidence is explicit.
+ *  Extending this list requires the same precision-first review discipline
+ *  as the list itself — never a broad keyword/fuzzy rule. */
+const ECB_RECURRING_RELEASE_TITLE_PREFIXES: readonly string[] = [
+  'Monetary policy decisions',
+  'ECB Consumer Expectations Survey results',
+  'ECB wage tracker',
+  'ECB publishes consolidated banking data',
+];
+
+interface EcbUrlEvidence {
+  readonly hostnameVerified: boolean;
+  readonly pathname: string | null;
+}
+
+/** Deterministic parse, mirroring the SAME hostname validation already
+ *  established and reviewed in the ECB RAW collector
+ *  (backend/news_sources/ecb.ts validateEcbUrl): https: only, hostname is
+ *  EXACTLY ecb.europa.eu OR a genuine subdomain (*.ecb.europa.eu, e.g. the
+ *  real production www.ecb.europa.eu) — checked with a leading-dot suffix
+ *  match, never a bare substring/suffix check that a spoofed hostname
+ *  (e.g. "ecb.europa.eu.attacker.example" or "notecb.europa.eu") could
+ *  pass. An unparseable URL, a non-https scheme, or a non-matching
+ *  hostname yields zero structural evidence. */
+function parseEcbUrlEvidence(canonicalUrl: string | null): EcbUrlEvidence {
+  if (canonicalUrl === null) return { hostnameVerified: false, pathname: null };
+  let parsed: URL;
+  try {
+    parsed = new URL(canonicalUrl);
+  } catch {
+    return { hostnameVerified: false, pathname: null };
+  }
+  if (parsed.protocol !== 'https:') {
+    return { hostnameVerified: false, pathname: null };
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isEcbHost = host === ECB_EXPECTED_HOSTNAME || host.endsWith(ECB_EXPECTED_HOSTNAME_SUFFIX);
+  if (!isEcbHost) {
+    return { hostnameVerified: false, pathname: null };
+  }
+  return { hostnameVerified: true, pathname: parsed.pathname };
+}
+
+function isEcbStructurallyEligiblePath(pathname: string): boolean {
+  return ECB_STRUCTURALLY_ELIGIBLE_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+function isEcbRecurringReleaseTitle(title: string): boolean {
+  const normalized = normalizeWhitespace(title);
+  return ECB_RECURRING_RELEASE_TITLE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+type EcbEligibilityDecision =
+  | { readonly eligible: true }
+  | { readonly eligible: false; readonly reason: string };
+
+/** Applies ONLY when authority=ECB and providerCategory=press_communication
+ *  (i.e. resolveEventType() would otherwise return CENTRAL_BANK_
+ *  COMMUNICATION). Both branches require hostname-verified canonicalUrl —
+ *  a title-pattern match alone, with no genuine ecb.europa.eu URL to
+ *  corroborate it, is NOT eligible. */
+function resolveEcbPressCommunicationEligibility(
+  observation: PersistedRawObservation,
+): EcbEligibilityDecision {
+  const evidence = parseEcbUrlEvidence(observation.canonicalUrl);
+  if (!evidence.hostnameVerified) {
+    return {
+      eligible: false,
+      reason: 'ECB press_communication item has no canonicalUrl verifiable against the expected ecb.europa.eu hostname.',
+    };
+  }
+  if (evidence.pathname !== null && isEcbStructurallyEligiblePath(evidence.pathname)) {
+    return { eligible: true };
+  }
+  if (isEcbRecurringReleaseTitle(observation.title)) {
+    return { eligible: true };
+  }
+  return {
+    eligible: false,
+    reason: 'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern.',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 9. Canonical Event State v1 — coarse factual state only. No provenance/
 //    IDs/URLs/timestamps, no Gold analytical fields.
 // ---------------------------------------------------------------------------
@@ -505,7 +646,15 @@ export type AbstentionCategory =
   | 'SIGNAL_CONFLICT'
   | 'INVALID_CLUSTER_CONTEXT'
   | 'UNSUPPORTED_OFFICIAL_CATEGORY'
-  | 'INVALID_INPUT';
+  | 'INVALID_INPUT'
+  // Event eligibility precision gate (§8bis) — a source/category-verified,
+  // quality-passing observation whose deterministic structural evidence
+  // (URL path family / recurring-release title pattern) does not clear the
+  // gate. Never silently folded into UNSUPPORTED_SOURCE or
+  // UNSUPPORTED_OFFICIAL_CATEGORY, both of which mean something different
+  // (the source/category itself was rejected, not that a specific item
+  // within an otherwise-accepted category failed a precision check).
+  | 'EVENT_ELIGIBILITY_UNRESOLVED';
 
 export interface AbstainPlan {
   readonly kind: 'ABSTAIN';
@@ -566,6 +715,16 @@ export function planEventProcessing(input: ProcessObservationInput): EventProces
   const eventType = resolveEventType(tuple.authority, observation.providerCategory);
   if (eventType === null) {
     return abstain(observation.id, 'UNSUPPORTED_OFFICIAL_CATEGORY', 'UNSUPPORTED_OFFICIAL_CATEGORY');
+  }
+
+  // ---- Event eligibility precision gate (§8bis) — ECB broad
+  // press_communication only. STATISTICAL_RELEASE and every other
+  // authority/category combination are unaffected.
+  if (tuple.authority === 'ECB' && eventType === 'CENTRAL_BANK_COMMUNICATION') {
+    const eligibility = resolveEcbPressCommunicationEligibility(observation);
+    if (!eligibility.eligible) {
+      return abstain(observation.id, 'EVENT_ELIGIBILITY_UNRESOLVED', eligibility.reason);
+    }
   }
 
   // ---- Official editorial lineage ------------------------------------------

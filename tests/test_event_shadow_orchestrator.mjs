@@ -219,10 +219,16 @@ async function expectThrow(fn, label) {
   t('mapping Federal Reserve : PROCESSED', result.kind === 'PROCESSED', JSON.stringify(result));
 }
 {
+  // providerCategory=statistical_press_release (not press_communication):
+  // this block tests the generic RAW->PROCESSED mapping per source, not
+  // Event Eligibility (§8bis in deterministic_processor.ts gates ECB
+  // press_communication specifically — a generic /press/pr/ URL with an
+  // unrelated title would now legitimately ABSTAIN there, which is exactly
+  // the fixed live defect, not a regression of this mapping test).
   const { db } = makeFakeDb(happyPathHandlers({
     provider: 'ecb', provider_item_id: 'ecb-1', source_code: 'ecb', source_domain: 'ecb.europa.eu',
     canonical_url: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.pr260901.htm',
-    provider_category: 'press_communication',
+    provider_category: 'statistical_press_release',
   }, { editorial_origin_key: 'official:ecb' }));
   const result = await processEventShadowObservation(db, makeRawRow().id);
   t('mapping ECB : PROCESSED', result.kind === 'PROCESSED', JSON.stringify(result));

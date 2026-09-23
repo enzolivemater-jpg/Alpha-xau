@@ -106,10 +106,15 @@ function assertAbstain(plan, expectedAbstention, expectedReason, label) {
 // ---------------------------------------------------------------------
 assertProcess(planFor(makeObservation()), 'FED tuple exact');
 
+// providerCategory=statistical_press_release (not press_communication):
+// this section tests exact SOURCE TUPLE matching only, and
+// statistical_press_release remains unconditionally eligible regardless
+// of URL/title (§8bis event eligibility gate applies only to ECB
+// press_communication — see its own dedicated section below).
 assertProcess(planFor(makeObservation({
   provider: 'ecb', providerItemId: 'ecb-1', sourceCode: 'ecb', sourceDomain: 'ecb.europa.eu',
   canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.pr260901.htm',
-  providerCategory: 'press_communication',
+  providerCategory: 'statistical_press_release',
 })), 'ECB tuple exact');
 
 assertProcess(planFor(makeObservation({
@@ -367,7 +372,15 @@ assertAbstain(
 const EVENT_TYPE_CASES = [
   { provider: 'federal_reserve', sourceCode: 'federalreserve', sourceDomain: 'federalreserve.gov', category: 'monetary_policy_press_release', expected: 'MONETARY_POLICY_COMMUNICATION' },
   { provider: 'federal_reserve', sourceCode: 'federalreserve', sourceDomain: 'federalreserve.gov', category: 'speech', expected: 'OFFICIAL_SPEECH' },
-  { provider: 'ecb', sourceCode: 'ecb', sourceDomain: 'ecb.europa.eu', category: 'press_communication', expected: 'CENTRAL_BANK_COMMUNICATION' },
+  // ECB press_communication needs a §8bis-eligible canonicalUrl (a known
+  // structurally-eligible path family) — the default fixture canonicalUrl
+  // (Federal Reserve's own URL) would otherwise fail hostname
+  // verification and ABSTAIN(EVENT_ELIGIBILITY_UNRESOLVED) instead of
+  // PROCESS. This mapping test only cares about the event_type mapping
+  // itself, not eligibility, so the simplest eligible evidence (a
+  // /press/key/ speech path) is used.
+  { provider: 'ecb', sourceCode: 'ecb', sourceDomain: 'ecb.europa.eu', category: 'press_communication', expected: 'CENTRAL_BANK_COMMUNICATION',
+    canonicalUrl: 'https://www.ecb.europa.eu/press/key/date/2026/html/ecb.sp260901.en.html' },
   { provider: 'ecb', sourceCode: 'ecb', sourceDomain: 'ecb.europa.eu', category: 'statistical_press_release', expected: 'STATISTICAL_RELEASE' },
   { provider: 'us_treasury', sourceCode: 'us_treasury', sourceDomain: 'home.treasury.gov', category: 'press_release', expected: 'OFFICIAL_PRESS_RELEASE' },
   { provider: 'ofac', sourceCode: 'ofac', sourceDomain: 'ofac.treasury.gov', category: 'Some Dynamic OFAC Listing Category', expected: 'SANCTIONS_ACTION' },
@@ -375,6 +388,7 @@ const EVENT_TYPE_CASES = [
 for (const c of EVENT_TYPE_CASES) {
   const plan = assertProcess(planFor(makeObservation({
     provider: c.provider, sourceCode: c.sourceCode, sourceDomain: c.sourceDomain, providerCategory: c.category,
+    ...(c.canonicalUrl ? { canonicalUrl: c.canonicalUrl } : {}),
   })), `mapping ${c.provider}/${c.category}`);
   t(`mapping ${c.provider}/${c.category} -> ${c.expected}`, plan.clusterCategory === c.expected && plan.canonicalEventState.event_type === c.expected);
 }
@@ -396,6 +410,177 @@ assertAbstain(
   planFor(makeObservation({ provider: 'ofac', sourceCode: 'ofac', sourceDomain: 'ofac.treasury.gov', providerCategory: '   ' })),
   'UNSUPPORTED_OFFICIAL_CATEGORY', 'UNSUPPORTED_OFFICIAL_CATEGORY', 'catégorie OFAC blanche',
 );
+
+// ---------------------------------------------------------------------
+// 6bis. EVENT ELIGIBILITY PRECISION GATE — ECB broad press_communication
+//   only (§8bis in deterministic_processor.ts). Proves the live defect is
+//   closed (a generic "Europa Open Air concert" item no longer becomes a
+//   CENTRAL_BANK_COMMUNICATION Event Version) while every legitimate
+//   substantive-communication and recurring-release pattern still
+//   PROCESSes, and statistical_press_release is entirely unaffected.
+// ---------------------------------------------------------------------
+function ecbObservation(overrides = {}) {
+  return makeObservation({
+    provider: 'ecb', providerItemId: 'ecb-eligibility-1', sourceCode: 'ecb', sourceDomain: 'ecb.europa.eu',
+    providerCategory: 'press_communication',
+    ...overrides,
+  });
+}
+
+// A) The exact real live defect: a public-outreach item under the generic
+//    /press/pr/ family must ABSTAIN, never PROCESS.
+assertAbstain(
+  planFor(ecbObservation({
+    title: 'ECB and Frankfurt Radio Symphony invite the public to Europa Open Air concert on 20 August 2026',
+    canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.pr260801.en.html',
+  })),
+  'EVENT_ELIGIBILITY_UNRESOLVED',
+  'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern.',
+  'A) concert générique /press/pr/',
+);
+
+// B) "Monetary policy decisions" recurring release title under generic
+//    /press/pr/ -> eligible via title pattern.
+assertProcess(planFor(ecbObservation({
+  title: 'Monetary policy decisions',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.mp260901.en.html',
+})), 'B) Monetary policy decisions');
+
+// C) Monetary policy statement / press conference -> eligible via
+//    structurally-eligible path family, irrespective of title wording.
+assertProcess(planFor(ecbObservation({
+  title: 'Monetary policy statement - press conference',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/press_conference/monetary-policy-statement/2026/html/ecb.is260901~abcdef.en.html',
+})), 'C) Monetary policy statement / press conference');
+
+// D) ECB speech under /press/key/ -> eligible via structural path.
+assertProcess(planFor(ecbObservation({
+  title: 'Some Governing Council member speech title, unrelated to any recurring-release keyword',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/key/date/2026/html/ecb.sp260901~123456.en.html',
+})), 'D) discours /press/key/');
+
+// E) ECB interview under /press/inter/ -> eligible via structural path.
+assertProcess(planFor(ecbObservation({
+  title: 'Interview with an unrelated newspaper, arbitrary wording',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/inter/date/2026/html/ecb.in260901~123456.en.html',
+})), 'E) interview /press/inter/');
+
+// F) ECB meeting account under /press/accounts/ -> eligible via structural
+//    path.
+assertProcess(planFor(ecbObservation({
+  title: 'Account of the monetary policy meeting of the Governing Council',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/accounts/2026/html/ecb.mg260901~123456.en.html',
+})), 'F) compte-rendu /press/accounts/');
+
+// G) statistical_press_release remains PROCESS unconditionally — the gate
+//    does not apply to it at all, any URL/title.
+assertProcess(planFor(ecbObservation({
+  providerCategory: 'statistical_press_release',
+  title: 'Arbitrary statistical release title',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/pr/stats/date/2026/html/ecb.statspr260901.en.html',
+})), 'G) statistical_press_release inchangé');
+
+// H) ECB Consumer Expectations Survey -> eligible via recurring-release
+//    title pattern under generic /press/pr/.
+assertProcess(planFor(ecbObservation({
+  title: 'ECB Consumer Expectations Survey results – August 2026',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.ces260901.en.html',
+})), 'H) Consumer Expectations Survey');
+
+// I) ECB wage tracker -> eligible via recurring-release title pattern.
+assertProcess(planFor(ecbObservation({
+  title: 'ECB wage tracker – September 2026 update',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.wagetracker260901.en.html',
+})), 'I) wage tracker');
+
+// J) ECB consolidated banking data -> eligible via recurring-release
+//    title pattern.
+assertProcess(planFor(ecbObservation({
+  title: 'ECB publishes consolidated banking data for the second quarter of 2026',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.cbd260901.en.html',
+})), 'J) consolidated banking data');
+
+// K) A second, different generic /press/pr/ communication with no
+//    matching evidence -> ABSTAIN (precision, not a one-off carve-out).
+assertAbstain(
+  planFor(ecbObservation({
+    title: 'ECB President to receive an honorary degree from a European university',
+    canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.pr260915.en.html',
+  })),
+  'EVENT_ELIGIBILITY_UNRESOLVED',
+  'ECB press_communication item matches neither a known structurally-eligible URL path family nor a narrowly-defined recurring macro/monetary release title pattern.',
+  'K) autre communication générique /press/pr/',
+);
+
+// L) Spoofed/non-ECB hostname must NOT gain eligibility from an
+//    ECB-looking path, even with an otherwise-eligible path AND title.
+assertAbstain(
+  planFor(ecbObservation({
+    title: 'Monetary policy decisions',
+    canonicalUrl: 'https://ecb.europa.eu.attacker.example/press/key/date/2026/html/ecb.sp260901.en.html',
+  })),
+  'EVENT_ELIGIBILITY_UNRESOLVED',
+  'ECB press_communication item has no canonicalUrl verifiable against the expected ecb.europa.eu hostname.',
+  'L) hostname usurpé rejeté malgré un chemin ECB apparent',
+);
+// A genuine *.ecb.europa.eu subdomain (the real production
+// www.ecb.europa.eu shape) must still be accepted — the spoofing guard
+// must not become a false-negative on legitimate ECB URLs.
+assertProcess(planFor(ecbObservation({
+  title: 'Monetary policy decisions',
+  canonicalUrl: 'https://www.ecb.europa.eu/press/key/date/2026/html/ecb.sp260901.en.html',
+})), 'L) sous-domaine ECB légitime (www.) toujours accepté');
+
+// M) Deterministic replay: identical input produces a deep-equal result,
+//    for both the eligible and the abstained case.
+{
+  const eligibleInput = ecbObservation({
+    title: 'Monetary policy decisions',
+    canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.mp260901.en.html',
+  });
+  const planA = planFor(eligibleInput);
+  const planB = planFor(eligibleInput);
+  t('M) rejeu identique (éligible) -> résultat deep-equal', JSON.stringify(planA) === JSON.stringify(planB));
+
+  const abstainInput = ecbObservation({
+    title: 'ECB and Frankfurt Radio Symphony invite the public to Europa Open Air concert on 20 August 2026',
+    canonicalUrl: 'https://www.ecb.europa.eu/press/pr/date/2026/html/ecb.pr260801.en.html',
+  });
+  const planC = planFor(abstainInput);
+  const planD = planFor(abstainInput);
+  t('M) rejeu identique (abstention) -> résultat deep-equal', JSON.stringify(planC) === JSON.stringify(planD));
+}
+
+// Defense in depth: canonicalUrl=null and a malformed canonicalUrl must
+// both abstain (zero structural evidence), never throw, never PROCESS.
+assertAbstain(
+  planFor(ecbObservation({ title: 'Monetary policy decisions', canonicalUrl: null })),
+  'EVENT_ELIGIBILITY_UNRESOLVED',
+  'ECB press_communication item has no canonicalUrl verifiable against the expected ecb.europa.eu hostname.',
+  'canonicalUrl null -> abstention (jamais un throw)',
+);
+assertAbstain(
+  planFor(ecbObservation({ title: 'Monetary policy decisions', canonicalUrl: 'not a url at all' })),
+  'EVENT_ELIGIBILITY_UNRESOLVED',
+  'ECB press_communication item has no canonicalUrl verifiable against the expected ecb.europa.eu hostname.',
+  'canonicalUrl malformée -> abstention (jamais un throw)',
+);
+// Non-https ECB-hostname URL must also fail closed (mirrors the RAW
+// collector's own https-only requirement).
+assertAbstain(
+  planFor(ecbObservation({ title: 'Monetary policy decisions', canonicalUrl: 'http://www.ecb.europa.eu/press/key/date/2026/html/ecb.sp260901.en.html' })),
+  'EVENT_ELIGIBILITY_UNRESOLVED',
+  'ECB press_communication item has no canonicalUrl verifiable against the expected ecb.europa.eu hostname.',
+  'canonicalUrl http (non-https) -> abstention',
+);
+
+// FEDERAL_RESERVE/US_TREASURY/OFAC are entirely unaffected by this gate —
+// no eligibility check runs for them at all.
+{
+  const combinedSourceForGateScope = source;
+  t('le gate §8bis ne s\'applique textuellement qu\'à ECB (condition tuple.authority === \'ECB\')',
+    /if \(tuple\.authority === 'ECB' && eventType === 'CENTRAL_BANK_COMMUNICATION'\)/.test(combinedSourceForGateScope));
+}
 
 // ---------------------------------------------------------------------
 // 7. Canonical Event State v1 — normalisation, contenu interdit.
