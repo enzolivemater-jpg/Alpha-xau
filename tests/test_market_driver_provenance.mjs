@@ -77,6 +77,49 @@ t('C) XAU compatibility stamp preserves US10Y', gold?.us10y_yield === -0.25);
 t('C) XAU compatibility stamp preserves US10YR', gold?.real_yield === -1.2);
 t('C) XAU compatibility stamp preserves VIX', gold?.vix === 18.4);
 t('C) XAU compatibility stamp preserves WTI', gold?.wti === 67.3);
+
+// ---------------------------------------------------------------------
+// P) PGRST102 REGRESSION — "All object keys must match". Production
+// incident: a prior commit only assigned dxy_value/us10y_yield/
+// real_yield/vix/wti on the XAUUSD row (never present at all on native
+// rows), so PostgREST's bulk INSERT saw heterogeneous JSON objects in
+// the same batch and rejected the whole batch with PGRST102 — including
+// XAUUSD itself (fetched_count=5, persisted_count=0 in the real incident
+// run a4119b3b-479a-48c6-aa41-8693995f56c9). Every row buildTickRows()
+// returns must expose the IDENTICAL key set, and native driver rows must
+// carry all five stamp columns as null (never omitted), never a stamped
+// macro value.
+// ---------------------------------------------------------------------
+const keysets = rows.map((row) => Object.keys(row).sort());
+const firstKeyset = JSON.stringify(keysets[0]);
+t('P) every buildTickRows() row exposes the EXACT same key set (guards PGRST102 "All object keys must match")',
+  keysets.every((keyset) => JSON.stringify(keyset) === firstKeyset),
+  JSON.stringify(rows.map((r, i) => ({ symbol: r.symbol, keys: keysets[i] }))));
+
+for (const symbol of ['US10Y', 'US10YR', 'VIX', 'WTI']) {
+  const row = rows.find((item) => item.symbol === symbol);
+  t(`P) native ${symbol} row carries dxy_value = null (never omitted, never stamped)`, row?.dxy_value === null);
+  t(`P) native ${symbol} row carries us10y_yield = null`, row?.us10y_yield === null);
+  t(`P) native ${symbol} row carries real_yield = null`, row?.real_yield === null);
+  t(`P) native ${symbol} row carries vix = null`, row?.vix === null);
+  t(`P) native ${symbol} row carries wti = null`, row?.wti === null);
+}
+t('P) XAUUSD row still carries us10y_yield after the fix', gold?.us10y_yield === -0.25);
+t('P) XAUUSD row still carries real_yield after the fix', gold?.real_yield === -1.2);
+t('P) XAUUSD row still carries vix after the fix', gold?.vix === 18.4);
+t('P) XAUUSD row still carries wti after the fix', gold?.wti === 67.3);
+
+// JSON.stringify drops a key only when its value is `undefined` — an
+// optional TypeScript field left unset serializes to nothing, which is
+// exactly the PGRST102 failure mode. Round-tripping through real JSON
+// serialization (the same transport PostgREST actually receives) proves
+// every row's key set survives, not just the in-memory object shape.
+const roundTripped = JSON.parse(JSON.stringify(rows));
+const roundTrippedKeysets = roundTripped.map((row) => Object.keys(row).sort());
+t('P) JSON.stringify -> JSON.parse round-trip preserves the identical key set for every row (the actual PostgREST wire format)',
+  roundTrippedKeysets.every((keyset) => JSON.stringify(keyset) === firstKeyset),
+  JSON.stringify(roundTripped.map((r, i) => ({ symbol: r.symbol, keys: roundTrippedKeysets[i] }))));
+
 t('D) identical FRED observation yields identical dedup key',
   validate.dedupKey('US10Y', 'tick', points[1].observedAt, 'fred')
     === validate.dedupKey('US10Y', 'tick', points[1].observedAt, 'fred'));
