@@ -268,7 +268,7 @@ for (const [label, overrides, reason] of [
 {
   const { db, persistenceBodies } = makeDb({
     eventVersionOverrides: {
-      canonical_event_state_schema_version: 2,
+      canonical_event_state_schema_version: 3,
       canonical_event_state: { future: ['opaque'], direction: 'BULLISH', horizon: 'H6' },
     },
     assessmentOverrides: { assessment_status: 'UNAVAILABLE' },
@@ -318,11 +318,11 @@ for (const [field, value] of [
 {
   const futurePlan = {
     kind: 'PROCESS',
-    processorVersion: 'event-impact-deterministic-processor-v1',
+    processorVersion: 'event-impact-deterministic-processor-v2',
     eventVersionId: EVENT_VERSION_ID,
     canonicalEventStateSchemaVersion: 1,
     producerType: 'DETERMINISTIC',
-    algorithmVersion: 'event-impact-deterministic-processor-v1',
+    algorithmVersion: 'event-impact-deterministic-processor-v2',
     knowledgeCutoff: CUTOFF,
     assessmentStatus: 'ASSESSED',
     assessmentReason: 'GOLD_TRANSMISSION_EVIDENCE_UNAVAILABLE',

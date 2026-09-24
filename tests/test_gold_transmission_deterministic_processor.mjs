@@ -38,8 +38,8 @@ try {
 test('module transpiles and loads', mod !== null);
 test('planner exported', typeof mod?.planDeterministicGoldTransmission === 'function');
 test('processor version frozen', mod?.GOLD_TRANSMISSION_DETERMINISTIC_PROCESSOR_VERSION
-  === 'gold-transmission-deterministic-processor-v1');
-test('supported event schema is exactly v1', mod?.GOLD_TRANSMISSION_SUPPORTED_EVENT_SCHEMA_VERSION === 1);
+  === 'gold-transmission-deterministic-processor-v2');
+test('supported event schema is exactly v2', mod?.GOLD_TRANSMISSION_SUPPORTED_EVENT_SCHEMA_VERSION === 2);
 if (mod === null) process.exit(1);
 
 const eventId = '11111111-1111-4111-8111-111111111111';
@@ -68,6 +68,17 @@ function eventVersion(overrides = {}) {
 }
 function plan(overrides = {}) {
   return mod.planDeterministicGoldTransmission({ eventVersion: eventVersion(overrides) });
+}
+function cpiState() {
+  const metric = (metric_code, unit, value) => ({
+    metric_code, reference_period: { kind: 'MONTH', year: 2026, month: 8 }, unit,
+    actual: { state: 'KNOWN', value }, consensus: { state: 'UNKNOWN', value: null }, prior_periods: [],
+  });
+  return { event_type: 'STATISTICAL_RELEASE', subject: 'US Bureau of Labor Statistics releases August 2026 Consumer Price Index', detail: null,
+    facts: { release_family: 'US_CPI', metrics: [
+      metric('CPI_CORE_MOM', 'PERCENT_CHANGE_MOM', '0.3'), metric('CPI_CORE_YOY', 'PERCENT_CHANGE_YOY', '3.1'),
+      metric('CPI_HEADLINE_MOM', 'PERCENT_CHANGE_MOM', '0.4'), metric('CPI_HEADLINE_YOY', 'PERCENT_CHANGE_YOY', '2.9'),
+    ] } };
 }
 function conservative(result, label) {
   test(`${label}: PROCESS`, result?.kind === 'PROCESS', JSON.stringify(result));
@@ -118,7 +129,13 @@ test('deterministic byte-for-byte output', JSON.stringify(first) === JSON.string
 test('input is not mutated', JSON.stringify(input) === before);
 test('shared empty paths cannot be mutated', Object.isFrozen(first.paths));
 
-const future = plan({ canonicalEventStateSchemaVersion: 2, canonicalEventState: { any: 'shape' } });
+const cpi = plan({ canonicalEventStateSchemaVersion: 2, canonicalEventState: cpiState() });
+test('valid US_CPI v2 consumes typed facts conservatively', cpi.kind === 'PROCESS'
+  && cpi.assessmentStatus === 'INSUFFICIENT_EVIDENCE'
+  && cpi.assessmentReason === 'CONSENSUS_FACTS_UNAVAILABLE' && cpi.paths.length === 0);
+abstains(plan({ canonicalEventStateSchemaVersion: 2, canonicalEventState: { ...cpiState(), extra: true } }),
+  'INVALID_CANONICAL_EVENT_STATE_V2', 'malformed v2');
+const future = plan({ canonicalEventStateSchemaVersion: 3, canonicalEventState: { any: 'shape' } });
 test('future schema produces UNAVAILABLE', future.kind === 'PROCESS'
   && future.assessmentStatus === 'UNAVAILABLE'
   && future.assessmentReason === 'UNSUPPORTED_CANONICAL_EVENT_STATE_SCHEMA'

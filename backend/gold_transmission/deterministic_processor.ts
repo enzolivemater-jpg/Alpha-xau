@@ -1,5 +1,5 @@
 /**
- * Gold Transmission deterministic processor V1.
+ * Gold Transmission deterministic processor with coordinated CES V1/V2 input support.
  *
  * Pure and side-effect free: no database, clock, environment, market fetch,
  * legacy score, Committee output, or LLM. Canonical Event State V1 contains
@@ -9,9 +9,9 @@
  */
 
 export const GOLD_TRANSMISSION_DETERMINISTIC_PROCESSOR_VERSION =
-  'gold-transmission-deterministic-processor-v1' as const;
+  'gold-transmission-deterministic-processor-v2' as const;
 
-export const GOLD_TRANSMISSION_SUPPORTED_EVENT_SCHEMA_VERSION = 1 as const;
+export const GOLD_TRANSMISSION_SUPPORTED_EVENT_SCHEMA_VERSION = 2 as const;
 
 export type EventTransition = 'NOVELTY' | 'CONFIRMATION' | 'CORRECTION' | 'REVERSAL';
 export type OfficialConfirmationState =
@@ -96,6 +96,7 @@ export interface GoldTransmissionPathDraft {
 
 export type GoldTransmissionAssessmentReason =
   | 'TYPED_EVENT_FACTS_UNAVAILABLE'
+  | 'CONSENSUS_FACTS_UNAVAILABLE'
   | 'UNSUPPORTED_CANONICAL_EVENT_STATE_SCHEMA';
 
 export interface GoldTransmissionProcessPlan {
@@ -130,6 +131,8 @@ const EVENT_VERSION_KEYS = [
   'supersedesVersionId', 'stateFingerprint',
 ] as const;
 const CANONICAL_STATE_KEYS = ['detail', 'event_type', 'subject'] as const;
+const CPI_CODES = new Set(['CPI_CORE_MOM', 'CPI_CORE_YOY', 'CPI_HEADLINE_MOM', 'CPI_HEADLINE_YOY']);
+const CPI_MOM_CODES = new Set(['CPI_CORE_MOM', 'CPI_HEADLINE_MOM']);
 const EVENT_TRANSITIONS = new Set<string>(['NOVELTY', 'CONFIRMATION', 'CORRECTION', 'REVERSAL']);
 const CONFIRMATION_STATES = new Set<string>([
   'UNCONFIRMED', 'SECONDARY_CONFIRMED', 'OFFICIALLY_CONFIRMED',
@@ -232,6 +235,40 @@ function isCanonicalStateV1(value: unknown): boolean {
     && (value.detail === null || isCanonicalText(value.detail));
 }
 
+function isCanonicalStateV2(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, ['detail', 'event_type', 'facts', 'subject'])
+      || value.event_type !== 'STATISTICAL_RELEASE' || !isCanonicalText(value.subject)
+      || value.detail !== null || !isRecord(value.facts)
+      || !hasExactKeys(value.facts, ['metrics', 'release_family'])
+      || value.facts.release_family !== 'US_CPI' || !Array.isArray(value.facts.metrics)
+      || value.facts.metrics.length !== 4) return false;
+  const seen = new Set<string>();
+  let period = '';
+  for (const item of value.facts.metrics) {
+    if (!isRecord(item) || !hasExactKeys(item, ['actual', 'consensus', 'metric_code', 'prior_periods', 'reference_period', 'unit'])
+        || typeof item.metric_code !== 'string' || !CPI_CODES.has(item.metric_code)
+        || seen.has(item.metric_code) || !isRecord(item.reference_period)
+        || !hasExactKeys(item.reference_period, ['kind', 'month', 'year'])
+        || item.reference_period.kind !== 'MONTH' || !Number.isInteger(item.reference_period.year)
+        || (item.reference_period.year as number) < 1900 || (item.reference_period.year as number) > 9999
+        || !Number.isInteger(item.reference_period.month) || (item.reference_period.month as number) < 1
+        || (item.reference_period.month as number) > 12) return false;
+    const expectedUnit = CPI_MOM_CODES.has(item.metric_code) ? 'PERCENT_CHANGE_MOM' : 'PERCENT_CHANGE_YOY';
+    const nextPeriod = `${item.reference_period.year}-${item.reference_period.month}`;
+    if (item.unit !== expectedUnit || (period !== '' && period !== nextPeriod)) return false;
+    period = nextPeriod;
+    if (!isRecord(item.actual) || !hasExactKeys(item.actual, ['state', 'value'])
+        || item.actual.state !== 'KNOWN' || typeof item.actual.value !== 'string'
+        || !/^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$/.test(item.actual.value)
+        || item.actual.value === '-0' || !isRecord(item.consensus)
+        || !hasExactKeys(item.consensus, ['state', 'value'])
+        || item.consensus.state !== 'UNKNOWN' || item.consensus.value !== null
+        || !Array.isArray(item.prior_periods) || item.prior_periods.length !== 0) return false;
+    seen.add(item.metric_code);
+  }
+  return seen.size === 4;
+}
+
 function processPlan(
   eventVersion: Record<string, unknown>,
   assessmentStatus: 'INSUFFICIENT_EVIDENCE' | 'UNAVAILABLE',
@@ -258,12 +295,19 @@ export function planDeterministicGoldTransmission(input: unknown): GoldTransmiss
   const eventVersion = input.eventVersion;
   const error = validateEventVersion(eventVersion);
   if (error !== null) return abstain(input, error);
-  if (eventVersion.canonicalEventStateSchemaVersion
-      !== GOLD_TRANSMISSION_SUPPORTED_EVENT_SCHEMA_VERSION) {
+  if ((eventVersion.canonicalEventStateSchemaVersion as number)
+      > GOLD_TRANSMISSION_SUPPORTED_EVENT_SCHEMA_VERSION) {
     return processPlan(eventVersion, 'UNAVAILABLE', 'UNSUPPORTED_CANONICAL_EVENT_STATE_SCHEMA');
   }
-  if (!isCanonicalStateV1(eventVersion.canonicalEventState)) {
+  if (eventVersion.canonicalEventStateSchemaVersion === 1
+      && !isCanonicalStateV1(eventVersion.canonicalEventState)) {
     return abstain(input, 'INVALID_CANONICAL_EVENT_STATE_V1');
+  }
+  if (eventVersion.canonicalEventStateSchemaVersion === 2) {
+    if (!isCanonicalStateV2(eventVersion.canonicalEventState)) {
+      return abstain(input, 'INVALID_CANONICAL_EVENT_STATE_V2');
+    }
+    return processPlan(eventVersion, 'INSUFFICIENT_EVIDENCE', 'CONSENSUS_FACTS_UNAVAILABLE');
   }
   return processPlan(eventVersion, 'INSUFFICIENT_EVIDENCE', 'TYPED_EVENT_FACTS_UNAVAILABLE');
 }
