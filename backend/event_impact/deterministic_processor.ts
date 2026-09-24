@@ -1,6 +1,6 @@
 /**
  * =============================================================================
- * ALPHA-XAU — PR-EI-3 deterministic Event Impact domain processor (V1).
+ * ALPHA-XAU — deterministic Event Impact domain processor (CES V1/V2 gate).
  *
  * This module is deliberately pure and side-effect free. It consumes one
  * already-persisted Event Version and produces a persistence-ready domain
@@ -21,9 +21,9 @@
  */
 
 export const EVENT_IMPACT_DETERMINISTIC_PROCESSOR_VERSION =
-  'event-impact-deterministic-processor-v1' as const;
+  'event-impact-deterministic-processor-v2' as const;
 
-export const SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION = 1 as const;
+export const SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION = 2 as const;
 
 export type EventTransition = 'NOVELTY' | 'CONFIRMATION' | 'CORRECTION' | 'REVERSAL';
 
@@ -158,6 +158,8 @@ const EVENT_VERSION_KEYS = [
 ] as const;
 
 const CANONICAL_EVENT_STATE_V1_KEYS = ['detail', 'event_type', 'subject'] as const;
+const CPI_CODES = new Set(['CPI_CORE_MOM', 'CPI_CORE_YOY', 'CPI_HEADLINE_MOM', 'CPI_HEADLINE_YOY']);
+const CPI_MOM_CODES = new Set(['CPI_CORE_MOM', 'CPI_HEADLINE_MOM']);
 
 const EVENT_TRANSITIONS: ReadonlySet<string> = new Set([
   'NOVELTY', 'CONFIRMATION', 'CORRECTION', 'REVERSAL',
@@ -212,6 +214,40 @@ function normalizeWhitespace(value: string): string {
 
 function isCanonicalNonBlankText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && normalizeWhitespace(value) === value;
+}
+
+function validateCanonicalEventStateV2(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, ['detail', 'event_type', 'facts', 'subject'])
+      || value.event_type !== 'STATISTICAL_RELEASE' || !isCanonicalNonBlankText(value.subject)
+      || value.detail !== null || !isRecord(value.facts)
+      || !hasExactKeys(value.facts, ['metrics', 'release_family'])
+      || value.facts.release_family !== 'US_CPI' || !Array.isArray(value.facts.metrics)
+      || value.facts.metrics.length !== 4) return false;
+  const seen = new Set<string>();
+  let period = '';
+  for (const item of value.facts.metrics) {
+    if (!isRecord(item) || !hasExactKeys(item, ['actual', 'consensus', 'metric_code', 'prior_periods', 'reference_period', 'unit'])
+        || typeof item.metric_code !== 'string' || !CPI_CODES.has(item.metric_code)
+        || seen.has(item.metric_code) || !isRecord(item.reference_period)
+        || !hasExactKeys(item.reference_period, ['kind', 'month', 'year'])
+        || item.reference_period.kind !== 'MONTH' || !Number.isInteger(item.reference_period.year)
+        || (item.reference_period.year as number) < 1900 || (item.reference_period.year as number) > 9999
+        || !Number.isInteger(item.reference_period.month) || (item.reference_period.month as number) < 1
+        || (item.reference_period.month as number) > 12) return false;
+    const expectedUnit = CPI_MOM_CODES.has(item.metric_code) ? 'PERCENT_CHANGE_MOM' : 'PERCENT_CHANGE_YOY';
+    const nextPeriod = `${item.reference_period.year}-${item.reference_period.month}`;
+    if (item.unit !== expectedUnit || (period !== '' && period !== nextPeriod)) return false;
+    period = nextPeriod;
+    if (!isRecord(item.actual) || !hasExactKeys(item.actual, ['state', 'value'])
+        || item.actual.state !== 'KNOWN' || typeof item.actual.value !== 'string'
+        || !/^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$/.test(item.actual.value)
+        || item.actual.value === '-0' || !isRecord(item.consensus)
+        || !hasExactKeys(item.consensus, ['state', 'value'])
+        || item.consensus.state !== 'UNKNOWN' || item.consensus.value !== null
+        || !Array.isArray(item.prior_periods) || item.prior_periods.length !== 0) return false;
+    seen.add(item.metric_code);
+  }
+  return seen.size === 4;
 }
 
 function isLeapYear(year: number): boolean {
@@ -346,8 +382,8 @@ export function planDeterministicEventImpact(input: unknown): EventImpactProcess
   const commonError = validateCommonEventVersion(eventVersion);
   if (commonError !== null) return abstain(input, commonError);
 
-  if (eventVersion.canonicalEventStateSchemaVersion
-      !== SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION) {
+  if ((eventVersion.canonicalEventStateSchemaVersion as number)
+      > SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION) {
     return processPlan(
       eventVersion,
       'UNAVAILABLE',
@@ -355,8 +391,13 @@ export function planDeterministicEventImpact(input: unknown): EventImpactProcess
     );
   }
 
-  if (!validateCanonicalEventStateV1(eventVersion.canonicalEventState)) {
+  if (eventVersion.canonicalEventStateSchemaVersion === 1
+      && !validateCanonicalEventStateV1(eventVersion.canonicalEventState)) {
     return abstain(input, 'INVALID_CANONICAL_EVENT_STATE_V1');
+  }
+  if (eventVersion.canonicalEventStateSchemaVersion === 2
+      && !validateCanonicalEventStateV2(eventVersion.canonicalEventState)) {
+    return abstain(input, 'INVALID_CANONICAL_EVENT_STATE_V2');
   }
 
   return processPlan(

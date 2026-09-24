@@ -55,10 +55,10 @@ try {
 test('le module TypeScript transpile et se charge', mod !== null);
 test('planDeterministicEventImpact est exporté', typeof mod?.planDeterministicEventImpact === 'function');
 test(
-  'version processeur V1 exportée',
-  mod?.EVENT_IMPACT_DETERMINISTIC_PROCESSOR_VERSION === 'event-impact-deterministic-processor-v1',
+  'version processeur V2 exportée',
+  mod?.EVENT_IMPACT_DETERMINISTIC_PROCESSOR_VERSION === 'event-impact-deterministic-processor-v2',
 );
-test('schéma canonique supporté = 1', mod?.SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION === 1);
+test('schéma canonique supporté = 2', mod?.SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION === 2);
 
 if (mod === null) {
   console.log(`\nRESULT: ${passed} passed, ${failed} failed`);
@@ -81,6 +81,18 @@ function canonicalState(overrides = {}) {
     detail: 'The Committee maintained the target range.',
     ...overrides,
   };
+}
+
+function cpiState() {
+  const metric = (metric_code, unit, value) => ({
+    metric_code, reference_period: { kind: 'MONTH', year: 2026, month: 8 }, unit,
+    actual: { state: 'KNOWN', value }, consensus: { state: 'UNKNOWN', value: null }, prior_periods: [],
+  });
+  return { event_type: 'STATISTICAL_RELEASE', subject: 'US Bureau of Labor Statistics releases August 2026 Consumer Price Index', detail: null,
+    facts: { release_family: 'US_CPI', metrics: [
+      metric('CPI_CORE_MOM', 'PERCENT_CHANGE_MOM', '0.3'), metric('CPI_CORE_YOY', 'PERCENT_CHANGE_YOY', '3.1'),
+      metric('CPI_HEADLINE_MOM', 'PERCENT_CHANGE_MOM', '0.4'), metric('CPI_HEADLINE_YOY', 'PERCENT_CHANGE_YOY', '2.9'),
+    ] } };
 }
 
 function eventVersion(overrides = {}) {
@@ -248,7 +260,10 @@ assertConservativeProcess(plan({
 // ---------------------------------------------------------------------------
 // 3. Future canonical schema: explicit UNAVAILABLE, never guessed.
 // ---------------------------------------------------------------------------
-for (const schemaVersion of [2, 7, 999]) {
+assertConservativeProcess(plan({ canonicalEventStateSchemaVersion: 2, canonicalEventState: cpiState() }), 'CES V2 US_CPI valide');
+assertAbstain(plan({ canonicalEventStateSchemaVersion: 2, canonicalEventState: { ...cpiState(), extra: true } }), 'INVALID_CANONICAL_EVENT_STATE_V2', 'CES V2 clé inconnue');
+
+for (const schemaVersion of [3, 7, 999]) {
   const result = plan({
     canonicalEventStateSchemaVersion: schemaVersion,
     canonicalEventState: {

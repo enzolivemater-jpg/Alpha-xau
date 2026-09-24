@@ -180,7 +180,7 @@ for (const [label, eventOverrides, reason] of [
 
 {
   const { db, bodies } = makeDb({
-    eventOverrides: { canonical_event_state_schema_version: 2, canonical_event_state: { opaque: true } },
+    eventOverrides: { canonical_event_state_schema_version: 3, canonical_event_state: { opaque: true } },
     assessmentOverrides: { assessment_status: 'UNAVAILABLE', assessment_reason: 'UNSUPPORTED_CANONICAL_EVENT_STATE_SCHEMA' },
   });
   const result = await mod.processGoldTransmissionShadowVersion(db, eventId);
