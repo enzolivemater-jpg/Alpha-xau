@@ -336,6 +336,16 @@ claims only:
 Lookup is exact by strong-identity key. It never scans titles, URLs,
 metrics, periods, timestamps, or neighboring clusters.
 
+EF-6 implements this boundary with the read-only, stable, security-invoker
+RPC `fn_event_lookup_active_identity_claims` and the application adapter
+`release-identity-active-lookup-v1`. The RPC derives the existing three-part
+key inside PostgreSQL and evaluates active claims in one statement, including
+successors that changed keys. The adapter constructs `candidateClusterIds`
+only after a successful, strictly validated response: zero and one rows are
+represented exactly; more than one, malformed data, or lookup failure raises a
+typed fail-closed error. EF-6 performs no mutation and does not activate a
+producer.
+
 ### 8.1 Same identity
 
 The following may share the same release identity when official evidence
