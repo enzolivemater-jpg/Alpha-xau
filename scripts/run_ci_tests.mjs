@@ -66,6 +66,7 @@ const TEST_FILES = [
   'tests/test_gold_transmission_shadow_runtime.mjs',
   'tests/test_market_driver_provenance.mjs',
   'tests/test_notification_horizon_provider_circuit.mjs',
+  'tests/test_official_source_artifacts_contract.mjs',
   'tests/test_ofac_collector.mjs',
   'tests/test_ofac_raw_adapter.mjs',
   'tests/test_ofac_raw_integration.mjs',

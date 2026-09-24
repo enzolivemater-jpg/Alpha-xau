@@ -103,6 +103,8 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
       - name: Event Facts CES V2 persistence contract
         run: node tests/test_event_facts_ces_v2_persistence_postgres.mjs
+      - name: Event Facts official artifact retention contract
+        run: node tests/test_official_source_artifacts_postgres.mjs
 
   market-driver-postgres:
     runs-on: ubuntu-latest

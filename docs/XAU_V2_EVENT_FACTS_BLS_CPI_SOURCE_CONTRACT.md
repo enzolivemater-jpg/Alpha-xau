@@ -1,6 +1,6 @@
 # XAU V2 — Event Facts EF-2 / US BLS CPI Source Contract
 
-Status: `PURE ADAPTER — EF-2, NOT ACTIVATED`
+Status: `PURE ADAPTER + RAW EVIDENCE SCHEMA — NOT ACTIVATED`
 Milestone: EF-2 (one official release family only)
 Baseline verified against: `d72b0dfeadea63857e10ee718186d3fe435c8cec`
 
@@ -261,3 +261,25 @@ EF-2 is not activated. A later milestone must separately review and add:
 7. coordinated CES V2 activation.
 
 Adding a paid or recurring-cost consensus provider remains a Human Gate.
+
+## 13. EF-5A exact-byte evidence boundary
+
+Migration `0030_official_source_artifacts.sql` supplies the reviewed
+non-canonical location required by activation prerequisite 1. It retains the
+exact response-body bytes for the archived release header and Table 1 XLSX,
+plus bounded source and observation metadata. PostgreSQL derives both the
+content digest and observation idempotency digest; collectors cannot assert
+either value.
+
+The table is append-only, service-role-only, and currently constrained to the
+exact `US_BLS` / `bls` / `bls_cpi_release` / `bls.gov` source tuple and the two
+reviewed media types. Exact re-polls collapse by observation hash; changed
+bytes remain a new immutable observation. The observation time is metadata and
+does not alter byte identity.
+
+No parsed projection, release identity claim, CES fact, correction verdict, or
+activation state is stored in this table. A future parser must consume
+`content_bytes` and deterministically reproduce §3; its output remains a
+replayable derivation, never a competing canonical record. EF-5A adds no
+fetcher, parser, runtime route, database writer, live migration, or CES V2
+activation.
