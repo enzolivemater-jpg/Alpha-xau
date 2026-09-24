@@ -80,7 +80,9 @@ rejects(insert(2, mutate(x => { x.facts.metrics.pop(); })));
 rejects(insert(2, mutate(x => { x.facts.metrics[1].metric_code = 'CPI_CORE_MOM'; })));
 rejects(insert(2, mutate(x => { x.facts.metrics[0].unit = 'PERCENT_CHANGE_YOY'; })));
 rejects(insert(2, mutate(x => { x.facts.metrics[0].reference_period.month = 13; })));
-rejects(insert(2, mutate(x => { x.facts.metrics[0].reference_period.month = 7; })));
+rejects(insert(2, mutate(x => {
+  x.facts.metrics[0].reference_period = { kind: 'MONTH', year: 2026, month: 7 };
+})));
 rejects(insert(2, mutate(x => { x.facts.metrics[0].actual.value = '0.30'; })));
 rejects(insert(2, mutate(x => { x.facts.metrics[0].actual.value = '-0'; })));
 rejects(insert(2, mutate(x => { x.facts.metrics[0].consensus = { state: 'KNOWN', value: '0.2' }; })));
