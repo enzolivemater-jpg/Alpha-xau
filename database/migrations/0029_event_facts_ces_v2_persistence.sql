@@ -88,10 +88,14 @@ BEGIN
          'CPI_HEADLINE_MOM', 'CPI_HEADLINE_YOY'
        )
        OR v_code = ANY(v_seen_codes)
-       OR v_metric ->> 'unit' <> CASE
-            WHEN v_code IN ('CPI_CORE_MOM', 'CPI_HEADLINE_MOM') THEN 'PERCENT_CHANGE_MOM'
-            ELSE 'PERCENT_CHANGE_YOY'
-          END
+       OR (
+         v_code IN ('CPI_CORE_MOM', 'CPI_HEADLINE_MOM')
+         AND v_metric ->> 'unit' <> 'PERCENT_CHANGE_MOM'
+       )
+       OR (
+         v_code IN ('CPI_CORE_YOY', 'CPI_HEADLINE_YOY')
+         AND v_metric ->> 'unit' <> 'PERCENT_CHANGE_YOY'
+       )
     THEN
       RETURN FALSE;
     END IF;
