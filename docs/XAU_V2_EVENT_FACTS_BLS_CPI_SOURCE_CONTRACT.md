@@ -89,10 +89,11 @@ The Table 1 projection preserves:
   the future source parser;
 - exactly the two reviewed rows and their two numeric cells.
 
-Fetching and parsing XLSX are future source-ingestion work. The future
-parser must reproduce this projection exactly and preserve the original
-artifact outside CES for audit. It must not supply inferred, repaired, or
-aggregator-derived fields.
+`backend/event_facts/bls_cpi_artifact_parser.ts` now deterministically parses
+retained header/XLSX bytes into this exact projection. It does not fetch,
+persist, infer, repair, or accept aggregator-derived fields. The exact original
+bytes remain the audit authority in `official_source_artifacts`; parser output
+is a replayable derivation only.
 
 ## 4. Release identity
 
@@ -253,7 +254,8 @@ falls back to URL/title/period evidence.
 EF-2 is not activated. A later milestone must separately review and add:
 
 1. official fetch and immutable raw-artifact retention;
-2. deterministic XLSX/header parsing into this exact projection;
+2. deterministic XLSX/header parsing into this exact projection (EF-5B merged
+   in code, runtime still inactive);
 3. exact active identity-claim lookup with 0/1/>1 handling;
 4. persistence/orchestration integration;
 5. downstream CES V2 consumer readiness;
@@ -283,3 +285,21 @@ activation state is stored in this table. A future parser must consume
 replayable derivation, never a competing canonical record. EF-5A adds no
 fetcher, parser, runtime route, database writer, live migration, or CES V2
 activation.
+
+## 14. EF-5B deterministic parser boundary
+
+Parser version `bls-cpi-artifact-parser-v1` accepts only bounded `Uint8Array`
+inputs plus the two reviewed BLS archive paths. UTF-8 decoding is fatal. The
+header must contain exactly one official `USDL` identifier, CPI title, and
+embargo statement. The XLSX is treated as a ZIP/XML container: only the
+reviewed shared-string and first-worksheet parts are decompressed, each is
+bounded to 2 MiB, and the parser locates Table 1 columns and the two required
+rows by exact semantic labels rather than by a guessed fixed row number.
+
+Unknown cell types, duplicate cell references, duplicate identity evidence,
+missing cells, malformed XML text, unsupported paths, ZIP failures, and
+header/table period disagreement fail closed without a partial projection.
+The parser has no database, environment, clock, randomness, network, market,
+Committee, LLM, or consensus dependency. EF-5B adds no collector, persistence
+or identity lookup orchestration, live migration, production write, deploy, or
+CES V2 activation.
