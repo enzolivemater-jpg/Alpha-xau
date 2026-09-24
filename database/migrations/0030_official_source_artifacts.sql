@@ -41,13 +41,13 @@ CREATE TABLE IF NOT EXISTS public.official_source_artifacts (
   observation_hash      TEXT GENERATED ALWAYS AS (
                           encode(
                             extensions.digest(
-                              convert_to(
+                              extensions.digest(
                                 authority || chr(31) || provider || chr(31)
                                 || source_code || chr(31) || source_domain || chr(31)
                                 || canonical_url || chr(31) || artifact_role || chr(31)
                                 || media_type || chr(31),
-                                'UTF8'
-                              ) || content_bytes,
+                                'sha256'
+                              ) || extensions.digest(content_bytes, 'sha256'),
                               'sha256'
                             ),
                             'hex'
