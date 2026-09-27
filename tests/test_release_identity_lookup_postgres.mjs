@@ -28,12 +28,16 @@ sql(`
 sql(readFileSync(new URL('database/migrations/0031_event_identity_active_lookup.sql', root), 'utf8'));
 const argsSql = `'xau_v2:official_release:us_bls:v1', 'official_release_id:bls_cpi_v1', 'release-a'`;
 assert.equal(sql(`SELECT count(*) FROM public.fn_event_lookup_active_identity_claims(${argsSql});`), '0');
-sql(`INSERT INTO public.event_cluster_identity_claims VALUES
+sql(`INSERT INTO public.event_cluster_identity_claims
+  (identity_claim_id, cluster_id, authority_namespace, identity_type, identity_value, supersedes_claim_id)
+  VALUES
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '11111111-1111-4111-8111-111111111111',
    'xau_v2:official_release:us_bls:v1', 'official_release_id:bls_cpi_v1', 'release-a', NULL);`);
 assert.equal(sql(`SELECT cluster_id FROM public.fn_event_lookup_active_identity_claims(${argsSql});`),
   '11111111-1111-4111-8111-111111111111');
-sql(`INSERT INTO public.event_cluster_identity_claims VALUES
+sql(`INSERT INTO public.event_cluster_identity_claims
+  (identity_claim_id, cluster_id, authority_namespace, identity_type, identity_value, supersedes_claim_id)
+  VALUES
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '11111111-1111-4111-8111-111111111111',
    'xau_v2:official_release:us_bls:v1', 'official_release_id:bls_cpi_v1', 'release-b',
    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');`);
@@ -41,7 +45,9 @@ assert.equal(sql(`SELECT count(*) FROM public.fn_event_lookup_active_identity_cl
 assert.equal(sql(`SELECT cluster_id FROM public.fn_event_lookup_active_identity_claims(
   'xau_v2:official_release:us_bls:v1', 'official_release_id:bls_cpi_v1', 'release-b');`),
   '11111111-1111-4111-8111-111111111111');
-sql(`INSERT INTO public.event_cluster_identity_claims VALUES
+sql(`INSERT INTO public.event_cluster_identity_claims
+  (identity_claim_id, cluster_id, authority_namespace, identity_type, identity_value, supersedes_claim_id)
+  VALUES
   ('cccccccc-cccc-4ccc-8ccc-cccccccccccc', '22222222-2222-4222-8222-222222222222',
    'xau_v2:official_release:us_bls:v1', 'official_release_id:bls_cpi_v1', 'release-b', NULL);`);
 assert.equal(sql(`SELECT count(*) FROM public.fn_event_lookup_active_identity_claims(
