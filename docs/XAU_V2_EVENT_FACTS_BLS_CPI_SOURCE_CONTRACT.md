@@ -367,3 +367,18 @@ cluster arbitration remain database-owned and are repeated under the EF-8 transa
 locks. The writer requires exactly one response row with the exact documented keys,
 UUIDs, outcome enum, and boolean replay flag. Transport failures and malformed results
 fail closed with bounded error codes; database error detail is never propagated.
+
+## 18. EF-10 bounded one-shot orchestration
+
+`backend/event_facts/bls_cpi_production_orchestrator.ts` composes the real EF-7
+planner with the EF-9 writer for exactly one caller-supplied artifact bundle.
+The caller remains responsible for the retained observation/artifact identifiers
+and operation fingerprint. Parser, adapter, and identity abstention stop before
+the mutation RPC; a persistence failure is returned as a bounded `BLOCKED`
+result and is never retried by the orchestrator.
+
+The seam contains no fetch, source discovery, clock, environment access, loop,
+batch, retry, route, schedule, cron, deployment, or migration application. Its
+only database sequence on the successful path is the reviewed exact-identity
+lookup followed by the single EF-8 atomic mutation. EF-10 therefore makes the
+manual one-shot application path composable without activating it.
