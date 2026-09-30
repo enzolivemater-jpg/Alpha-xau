@@ -323,3 +323,33 @@ cluster creation, identity assertion, Event Version creation, route, cron, or
 deployment path. It therefore does not activate CES V2 and does not complete
 activation prerequisite 4 by itself. A later milestone must separately design
 atomic mutation semantics and replay/rollback proofs.
+
+## 16. EF-8 atomic persistence boundary
+
+Migration `0032_event_facts_atomic_production.sql` adds one service-role-only,
+security-invoker RPC for an already-reviewed EF-7 plan. The caller supplies an
+existing BLS RAW observation, the exact retained header and Table 1 artifact
+identifiers, the reviewed release identity, the validated CES V2 state, and a
+64-character operation idempotency fingerprint. The RPC performs no fetch or
+parse.
+
+The operation validates that the RAW observation and both artifacts share one
+ingestion run and the exact BLS source/role boundary. It derives all internal
+fingerprints in PostgreSQL, resolves the active release claim, creates or
+reuses the cluster membership, asserts a new claim only when none exists, and
+calls the existing canonical Event Version RPC. A newly created version is
+linked to exactly the retained header and workbook through an immutable
+artifact-evidence table. An unchanged canonical state returns
+`NO_MATERIAL_CHANGE`; it never mutates the prior version's evidence snapshot.
+
+An append-only operation ledger closes the lost-response retry gap. Exact
+replay returns the committed identifiers without new writes; divergent reuse
+of the same fingerprint fails. One transaction covers cluster, membership,
+identity claim, Event Version, artifact links, and ledger, so any downstream
+failure rolls everything back. Identity is rechecked after the cluster lock to
+close concurrent supersession races.
+
+Both new tables have RLS enabled with no client policies. The RPC is
+`SECURITY INVOKER`, uses an empty search path, and is executable only by
+`service_role`. EF-8 remains inactive: migrations 0029–0032 are not applied
+live, no route or schedule calls the RPC, and no production data is written.

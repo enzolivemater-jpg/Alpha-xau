@@ -107,6 +107,8 @@ jobs:
         run: node tests/test_official_source_artifacts_postgres.mjs
       - name: Event Facts active release identity lookup contract
         run: node tests/test_release_identity_lookup_postgres.mjs
+      - name: Event Facts atomic production contract
+        run: node tests/test_event_facts_atomic_production_postgres.mjs
 
   market-driver-postgres:
     runs-on: ubuntu-latest
