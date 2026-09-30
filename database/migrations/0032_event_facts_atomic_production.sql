@@ -146,7 +146,7 @@ BEGIN
      OR p_operation_idempotency_fingerprint !~ '^[0-9a-f]{64}$' THEN
     RAISE EXCEPTION 'EF8_OPERATION_FINGERPRINT_INVALID';
   END IF;
-  IF NOT public.fn_event_is_supported_canonical_state(2, p_canonical_event_state) THEN
+  IF NOT public.fn_event_is_supported_canonical_state(2::smallint, p_canonical_event_state) THEN
     RAISE EXCEPTION 'EF8_CANONICAL_STATE_INVALID';
   END IF;
 
@@ -335,7 +335,7 @@ BEGIN
     p_knowledge_cutoff => v_knowledge_cutoff,
     p_effective_time => NULL,
     p_effective_time_precision => NULL,
-    p_canonical_event_state_schema_version => 2,
+    p_canonical_event_state_schema_version => 2::smallint,
     p_canonical_event_state => p_canonical_event_state,
     p_official_confirmation_state => 'OFFICIALLY_CONFIRMED',
     p_source_independence_state => 'SINGLE_EDITORIAL_ORIGIN',

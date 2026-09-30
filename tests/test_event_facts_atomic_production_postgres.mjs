@@ -54,7 +54,7 @@ sql(`
   );
   CREATE OR REPLACE FUNCTION public.fn_event_schema_append_only() RETURNS trigger
   LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'append-only'; END $$;
-  CREATE OR REPLACE FUNCTION public.fn_event_is_supported_canonical_state(integer, jsonb)
+  CREATE OR REPLACE FUNCTION public.fn_event_is_supported_canonical_state(smallint, jsonb)
   RETURNS boolean LANGUAGE sql IMMUTABLE STRICT AS $$
     SELECT $1 = 2 AND $2->>'event_type' = 'STATISTICAL_RELEASE'
       AND $2->'facts'->>'release_family' = 'US_CPI'
