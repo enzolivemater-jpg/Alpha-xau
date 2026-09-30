@@ -48,6 +48,7 @@ const TEST_FILES = [
   'tests/test_event_facts_ces_v2_persistence.mjs',
   'tests/test_event_facts_atomic_production_contract.mjs',
   'tests/test_event_facts_activation_runbook.mjs',
+  'tests/test_event_facts_production_authorization_packet.mjs',
   'tests/test_event_facts_staging_proof.mjs',
   'tests/test_event_identity_claim_contract.mjs',
   'tests/test_event_impact_atomic_rpc.mjs',
