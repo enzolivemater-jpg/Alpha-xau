@@ -178,6 +178,12 @@ EF-11.
 
 ## 9. Current decision
 
-`HOLD`. The ordered rollout is technically reviewable, but live execution is
-not authorized until the staging/recovery/fingerprint/consensus/runtime Human
-Gates are explicitly resolved.
+The isolated staging-choice gate is complete. EF-12 proved the real migrations
+0029–0032 in order on a separate hosted Supabase PostgreSQL 17.11 project; see
+`XAU_V2_EVENT_FACTS_STAGING_PROOF.md`. Because the repository lacks the full
+historical base migration, that proof uses an explicit minimal prerequisite
+bootstrap and is not represented as a full production-schema clone.
+
+Production remains `HOLD — NOT AUTHORIZED FOR LIVE EXECUTION`. Live execution
+is not authorized until the recovery, production migration authority,
+fingerprint, consensus, and runtime Human Gates are explicitly resolved.
