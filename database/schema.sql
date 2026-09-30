@@ -111,6 +111,7 @@ CREATE OR REPLACE FUNCTION fn_news_score(
   p_duration    NUMERIC   -- 0-100 : durée probable de l'impact
 ) RETURNS NUMERIC
 LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = ''
 AS $$
   -- ==================================================================
   -- FORMULE INSTITUTIONNELLE OFFICIELLE (MASTER SPEC §22)
@@ -143,6 +144,7 @@ $$;
 CREATE OR REPLACE FUNCTION fn_set_updated_at()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = ''
 AS $$
 BEGIN
   NEW.updated_at := now();
@@ -457,7 +459,9 @@ GRANT EXECUTE ON FUNCTION fn_reclaim_stale_runs(TEXT, INTEGER) TO service_role;
 -- migration 0004, NEWS-RAW-002-FIX2). Réservée au service_role et aux
 -- utilisateurs authentifiés : l'état d'exploitation interne n'a pas à
 -- être public.
-CREATE OR REPLACE VIEW v_engine_last_run AS
+-- Invoker security keeps this authenticated-only view aligned with table RLS.
+CREATE OR REPLACE VIEW v_engine_last_run
+WITH (security_invoker = true) AS
 SELECT DISTINCT ON (engine)
   engine, id AS run_id, trigger_type, status,
   started_at, finished_at, duration_ms,
@@ -576,9 +580,10 @@ CREATE TRIGGER trg_news_events_updated_at
 CREATE OR REPLACE FUNCTION fn_news_classify()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = ''
 AS $$
 DECLARE
-  v_score NUMERIC := fn_news_score(
+  v_score NUMERIC := public.fn_news_score(
     NEW.macro_score, NEW.volatility_score, NEW.reliability_score,
     NEW.surprise_score, NEW.duration_score
   );
@@ -597,8 +602,15 @@ BEGIN
       WHEN v_score >= 80 THEN 'critical'
       WHEN v_score >= 60 THEN 'major'
       ELSE 'noise'
-    END::news_class_t;
+    END::public.news_class_t;
   END IF;
+
+  NEW.action := CASE
+    WHEN v_score >= 80 THEN 'RECALC_H1_H2'
+    WHEN v_score >= 60 THEN 'REEVALUATE_H3'
+    ELSE 'ARCHIVE_ONLY'
+  END::public.news_action_t;
+
   RETURN NEW;
 END;
 $$;
@@ -773,6 +785,7 @@ COMMENT ON INDEX idx_news_articles_provider_url IS
 CREATE OR REPLACE FUNCTION fn_news_articles_append_only()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = ''
 AS $$
 BEGIN
   RAISE EXCEPTION
@@ -890,6 +903,7 @@ CREATE INDEX idx_ai_scenarios_direction ON ai_scenarios (direction, probability 
 CREATE OR REPLACE FUNCTION fn_check_scenario_probability_sum()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = ''
 AS $$
 DECLARE
   v_analysis    UUID := COALESCE(NEW.analysis_id, OLD.analysis_id);
@@ -897,14 +911,16 @@ DECLARE
   v_sum         NUMERIC;
   v_horizon_ct  INTEGER;
 BEGIN
-  SELECT count(*), COALESCE(sum(probability), 0)
+  SELECT count(*), COALESCE(sum(s.probability), 0)
     INTO v_count, v_sum
-    FROM ai_scenarios WHERE analysis_id = v_analysis;
+    FROM public.ai_scenarios AS s WHERE s.analysis_id = v_analysis;
 
   -- Nombre d'horizons attendu par run complet = cardinalité de horizon_t,
   -- lue dynamiquement plutôt que codée en dur : un ajout futur d'horizon
   -- (ALTER TYPE ... ADD VALUE) n'exige plus de migration sur ce trigger.
-  SELECT count(*) INTO v_horizon_ct FROM pg_enum WHERE enumtypid = 'horizon_t'::regtype;
+  SELECT count(*) INTO v_horizon_ct
+    FROM pg_catalog.pg_enum AS e
+   WHERE e.enumtypid = 'public.horizon_t'::pg_catalog.regtype;
 
   -- Ce trigger déclenche lui-même le contrôle de somme uniquement quand le
   -- NOMBRE de lignes atteint la cardinalité de horizon_t. La complétude des
@@ -1062,7 +1078,8 @@ CREATE TRIGGER trg_alerts_updated_at
 -- 9. VUES DE LECTURE (consommées par le frontend via PostgREST)
 -- ---------------------------------------------------------------------
 -- Dernier prix connu par instrument.
-CREATE VIEW v_market_latest AS
+CREATE VIEW v_market_latest
+WITH (security_invoker = true) AS
 SELECT DISTINCT ON (symbol)
   symbol, asset_type, bid, ask, spread, close, volume, timeframe,
   dxy_value, us10y_yield, real_yield, vix, wti, source, ts,
@@ -1074,7 +1091,8 @@ COMMENT ON VIEW v_market_latest IS
   'Dernier tick par instrument + indicateur de fraîcheur pour le badge LIVE/STALE du terminal.';
 
 -- Dernière analyse valide par instrument, scénarios agrégés en JSON.
-CREATE VIEW v_ai_latest AS
+CREATE VIEW v_ai_latest
+WITH (security_invoker = true) AS
 SELECT
   a.id, a.symbol, a.model_version, a.market_regime, a.regime_confidence,
   a.spot_reference, a.summary, a.analysis_ts, a.valid_until,
@@ -1098,7 +1116,8 @@ WHERE a.valid_until IS NULL OR a.valid_until > now()
 GROUP BY a.id;
 
 -- Flux news à impact élevé sur 48h.
-CREATE VIEW v_news_high_impact AS
+CREATE VIEW v_news_high_impact
+WITH (security_invoker = true) AS
 SELECT id, title, source, source_url, category, region, sentiment,
        news_score, classification, gold_direction_impact, expected_move_usd, ts
 FROM news_events
