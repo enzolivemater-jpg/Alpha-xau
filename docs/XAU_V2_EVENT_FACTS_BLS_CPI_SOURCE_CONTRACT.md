@@ -353,3 +353,17 @@ Both new tables have RLS enabled with no client policies. The RPC is
 `SECURITY INVOKER`, uses an empty search path, and is executable only by
 `service_role`. EF-8 remains inactive: migrations 0029–0032 are not applied
 live, no route or schedule calls the RPC, and no production data is written.
+
+## 17. EF-9 strict application persistence boundary
+
+`backend/event_facts/bls_cpi_production_writer.ts` is the only reviewed application
+adapter for `fn_event_fact_produce_bls_cpi`. It accepts only an EF-7 `READY` plan,
+the exact raw observation and retained-artifact UUIDs, and a caller-owned lowercase
+SHA-256 operation fingerprint. It issues one POST to the atomic EF-8 RPC and performs
+no direct table write or nested Event Cluster RPC call.
+
+The EF-7 candidate cluster list is validated but deliberately not sent. Identity and
+cluster arbitration remain database-owned and are repeated under the EF-8 transaction
+locks. The writer requires exactly one response row with the exact documented keys,
+UUIDs, outcome enum, and boolean replay flag. Transport failures and malformed results
+fail closed with bounded error codes; database error detail is never propagated.
