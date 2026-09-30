@@ -33,7 +33,11 @@ All gates below are mandatory. Any unresolved gate means `STOP`.
    PostgreSQL 17 CI remains necessary but is not silently treated as that
    decision.
 2. **Recovery readiness:** verify a current restorable backup/PITR position and
-   name the operator responsible for recovery.
+   name the operator responsible for recovery. The production organization is
+   currently on Supabase Free: managed daily backup/PITR must not be assumed.
+   Follow `XAU_V2_EVENT_FACTS_PRODUCTION_AUTHORIZATION_PACKET.md` and prove
+   either an off-site logical backup plus isolated restore rehearsal, or an
+   eligible managed recovery point.
 3. **Migration authority:** approve the exact main SHA and the exact four SQL
    file hashes. Never deploy from a mutable working tree.
 4. **Fingerprint ownership:** approve the runtime component that creates and
@@ -183,6 +187,14 @@ The isolated staging-choice gate is complete. EF-12 proved the real migrations
 `XAU_V2_EVENT_FACTS_STAGING_PROOF.md`. Because the repository lacks the full
 historical base migration, that proof uses an explicit minimal prerequisite
 bootstrap and is not represented as a full production-schema clone.
+
+EF-13 reconciled production again and created the exact authorization ledger.
+It confirmed the recovery gate is blocked: the production organization is on
+Supabase Free, no current restorable backup or restore rehearsal is evidenced,
+and the recovery operator is unassigned. The same snapshot also records six
+pre-existing `security_definer_view` advisor errors and five mutable search-path
+warnings for separate baseline review; no unrelated production object was
+changed.
 
 Production remains `HOLD — NOT AUTHORIZED FOR LIVE EXECUTION`. Live execution
 is not authorized until the recovery, production migration authority,
