@@ -256,8 +256,10 @@ EF-2 is not activated. A later milestone must separately review and add:
 1. official fetch and immutable raw-artifact retention;
 2. deterministic XLSX/header parsing into this exact projection (EF-5B merged
    in code, runtime still inactive);
-3. exact active identity-claim lookup with 0/1/>1 handling;
-4. persistence/orchestration integration;
+3. exact active identity-claim lookup with 0/1/>1 handling (EF-6 merged in
+   code, live migration still inactive);
+4. persistence/orchestration integration (EF-7 adds only a bounded,
+   non-mutating planner; persistence remains absent);
 5. downstream CES V2 consumer readiness;
 6. shadow/replay proof and explicit rollback;
 7. coordinated CES V2 activation.
@@ -303,3 +305,21 @@ The parser has no database, environment, clock, randomness, network, market,
 Committee, LLM, or consensus dependency. EF-5B adds no collector, persistence
 or identity lookup orchestration, live migration, production write, deploy, or
 CES V2 activation.
+
+## 15. EF-7 bounded producer-planning boundary
+
+Planner version `bls-cpi-producer-planner-v1` composes the reviewed EF-5B
+parser, EF-2 adapter, and EF-6 exact identity lookup through explicit injected
+dependencies. A successful plan contains only the validated CES V2 state,
+the three component versions, and the exact resolved identity context. Parser
+or adapter abstention and every unavailable, malformed, or colliding identity
+lookup produce an explicit blocked result; no lookup failure is converted into
+an empty candidate set.
+
+Dependency injection is intentional: EF-7 establishes ordering and failure
+semantics without creating a hidden database or network client. The planner
+has no fetch, clock, environment, SQL write, mutation RPC, artifact writer,
+cluster creation, identity assertion, Event Version creation, route, cron, or
+deployment path. It therefore does not activate CES V2 and does not complete
+activation prerequisite 4 by itself. A later milestone must separately design
+atomic mutation semantics and replay/rollback proofs.
