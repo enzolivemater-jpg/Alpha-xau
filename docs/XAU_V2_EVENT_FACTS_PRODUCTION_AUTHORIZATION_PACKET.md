@@ -61,6 +61,8 @@ operator has been evidenced. Therefore recovery readiness is `BLOCKED`.
 REC-1 now provides a reviewed operator procedure and a fail-closed manifest
 comparator in
 [`XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md`](XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md).
+The exact one-response operator/target decision is frozen in
+[`XAU_V2_RECOVERY_EXECUTION_AUTHORIZATION_PACKET.md`](XAU_V2_RECOVERY_EXECUTION_AUTHORIZATION_PACKET.md).
 The kit is code-proven only: it has not captured production, created a backup,
 restored a target, or assigned an operator, so it does not close this gate.
 
