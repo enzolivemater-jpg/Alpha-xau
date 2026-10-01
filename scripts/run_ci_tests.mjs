@@ -33,6 +33,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 const TEST_FILES = [
+  'tests/test_alert_contract.mjs',
   'tests/test_ai_committee_v2_contract.mjs',
   'tests/test_bls_cpi_event_facts_adapter.mjs',
   'tests/test_bls_cpi_artifact_parser.mjs',
