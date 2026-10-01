@@ -31,10 +31,13 @@ for (const value of [
   'PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES',
   'PRODUCTION_RESTORE_AUTHORIZED=NO',
   'MIGRATIONS_0029_0034_AUTHORIZED=NO', 'RUNTIME_AUTHORIZED=NO',
+  'FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>',
 ]) assert.ok(packet.includes(value), `authorization packet missing ${value}`);
 
 assert.match(packet, /production ref can never be a target/i);
 assert.match(packet, /Generic language such as “continue”/);
+assert.match(packet, /hard-coding it in this document would make the packet invalidate itself/i);
+assert.match(packet, /verify that `FINAL_MAIN_SHA` equals\s+the remote `main` head/i);
+assert.doesNotMatch(packet, /FINAL_MAIN_SHA=[0-9a-f]{40}/);
 assert.doesNotMatch(packet, /REC1_EXECUTION_AUTHORIZED=YES[\s\S]*RECOVERY_OPERATOR=(?!<)/);
-console.log('PASS REC-1 packet freezes implementation, scope, target decision, aborts, and exact approval fields');
-
+console.log('PASS REC-1 packet freezes implementation while binding approval to the execution-time main head');
