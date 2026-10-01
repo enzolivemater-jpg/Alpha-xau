@@ -85,6 +85,7 @@ const TEST_FILES = [
   'tests/test_positioning_evidence_contract.mjs',
   'tests/test_release_identity_lookup.mjs',
   'tests/test_recovery_rehearsal_contract.mjs',
+  'tests/test_regime_contract.mjs',
   'tests/test_security_baseline_hardening_contract.mjs',
   'tests/test_us_treasury_collector.mjs',
   'tests/test_us_treasury_raw_adapter.mjs',
