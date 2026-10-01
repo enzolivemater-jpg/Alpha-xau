@@ -1164,6 +1164,10 @@ CREATE POLICY p_alerts_acknowledge ON alerts
   WITH CHECK (status = 'acknowledged');
 
 -- Privilèges de base (PostgREST applique ensuite les policies).
+-- Aucun rôle applicatif ne doit pouvoir créer un objet dans un schéma présent
+-- dans le search_path. Les migrations restent exécutées par le propriétaire.
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT UPDATE ON alerts TO authenticated;
