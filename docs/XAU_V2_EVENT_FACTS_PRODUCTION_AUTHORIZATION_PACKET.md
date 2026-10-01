@@ -58,6 +58,12 @@ requires at least Small compute. See the official
 No current restorable production backup, restore rehearsal, or named recovery
 operator has been evidenced. Therefore recovery readiness is `BLOCKED`.
 
+REC-1 now provides a reviewed operator procedure and a fail-closed manifest
+comparator in
+[`XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md`](XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md).
+The kit is code-proven only: it has not captured production, created a backup,
+restored a target, or assigned an operator, so it does not close this gate.
+
 Exactly one recovery decision must be approved and evidenced:
 
 ### Option A — verified logical backup and isolated restore rehearsal
@@ -100,8 +106,10 @@ are outside the four Event Facts migrations:
 
 The no-policy pattern is intentional for the service-role-only Event Cluster
 tables, but the six security-definer views and five mutable search paths are
-not silently waived here. They must be assigned to a separate baseline review.
-They do not authorize editing unrelated production objects during EF rollout.
+not silently waived here. SB-1 supplies the separately tested migration
+`0033_security_baseline_hardening.sql`, but it is not live-applied and needs its
+own authorization. It does not authorize editing unrelated production objects
+during EF rollout.
 
 ## 5. Authorization ledger
 
