@@ -3,8 +3,7 @@
 Status: `READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED`
 
 Captured: `2026-10-01T07:46Z`  
-Production project: `ejvwmjgfvhsslqiydwpz`  
-Current main SHA: `a4be93e89374a3809527dce7dd6b3160fabbd325`
+Production project: `ejvwmjgfvhsslqiydwpz`
 
 This packet authorizes only a read-only production manifest capture and logical
 database dump, encrypted off-site retention, and an isolated non-production
@@ -33,8 +32,12 @@ Frozen implementation hashes:
 | `scripts/recovery_manifest.mjs` | `526c41fbb38138c5e238eb416a913b7ff53e2e3e2dde31afee11c9158b22458a` |
 | `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `b30e65c549227afc4a1fdd30402255c31a76d4d40be70cfb732f9387d7d87b17` |
 
-Any hash or `main` SHA change invalidates this decision and requires
-reconciliation.
+The two implementation hashes above are the frozen REC-1 payload. A change to
+either file invalidates this packet and requires a new review. The current
+40-hex `main` SHA is intentionally supplied by the approver at execution time:
+hard-coding it in this document would make the packet invalidate itself when
+its own commit is merged. Any repository change after approval invalidates the
+approval until `FINAL_MAIN_SHA` is reconciled again.
 
 ## 2. Why it is needed
 
@@ -139,7 +142,7 @@ TARGET_PROJECT_REF=<20-character non-production ref>
 TARGET_RESET_AUTHORIZED=YES|NO
 ENCRYPTED_OFFSITE_LOCATION=<restricted destination reference>
 ENCRYPTION_RECIPIENT_CONFIRMED=YES
-FINAL_MAIN_SHA=a4be93e89374a3809527dce7dd6b3160fabbd325
+FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
 REC1_SCRIPT_SHA256=526c41fbb38138c5e238eb416a913b7ff53e2e3e2dde31afee11c9158b22458a
 REC1_RUNBOOK_SHA256=b30e65c549227afc4a1fdd30402255c31a76d4d40be70cfb732f9387d7d87b17
 PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES
@@ -154,3 +157,7 @@ Missing, ambiguous, stale, contradictory, or mismatched fields mean `STOP`.
 Generic language such as “continue”, “validate”, or “I authorize” does not
 authorize credential use, production extraction, or target destruction.
 
+At execution preflight, the operator must verify that `FINAL_MAIN_SHA` equals
+the remote `main` head and recompute both REC-1 SHA-256 values from that exact
+checkout. A mismatch, uncommitted file, or subsequent commit means `STOP` and
+requires renewed approval with the new SHA.
