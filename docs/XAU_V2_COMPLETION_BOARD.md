@@ -38,7 +38,7 @@ not merely for merged code.
 | Command Center / Scenario Tree | CONTRACT_CI_PROVEN | Reviewed UI mapping, runtime correlation and deployment proof | No for read-only contract; yes for deploy | CC-0 exact A-0 projection, nine-stage lineage, honest HOLD/abstention, no ticket | Design CC-1 UI mapping without implying live data | 4–8 days |
 | Alerts | CONTRACT_CI_PROVEN | Ready actionable CC-1; alert/recipient/delivery policy and authority | Yes before any delivery | AL-0 exact CC-0 gate; deterministic dedupe; delivery/escalation forbidden; expiry/ack/recipient/channel null | Freeze AL-1 policy only after explicit approval | 2–4 days |
 | Full observability / incident response | CONTRACT_CI_PROVEN | Correlation propagation, deployment IDs and live incident proof | No for contract; yes for deploy | CC-0 deterministic nine-stage version lineage; missing runtime IDs explicit | Define O-1 runtime propagation and incident proof after deploy authority | 3–6 days |
-| End-to-end institutional acceptance | NOT_STARTED | Every upstream milestone | Yes, production | No end-to-end live proof | Execute bounded golden path, replay, failure and recovery proof | 2–4 days after all gates |
+| End-to-end institutional acceptance | CONTRACT_CI_PROVEN | Every live proof and authorization in E2E-0 manifest | Yes, production | E2E-0 stable eleven-item evidence manifest; forced NOT_ACCEPTED/HOLD; no run/report | Execute E2E-1 only after every prerequisite is evidenced and scoped | 2–4 days after all gates |
 
 \* Effort ranges are engineering estimates, not completion facts. They exclude
 waiting for Human Gates, provider procurement, access recovery, and observation
