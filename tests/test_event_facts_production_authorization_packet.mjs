@@ -29,6 +29,7 @@ for (const evidence of [
   'BLOCKED — OPERATOR UNASSIGNED',
   'FINAL_MAIN_SHA=<40-hex SHA>',
   'RUNTIME_AUTHORIZED=NO',
+  'XAU_V2_RECOVERY_EXECUTION_AUTHORIZATION_PACKET.md',
   '6 `security_definer_view` errors',
   '5 mutable-function-search-path',
 ]) {

@@ -40,6 +40,7 @@ const TEST_FILES = [
   'tests/test_bls_cpi_production_orchestrator.mjs',
   'tests/test_committee_event_retry_idempotency.mjs',
   'tests/test_committee_internal_transport.mjs',
+  'tests/test_completion_board_and_recovery_authorization.mjs',
   'tests/test_ecb_collector.mjs',
   'tests/test_ecb_raw_integration.mjs',
   'tests/test_event_cluster_relation_contract.mjs',
