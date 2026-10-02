@@ -37,6 +37,8 @@ export interface MarketPricingAsOfCandidate {
   readonly observedAt: string;
   /** First timestamp at which this exact evidence became known to the system. */
   readonly ingestedAt: string;
+  /** Optional provider revision identifier or retained-evidence digest. */
+  readonly evidenceRevision?: string;
 }
 
 export interface SelectedMarketPricingObservation extends MarketPricingAsOfCandidate {
@@ -108,7 +110,10 @@ function candidateIsStructurallyValid(candidate: MarketPricingAsOfCandidate): bo
     && typeof candidate.value === 'number'
     && Number.isFinite(candidate.value)
     && typeof candidate.source === 'string'
-    && candidate.source.trim().length > 0;
+    && candidate.source.trim().length > 0
+    && (candidate.evidenceRevision === undefined
+      || (typeof candidate.evidenceRevision === 'string'
+        && candidate.evidenceRevision.trim().length > 0));
 }
 
 function sameEvidence(left: ParsedCandidate, right: ParsedCandidate): boolean {
@@ -117,7 +122,8 @@ function sameEvidence(left: ParsedCandidate, right: ParsedCandidate): boolean {
     && Object.is(left.value, right.value)
     && left.source === right.source
     && left.observedMs === right.observedMs
-    && left.ingestedMs === right.ingestedMs;
+    && left.ingestedMs === right.ingestedMs
+    && left.evidenceRevision === right.evidenceRevision;
 }
 
 function compareCandidate(left: ParsedCandidate, right: ParsedCandidate): number {
@@ -218,6 +224,9 @@ export function selectMarketPricingAsOf(
       source: selected.source,
       observedAt: canonicalTimestamp(selected.observedMs),
       ingestedAt: canonicalTimestamp(selected.ingestedMs),
+      ...(selected.evidenceRevision === undefined
+        ? {}
+        : { evidenceRevision: selected.evidenceRevision }),
       ageSeconds: Math.floor((cutoffMs - selected.observedMs) / 1000),
     };
   }
