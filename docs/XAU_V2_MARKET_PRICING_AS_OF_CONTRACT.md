@@ -53,9 +53,11 @@ from the caller-supplied cutoff, never from wall-clock time.
 
 `replay.mode=EXPLICIT_HISTORY_AS_OF` means deterministic replay is available
 when the caller provides valid explicit history. `persistenceProven=false`
-states the remaining boundary: MP-1 does not prove that production stores the
-required ingestion timestamp, exposes a historical query, or retains complete
-history. It does not change MP-0's honest `LATEST_ONLY` runtime envelope.
+states MP-1's own boundary. MP-2 now provides a separate append-only schema and
+complete-or-error historical read contract in code, but it is not live-applied
+or runtime-wired. MP-1 therefore still does not claim that production stores
+or serves this history. It does not change MP-0's honest `LATEST_ONLY` runtime
+envelope.
 
 Closing the persistence/runtime gap requires a separately reviewed storage and
 read-path design, migration proof, production authorization and activation

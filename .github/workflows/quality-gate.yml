@@ -237,6 +237,8 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
       - name: Market-driver native-row migration contract
         run: node tests/test_market_driver_native_rows_postgres.mjs
+      - name: Market Pricing historical persistence contract
+        run: node tests/test_market_pricing_persistence_postgres.mjs
 
   market-partition-rls-postgres:
     runs-on: ubuntu-latest

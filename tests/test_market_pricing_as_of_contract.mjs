@@ -116,5 +116,5 @@ assert.match(docs, /EXPLICIT HISTORY ONLY \/ NOT RUNTIME-ACTIVATED/);
 assert.match(docs, /persistenceProven=false/);
 assert.match(docs, /authorizes no provider selection, purchase, schema, migration, production/i);
 assert.match(board, /MP-1 explicit-history as-of selector/);
-assert.match(board, /production persistence\/runtime replay remain absent/i);
+assert.match(board, /production migration and runtime evidence ingestion\/read remain absent/i);
 console.log('PASS Market Pricing MP-1 selects deterministic as-of evidence without lookahead or runtime claims');
