@@ -1,0 +1,44 @@
+{
+  "source": {
+    "authority": "US_BLS",
+    "provider": "bls",
+    "sourceCode": "bls_employment_situation_release",
+    "sourceDomain": "bls.gov"
+  },
+  "release": {
+    "releaseFamily": "US_NFP",
+    "releaseStage": "SINGLE",
+    "releaseId": "USDL-26-1435",
+    "headerTitle": "THE EMPLOYMENT SITUATION - AUGUST 2026",
+    "publicReleaseAtRaw": "8:30 a.m. (ET) Friday, September 4, 2026",
+    "archivePath": "/news.release/archives/empsit_09042026.htm"
+  },
+  "summary": {
+    "artifactPath": "/news.release/archives/empsit_09042026.htm",
+    "referencePeriod": { "kind": "MONTH", "year": 2026, "month": 8 },
+    "payroll": {
+      "seriesId": "CES0000000001",
+      "currentChangeThousands": 162,
+      "priorRevisions": [
+        {
+          "referencePeriod": { "kind": "MONTH", "year": 2026, "month": 6 },
+          "priorChangeThousands": 20,
+          "revisedChangeThousands": 31
+        },
+        {
+          "referencePeriod": { "kind": "MONTH", "year": 2026, "month": 7 },
+          "priorChangeThousands": -23,
+          "revisedChangeThousands": 21
+        }
+      ]
+    },
+    "unemploymentRate": {
+      "seriesId": "LNS14000000",
+      "levelPercent": 4.1
+    },
+    "averageHourlyEarningsMom": {
+      "seriesId": "CES0500000003",
+      "monthOverMonthPercent": 0.3
+    }
+  }
+}

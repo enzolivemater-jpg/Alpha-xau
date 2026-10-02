@@ -1,8 +1,8 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-02T09:35Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-02T13:30Z`
 
-Main evidence reconciled through PR #78 / `b216e3fbdc21c5b6be4eddca565b95bf591ab44d`
+Main evidence reconciled through PR #79 / `6adffe22a0c49f9f0959ba5bf2c60f5112f2125e`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
@@ -15,7 +15,7 @@ not merely for merged code.
 | Milestone | Status | Blocking dependency | Human Gate | Evidence | Next action | Estimated remaining engineering effort* |
 | --- | --- | --- | --- | --- | --- | --- |
 | Event Foundation | COMPLETE | None | No | Production schema/RPC history through 0021; prior live proofs | Regression maintenance only | <0.5 day |
-| Official-source provenance | CI_PROVEN | Bounded live BLS fetch/capture not activated | Yes, runtime | EF-2/EF-5A/EF-5B contracts and fixtures | One-item live capture after schema/runtime gates | 1–2 days |
+| Official-source provenance | CI_PROVEN | Bounded live BLS fetch/capture not activated | Yes, runtime | CPI EF-2/EF-5A/EF-5B path plus pure Employment Situation/NFP adapter and official fixtures; no NFP runtime/persistence activation | Extend provider-free official-family coverage or perform one-item live capture only after schema/runtime gates | 1–2 days |
 | Event Facts CES V2 | STAGING_PROVEN | Recovery gate; migrations 0029–0032 | Yes, schema | EF-12 hosted PG17.11 proof; EF-13 packet | Execute REC-1, then separately authorize schema rollout | 1–2 days after gate |
 | Event Impact V1 | LIVE_PROVEN | None | No | Prior 45-version/3-assessment proof and exact replay | Preserve while V2 remains gated | <0.5 day |
 | Event Impact V2 technical path | CI_PROVEN | CES V2 live facts; consensus policy | Yes, provider/semantic | EF-4 deterministic consumer proof | Keep insufficiency output until consensus is authorized | 1–3 days after inputs |
