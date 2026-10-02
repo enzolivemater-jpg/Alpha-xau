@@ -135,10 +135,12 @@ network, database, environment, clock, randomness, LLM, market price, score, or
 legacy fallback. Exact-key validation rejects smuggled fields at every accepted
 projection level.
 
-This lot does **not** expand the current CPI-only persistence validator or
-consumer. `US_NFP` remains rejected by those runtime boundaries until a
-separate persistence/source-artifact/parser/orchestrator review and the
-applicable Human Gates are completed. The adapter alone is not authorization
+This lot does **not** expand the current CPI-only persistence validator.
+The pure EI/GT consumers may separately admit the exact `US_NFP` shape only to
+produce their existing conservative insufficiency outputs with zero paths and
+zero interpretations. Persistence, source artifacts, parsing, orchestration,
+and runtime activation remain blocked pending separate review and the
+applicable Human Gates. The adapter alone is not authorization
 to fetch, store, deploy, enrich, score, alert, or trade.
 
 ## 9. Acceptance evidence

@@ -9,7 +9,7 @@ const script = read('scripts/recovery_manifest.mjs');
 const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
 for (const value of [
-  '6adffe22a0c49f9f0959ba5bf2c60f5112f2125e',
+  '6c1a6c4e7497432633c1b57595c9407b0fd7798d',
   '20260923133811 gold_transmission_atomic_rpc',
   'Recovery readiness', 'STAGING_PROVEN', 'LIVE_PROVEN', 'CI_PROVEN',
   'Estimated remaining engineering effort', 'Consensus',
