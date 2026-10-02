@@ -1,8 +1,8 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-01T07:46Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-02T09:13Z`
 
-Main SHA: `a4be93e89374a3809527dce7dd6b3160fabbd325`  
+Main evidence reconciled through PR #77 / `10b926d08f92bcf42e974e92e5e102ab60362cfb`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
@@ -26,7 +26,7 @@ not merely for merged code.
 | Security SB-1 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0033; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1–2 operator hours |
 | Security SB-2 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0034; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1 operator hour |
 | Cloudflare bounded runtime | CODE_COMPLETE | Dashboard/token access; deployment authority | Yes, runtime | Manual GT/Event Facts paths in source; deployment not proven | Freeze deploy packet and execute when access exists | 0.5–1 day after access |
-| Market Pricing institutional contract | SCHEMA_CODE_CI_PROVEN | Production migration and runtime evidence ingestion/read remain absent | Yes for production schema/runtime | MP-0 latest-only envelope; MP-1 explicit-history as-of selector with no-lookahead proof; MP-2 append-only revision persistence, idempotent writer and complete-or-error as-of RPC | Independently authorize MP-2 live schema, then wire one bounded caller under separate runtime authority | 1–2 days after gates |
+| Market Pricing institutional contract | STAGING_PROVEN | Production migration and runtime evidence ingestion/read remain absent | Yes for production schema/runtime | MP-0 latest-only; MP-1 no-lookahead selector; MP-2 CI on PG17.6 plus hosted staging PG17.11 transaction/rollback proof with zero data residue | Independently authorize MP-2 production schema, then wire one bounded caller under separate runtime authority | 1–2 days after gates |
 | Positioning institutional contract | CONTRACT_CI_PROVEN | Source/licensing and directional methodology decisions | Yes, provider + semantic | P-0 exact evidence tuple, cutoff validation, deterministic ordering and forced `UNAVAILABLE` signal | Compare providers and freeze methodology only after explicit approval | 1–3 days plus provider |
 | Regime institutional contract | CONTRACT_CI_PROVEN | Approved deterministic regime methodology and complete evidence inputs | Yes, semantic | R-0 exact MP-0/P-0 version+cutoff gate; forced `UNAVAILABLE` with no legacy fallback | Specify and validate R-1 methodology before activation | 2–4 days |
 | H1–H5 synthesis | CONTRACT_CI_PROVEN | Positive EI/GT, replayable Market Pricing, approved Positioning/Regime and S-1 methodology | Yes, semantic | S-0 exact upstream version+cutoff gate; five ordered explicit abstentions | Specify horizon durations/calibration/targets only after evidence gates close | 3–6 days |
@@ -50,10 +50,12 @@ windows for scheduled economic releases.
 2. Separately authorize Event Facts schema migrations 0029–0032 while runtime
    remains off.
 3. Optionally authorize SB-1/SB-2 (0033/0034) as independent payloads.
-4. Obtain Cloudflare deployment access and authorize one bounded manual caller.
-5. Prove one live official bundle, atomic persistence, exact replay, downstream
+4. Separately authorize MP-2 production schema; keep provider ingestion and
+   runtime reads off until their own decisions are approved.
+5. Obtain Cloudflare deployment access and authorize one bounded manual caller.
+6. Prove one live official bundle, atomic persistence, exact replay, downstream
    insufficiency, readback, logs, and containment.
-6. Freeze the next provider-independent contracts while consensus stays
+7. Freeze the next provider-independent contracts while consensus stays
    `UNKNOWN`.
 
 ## Current hard stops

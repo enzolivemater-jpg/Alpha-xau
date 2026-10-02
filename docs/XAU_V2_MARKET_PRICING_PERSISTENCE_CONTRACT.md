@@ -1,6 +1,6 @@
 # XAU V2 — Market Pricing persistence and as-of read (MP-2)
 
-Status: `SCHEMA_CODE_CI_PROVEN — NOT LIVE-APPLIED / NOT RUNTIME-ACTIVATED`
+Status: `STAGING_PROVEN — NOT PRODUCTION-APPLIED / NOT RUNTIME-ACTIVATED`
 
 ## Scope
 
@@ -16,6 +16,7 @@ MP-2 supplies the persistence/read boundary missing after MP-0 and MP-1:
 Canonical implementation:
 
 - `database/migrations/20261002085845_market_pricing_history_as_of.sql`;
+- `database/migrations/20261002091342_market_pricing_source_fk_index.sql`;
 - `backend/market_engine/persisted_as_of.ts`.
 
 ## Frozen versions
@@ -65,7 +66,7 @@ schedule, background discovery or paid dependency.
 
 ## Evidence level
 
-CI must prove on PostgreSQL 17:
+CI proves on PostgreSQL 17.6:
 
 - schema checks, RLS and exact grants;
 - idempotent persistence and divergent replay rejection;
@@ -75,7 +76,19 @@ CI must prove on PostgreSQL 17:
 - append-only enforcement and invoker/empty-search-path functions;
 - strict application normalization and deterministic MP-1 composition.
 
-This is schema/code evidence only. Production persistence remains unproven until
+The isolated staging project `viskjhkkcnzqxkuvibdx` on PostgreSQL 17.11 also
+has the MP-2 schema applied. A transaction-rollback proof established writer
+persist/replay behavior, divergent replay rejection, late-correction cutoff,
+complete-or-error bounds, RLS and exact grants, empty-search-path invoker RPCs,
+and append-only enforcement. The transaction left zero observation rows.
+
+The staging performance advisor then exposed the uncovered `source` foreign
+key. The additive follow-up index closes that finding and is exercised by the
+same disposable PostgreSQL CI proof. Staging reports the index valid and ready,
+the advisor no longer reports that foreign key, and the table still contains
+zero rows. No provider data was ingested.
+
+Production persistence remains unproven until
 the exact migration is separately authorized, applied, reconciled and exercised
 through an authorized runtime caller.
 

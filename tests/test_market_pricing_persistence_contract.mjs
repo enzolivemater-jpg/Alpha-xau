@@ -8,6 +8,7 @@ import ts from 'typescript';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MARKET = path.join(ROOT, 'backend', 'market_engine');
 const migration = readFileSync(path.join(ROOT, 'database', 'migrations', '20261002085845_market_pricing_history_as_of.sql'), 'utf8');
+const indexMigration = readFileSync(path.join(ROOT, 'database', 'migrations', '20261002091342_market_pricing_source_fk_index.sql'), 'utf8');
 const docs = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_MARKET_PRICING_PERSISTENCE_CONTRACT.md'), 'utf8');
 const board = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_COMPLETION_BOARD.md'), 'utf8');
 
@@ -78,7 +79,8 @@ for (const token of [
   'ENABLE ROW LEVEL SECURITY',
   'COMPLETE_OR_ERROR',
 ]) assert.ok(`${migration}\n${docs}`.includes(token), `missing MP-2 token: ${token}`);
-assert.match(docs, /NOT LIVE-APPLIED \/ NOT RUNTIME-ACTIVATED/);
+assert.match(indexMigration, /CREATE INDEX idx_market_pricing_observations_source/);
+assert.match(docs, /NOT PRODUCTION-APPLIED \/ NOT RUNTIME-ACTIVATED/);
 assert.match(docs, /authorizes no production migration, backfill, runtime wiring/i);
-assert.match(board, /MP-2 append-only revision persistence/);
+assert.match(board, /MP-2 CI on PG17\.6/);
 console.log('PASS Market Pricing MP-2 normalizes complete persisted history into deterministic MP-1 replay');
