@@ -1,8 +1,8 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-02T13:50Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-02T14:11Z`
 
-Main evidence reconciled through PR #80 / `6c1a6c4e7497432633c1b57595c9407b0fd7798d`
+Main evidence reconciled through PR #81 / `aebbb80eb5d7dfe363e5245823543e5e76e9eef0`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
@@ -15,7 +15,7 @@ not merely for merged code.
 | Milestone | Status | Blocking dependency | Human Gate | Evidence | Next action | Estimated remaining engineering effort* |
 | --- | --- | --- | --- | --- | --- | --- |
 | Event Foundation | COMPLETE | None | No | Production schema/RPC history through 0021; prior live proofs | Regression maintenance only | <0.5 day |
-| Official-source provenance | CI_PROVEN | Bounded live BLS fetch/capture not activated | Yes, runtime | CPI EF-2/EF-5A/EF-5B path plus pure Employment Situation/NFP adapter, official fixtures, and conservative consumer admission; no NFP runtime/persistence activation | Extend provider-free official-family coverage or perform one-item live capture only after schema/runtime gates | 1–2 days |
+| Official-source provenance | CI_PROVEN | Bounded live official-artifact fetch/capture not activated | Yes, runtime | CPI path, pure BLS Employment Situation/NFP adapter plus conservative consumers, and pure DOL weekly UI claims adapter with exact official fixture; no NFP/claims runtime or persistence activation | Add claims consumer admission or a bounded parser only with exact retained artifacts; live capture stays gated | 1–2 days |
 | Event Facts CES V2 | STAGING_PROVEN | Recovery gate; migrations 0029–0032 | Yes, schema | EF-12 hosted PG17.11 proof; EF-13 packet | Execute REC-1, then separately authorize schema rollout | 1–2 days after gate |
 | Event Impact V1 | LIVE_PROVEN | None | No | Prior 45-version/3-assessment proof and exact replay | Preserve while V2 remains gated | <0.5 day |
 | Event Impact V2 technical path | CI_PROVEN | CES V2 live facts; consensus policy | Yes, provider/semantic | Versioned deterministic consumer admits exact CPI/NFP typed facts but preserves zero-interpretation insufficiency | Keep insufficiency output until consensus and positive methodology are authorized | 1–3 days after inputs |

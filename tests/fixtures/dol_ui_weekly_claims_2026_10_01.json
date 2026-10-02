@@ -1,0 +1,48 @@
+{
+  "source": {
+    "authority": "US_DOL_ETA",
+    "provider": "dol_eta",
+    "sourceCode": "dol_ui_weekly_claims_release",
+    "sourceDomain": "dol.gov"
+  },
+  "release": {
+    "releaseFamily": "US_JOBLESS_CLAIMS",
+    "releaseStage": "SINGLE",
+    "releaseNumberRaw": "USDL 26-1543-NAT",
+    "headerTitle": "UNEMPLOYMENT INSURANCE WEEKLY CLAIMS",
+    "publicReleaseAtRaw": "8:30 A.M. (Eastern) Thursday, October 1, 2026",
+    "artifactPath": "/ui/data.pdf"
+  },
+  "summary": {
+    "initialClaims": {
+      "seriesLabel": "Initial Claims (SA)",
+      "referencePeriod": { "kind": "WEEK_ENDING", "date": "2026-09-26" },
+      "currentPersons": 197000,
+      "priorRevision": {
+        "referencePeriod": { "kind": "WEEK_ENDING", "date": "2026-09-19" },
+        "priorPersons": 197000,
+        "revisedPersons": 198000
+      }
+    },
+    "continuingClaims": {
+      "seriesLabel": "Insured Unemployment (SA)",
+      "referencePeriod": { "kind": "WEEK_ENDING", "date": "2026-09-19" },
+      "currentPersons": 1701000,
+      "priorRevision": {
+        "referencePeriod": { "kind": "WEEK_ENDING", "date": "2026-09-12" },
+        "priorPersons": 1719000,
+        "revisedPersons": 1712000
+      }
+    },
+    "initialClaimsFourWeekAverage": {
+      "seriesLabel": "4-Wk Moving Average (SA)",
+      "referencePeriod": { "kind": "WEEK_ENDING", "date": "2026-09-26" },
+      "currentPersons": 200000,
+      "priorRevision": {
+        "referencePeriod": { "kind": "WEEK_ENDING", "date": "2026-09-19" },
+        "priorPersons": 202250,
+        "revisedPersons": 202500
+      }
+    }
+  }
+}
