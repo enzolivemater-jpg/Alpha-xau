@@ -29,8 +29,8 @@ Frozen implementation hashes:
 
 | Item | SHA-256 |
 | --- | --- |
-| `scripts/recovery_manifest.mjs` | `526c41fbb38138c5e238eb416a913b7ff53e2e3e2dde31afee11c9158b22458a` |
-| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `b30e65c549227afc4a1fdd30402255c31a76d4d40be70cfb732f9387d7d87b17` |
+| `scripts/recovery_manifest.mjs` | `9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70` |
+| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee` |
 
 The two implementation hashes above are the frozen REC-1 payload. A change to
 either file invalidates this packet and requires a new review. The current
@@ -38,6 +38,27 @@ either file invalidates this packet and requires a new review. The current
 hard-coding it in this document would make the packet invalidate itself when
 its own commit is merged. Any repository change after approval invalidates the
 approval until `FINAL_MAIN_SHA` is reconciled again.
+
+### Payload revision — 2026-10-02 (current Supabase backup flow)
+
+The frozen REC-1 payload changed. **Every previous REC-1 execution approval is
+stale and void**, including any approval that quoted the earlier script hash
+`526c41fb…458a` or runbook hash `b30e65c5…7b17`. Execution requires a new
+approval carrying the hashes above.
+
+Material changes, both from the current official Supabase guidance:
+
+1. The data dump now carries `-x "storage.buckets_vectors"` and
+   `-x "storage.vector_indexes"`, matching the current backup/restore guide.
+2. Source and target capture run a fail-closed managed-schema guard before any
+   dump. It stops on project-owned `auth`/`storage` RLS policies, triggers,
+   relations, functions, or publication entries, and on rows in `auth.users`,
+   `storage.buckets`, `storage.objects`, or `vault.secrets`. Supabase states
+   that `auth`/`storage` customizations need separate restoration, and that
+   Vault-encrypted data is unrecoverable without the source root key. REC-1
+   carries neither.
+
+No other REC-1 guarantee changed.
 
 ## 2. Why it is needed
 
@@ -143,8 +164,8 @@ TARGET_RESET_AUTHORIZED=YES|NO
 ENCRYPTED_OFFSITE_LOCATION=<restricted destination reference>
 ENCRYPTION_RECIPIENT_CONFIRMED=YES
 FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
-REC1_SCRIPT_SHA256=526c41fbb38138c5e238eb416a913b7ff53e2e3e2dde31afee11c9158b22458a
-REC1_RUNBOOK_SHA256=b30e65c549227afc4a1fdd30402255c31a76d4d40be70cfb732f9387d7d87b17
+REC1_SCRIPT_SHA256=9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70
+REC1_RUNBOOK_SHA256=9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee
 PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES
 PRODUCTION_RESTORE_AUTHORIZED=NO
 MIGRATIONS_0029_0034_AUTHORIZED=NO
