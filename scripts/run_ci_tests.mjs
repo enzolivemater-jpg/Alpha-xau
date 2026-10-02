@@ -80,6 +80,7 @@ const TEST_FILES = [
   'tests/test_horizon_synthesis_contract.mjs',
   'tests/test_institutional_acceptance_contract.mjs',
   'tests/test_market_driver_provenance.mjs',
+  'tests/test_market_pricing_as_of_contract.mjs',
   'tests/test_market_pricing_institutional_contract.mjs',
   'tests/test_notification_horizon_provider_circuit.mjs',
   'tests/test_official_source_artifacts_contract.mjs',

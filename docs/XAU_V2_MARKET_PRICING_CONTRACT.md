@@ -46,8 +46,10 @@ reason=INGESTION_CUTOFF_NOT_AVAILABLE
 ```
 
 Accordingly, MP-0 is contract/CI evidence, not end-to-end institutional replay
-evidence. Closing MP-1 requires a persisted or as-of snapshot contract carrying
-both source observation time and system knowledge/ingestion time.
+evidence. MP-1 now defines a separate explicit-history as-of selector carrying
+both source observation time and system knowledge/ingestion time. MP-0 remains
+latest-only until a separately gated persisted history and runtime read path
+exist; MP-1 does not silently upgrade this adapter's replay claim.
 
 ## Acceptance evidence
 
@@ -66,4 +68,3 @@ The deterministic test must prove:
 Runtime wiring is a separate Human Gate because it can alter downstream
 committee behavior and provider cost. This document authorizes no runtime,
 provider, schema, migration, deployment, schedule, broker or trading action.
-
