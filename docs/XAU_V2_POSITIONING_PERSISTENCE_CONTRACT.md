@@ -1,6 +1,6 @@
 # XAU V2 — Positioning persistence and as-of evidence (P-1)
 
-Status: `SCHEMA_CODE_CI_CANDIDATE — NO PROVIDER OR METHODOLOGY APPROVED`
+Status: `STAGING_PROVEN — NO PROVIDER OR METHODOLOGY APPROVED`
 
 ## Scope
 
@@ -53,7 +53,7 @@ approved merely because this interface exists.
 
 ## Acceptance evidence
 
-CI must prove on PostgreSQL 17.6 and in deterministic application tests:
+CI proves on PostgreSQL 17.6 and in deterministic application tests:
 
 - exact idempotent replay and divergent-payload rejection;
 - revision retention without overwrite;
@@ -62,6 +62,16 @@ CI must prove on PostgreSQL 17.6 and in deterministic application tests:
 - RLS, service-role-only access, invoker functions and empty search paths;
 - append-only enforcement and chronology/value constraints;
 - strict RPC normalization into P-0 with methodology still unavailable.
+
+The isolated staging project `viskjhkkcnzqxkuvibdx` on PostgreSQL 17.11 has
+the P-1 schema applied. A transaction-rollback proof established exact replay,
+divergent-payload rejection, retained revisions, early/late cutoff behavior,
+complete-or-error bounds, RLS and exact grants, empty-search-path invoker RPCs,
+and append-only enforcement. The table contains zero rows after rollback.
+
+Post-apply security and performance advisors introduced no P-1 ERROR/WARN or
+unindexed-foreign-key finding. `rls_enabled_no_policy` is the expected INFO for
+this intentionally policy-free, service-role-only table.
 
 ## Human Gates
 

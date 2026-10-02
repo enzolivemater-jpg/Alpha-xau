@@ -93,5 +93,5 @@ for (const token of [
 ]) assert.ok(`${migration}\n${docs}`.includes(token), `missing P-1 token: ${token}`);
 assert.match(docs, /NO PROVIDER OR METHODOLOGY APPROVED/);
 assert.match(docs, /authorizes no provider selection[\s\S]*trade/i);
-assert.match(board, /P-1 provider-neutral append-only evidence persistence/);
+assert.match(board, /P-1 CI on PG17\.6 plus hosted staging PG17\.11/);
 console.log('PASS Positioning P-1 persists replayable evidence while keeping methodology unavailable');
