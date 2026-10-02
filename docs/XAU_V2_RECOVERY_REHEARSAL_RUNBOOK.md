@@ -83,16 +83,42 @@ unset PGPASSWORD RECOVERY_ALLOW_PRODUCTION_READ_ONLY
 This is a production read, so it still requires the scoped approval and named
 operator from Step 1. A generic instruction such as “continue” is insufficient.
 
+Capture also runs the managed-schema guard before any dump is taken. Supabase
+states that user customizations to the `auth` and `storage` schemas (for
+example triggers or RLS policies) are not carried by this procedure and must be
+restored separately. The REC-1 preflight found none: `auth.users`,
+`storage.buckets`, and `storage.objects` were empty, there were no auth/storage
+RLS policies or publication entries, and only Supabase-managed storage triggers
+existed. The guard fails closed, so capture exits non-zero and `STOP` applies,
+if any of these appear:
+
+- an RLS policy on an `auth` or `storage` table;
+- a non-internal trigger on an `auth` or `storage` table whose function lives
+  outside those schemas or is not owned by a Supabase-managed role
+  (`supabase_admin`, `supabase_auth_admin`, `supabase_storage_admin`);
+- an `auth`/`storage` relation or function owned by any other role;
+- an `auth` or `storage` table in a publication;
+- a row in `auth.users`, `storage.buckets`, `storage.objects`, or, when
+  present, `vault.secrets`. Vault-encrypted data cannot be recovered from a
+  logical dump without the source root key, which REC-1 does not transfer.
+
+A guard failure requires a renewed review. Do not reproduce, migrate, or
+waive Supabase-managed internal objects to get past it. The same guard runs on
+the target capture in Step 7.
+
 ## 4. Produce the logical backup
 
-Supabase's current backup procedure uses separate role, schema, and data dumps.
+Supabase's current backup procedure uses separate role, schema, and data dumps,
+and excludes `storage.buckets_vectors` and `storage.vector_indexes` from the
+data dump. Do not drop either `-x` exclusion.
 Preserve CLI migration history separately because the default dump excludes
 the `supabase_migrations` schema.
 
 ```bash
 supabase db dump --db-url "$SOURCE_DB_URL" -f "$RECOVERY_WORKDIR/roles.sql" --role-only
 supabase db dump --db-url "$SOURCE_DB_URL" -f "$RECOVERY_WORKDIR/schema.sql"
-supabase db dump --db-url "$SOURCE_DB_URL" -f "$RECOVERY_WORKDIR/data.sql" --use-copy --data-only
+supabase db dump --db-url "$SOURCE_DB_URL" -f "$RECOVERY_WORKDIR/data.sql" --use-copy --data-only \
+  -x "storage.buckets_vectors" -x "storage.vector_indexes"
 supabase db dump --db-url "$SOURCE_DB_URL" -f "$RECOVERY_WORKDIR/history-schema.sql" --schema supabase_migrations
 supabase db dump --db-url "$SOURCE_DB_URL" -f "$RECOVERY_WORKDIR/history-data.sql" --use-copy --data-only --schema supabase_migrations
 unset SOURCE_DB_URL

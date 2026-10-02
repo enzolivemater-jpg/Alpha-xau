@@ -165,6 +165,61 @@ const catalogQueries = {
     FROM pg_catalog.pg_extension e`,
 };
 
+// Supabase-managed roles. Anything in auth/storage tied to another role is a
+// project-owned customization that logical dumps do not carry and must stop REC-1.
+const MANAGED_ROLES = `ARRAY['supabase_admin','supabase_auth_admin','supabase_storage_admin']::name[]`;
+const MANAGED_EMPTY_TABLES = ['auth.users', 'storage.buckets', 'storage.objects'];
+
+function managedSchemaGuard() {
+  const customizations = jsonQuery(`SELECT jsonb_build_object(
+    'missing',(SELECT coalesce(jsonb_agg(t ORDER BY t),'[]'::jsonb)
+      FROM unnest(ARRAY[${MANAGED_EMPTY_TABLES.map(t => `'${t}'`).join(',')}]) t
+      WHERE pg_catalog.to_regclass(t) IS NULL),
+    'policies',(SELECT coalesce(jsonb_agg(schemaname||'.'||tablename||':'||policyname
+      ORDER BY schemaname,tablename,policyname),'[]'::jsonb)
+      FROM pg_catalog.pg_policies WHERE schemaname IN ('auth','storage')),
+    'triggers',(SELECT coalesce(jsonb_agg(n.nspname||'.'||c.relname||':'||t.tgname
+      ORDER BY n.nspname,c.relname,t.tgname),'[]'::jsonb)
+      FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+      JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid
+      JOIN pg_catalog.pg_namespace pn ON pn.oid=p.pronamespace
+      WHERE n.nspname IN ('auth','storage') AND NOT t.tgisinternal
+        AND (pn.nspname NOT IN ('auth','storage')
+          OR pg_catalog.pg_get_userbyid(p.proowner) <> ALL(${MANAGED_ROLES}))),
+    'relations',(SELECT coalesce(jsonb_agg(n.nspname||'.'||c.relname ORDER BY n.nspname,c.relname),'[]'::jsonb)
+      FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname IN ('auth','storage')
+        AND pg_catalog.pg_get_userbyid(c.relowner) <> ALL(${MANAGED_ROLES})),
+    'functions',(SELECT coalesce(jsonb_agg(n.nspname||'.'||p.proname ORDER BY n.nspname,p.proname),'[]'::jsonb)
+      FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname IN ('auth','storage')
+        AND pg_catalog.pg_get_userbyid(p.proowner) <> ALL(${MANAGED_ROLES})),
+    'publications',(SELECT coalesce(jsonb_agg(pubname||':'||schemaname||'.'||tablename
+      ORDER BY pubname,schemaname,tablename),'[]'::jsonb)
+      FROM pg_catalog.pg_publication_tables WHERE schemaname IN ('auth','storage')),
+    'vault_secrets_present',pg_catalog.to_regclass('vault.secrets') IS NOT NULL)`);
+
+  if (customizations.missing.length > 0) {
+    fail(`expected Supabase-managed tables missing: ${customizations.missing.join(', ')}`);
+  }
+  for (const key of ['policies', 'triggers', 'relations', 'functions', 'publications']) {
+    if (customizations[key].length > 0) {
+      fail(`project-owned auth/storage ${key} detected; REC-1 requires renewed review: ${customizations[key].join(', ')}`);
+    }
+  }
+  const counted = [...MANAGED_EMPTY_TABLES, ...(customizations.vault_secrets_present ? ['vault.secrets'] : [])];
+  const rowCounts = {};
+  for (const key of counted) {
+    const [schema, name] = key.split('.');
+    rowCounts[key] = Number(psql(`SELECT count(*) FROM ${quoteIdent(schema)}.${quoteIdent(name)}`));
+    if (rowCounts[key] !== 0) {
+      fail(`${key} is no longer empty; REC-1 does not preserve this data and requires renewed review`);
+    }
+  }
+  return { status: 'PASS', rowCounts };
+}
+
 function capture() {
   const { role, projectRef } = captureGuard();
   requireBinary('psql');
@@ -174,6 +229,7 @@ function capture() {
     'server_version_num',current_setting('server_version_num'),
     'transaction_read_only',current_setting('transaction_read_only'))`);
   if (identity.transaction_read_only !== 'on') fail('read-only session guard was not applied');
+  const managedSchemas = managedSchemaGuard();
 
   const tables = jsonQuery(`SELECT coalesce(jsonb_agg(jsonb_build_object(
       'schema',n.nspname,'name',c.relname) ORDER BY n.nspname,c.relname),'[]'::jsonb)
@@ -202,6 +258,7 @@ function capture() {
     role,
     projectRef,
     identity,
+    managedSchemas,
     migrationHistory,
     rowCounts,
     catalog,

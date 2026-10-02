@@ -23,8 +23,8 @@ console.log('PASS completion board uses evidence levels, gates, blockers, action
 
 const scriptHash = createHash('sha256').update(script).digest('hex');
 const runbookHash = createHash('sha256').update(runbook).digest('hex');
-assert.equal(scriptHash, '526c41fbb38138c5e238eb416a913b7ff53e2e3e2dde31afee11c9158b22458a');
-assert.equal(runbookHash, 'b30e65c549227afc4a1fdd30402255c31a76d4d40be70cfb732f9387d7d87b17');
+assert.equal(scriptHash, '9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70');
+assert.equal(runbookHash, '9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee');
 for (const value of [
   scriptHash, runbookHash, 'READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED',
   'TARGET_MODE=NEW_DEDICATED_PROJECT|RESET_EF12_STAGING',
@@ -36,6 +36,7 @@ for (const value of [
 ]) assert.ok(packet.includes(value), `authorization packet missing ${value}`);
 
 assert.match(packet, /production ref can never be a target/i);
+assert.match(packet, /Every previous REC-1 execution approval is\s+stale and void/);
 assert.match(packet, /Generic language such as “continue”/);
 assert.match(packet, /hard-coding it in this document would make the packet invalidate itself/i);
 assert.match(packet, /verify that `FINAL_MAIN_SHA` equals\s+the remote `main` head/i);
