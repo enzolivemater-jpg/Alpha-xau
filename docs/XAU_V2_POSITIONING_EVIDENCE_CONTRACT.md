@@ -55,3 +55,6 @@ coverage or suitability for any of them.
 P-0 authorizes no provider call, account creation, purchase, secret, database
 write, migration, deployment, schedule, broker connection or trading action.
 
+P-1 now defines a separate provider-neutral append-only persistence and
+complete-or-error historical read contract. It remains schema/code only until
+proved and does not change P-0's deliberate `UNAVAILABLE` positioning state.
