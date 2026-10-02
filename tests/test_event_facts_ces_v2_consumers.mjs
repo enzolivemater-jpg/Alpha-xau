@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mapBlsCpiReleaseToEventFacts } from '../backend/event_facts/bls_cpi_adapter.ts';
+import { mapBlsEmploymentReleaseToEventFacts } from '../backend/event_facts/bls_employment_situation_adapter.ts';
 import { planDeterministicEventImpact } from '../backend/event_impact/deterministic_processor.ts';
 import { planDeterministicGoldTransmission } from '../backend/gold_transmission/deterministic_processor.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/bls_cpi_table1_2026_08.json', import.meta.url), 'utf8'));
 const mapped = mapBlsCpiReleaseToEventFacts(fixture);
 assert.equal(mapped.kind, 'RESOLVED');
+const nfpFixture = JSON.parse(readFileSync(new URL(
+  './fixtures/bls_employment_situation_2026_08.json', import.meta.url,
+), 'utf8'));
+const nfpMapped = mapBlsEmploymentReleaseToEventFacts(nfpFixture);
+assert.equal(nfpMapped.kind, 'RESOLVED');
 
 const base = {
   id: '11111111-1111-4111-8111-111111111111', clusterId: '22222222-2222-4222-8222-222222222222',
@@ -33,8 +39,32 @@ assert.deepEqual(accepted.transmission.paths, []);
 assert.equal(JSON.stringify(base), before);
 console.log('PASS exact EF-2 adapter output is consumed conservatively by EI and GT');
 
+const nfpBase = {
+  ...base,
+  canonicalEventStateSchemaVersion: nfpMapped.canonicalEventStateSchemaVersion,
+  canonicalEventState: nfpMapped.canonicalEventState,
+  stateFingerprint: 'b'.repeat(64),
+};
+const nfpAccepted = run(nfpBase);
+assert.equal(nfpAccepted.impact.kind, 'PROCESS');
+assert.equal(nfpAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v3');
+assert.equal(nfpAccepted.impact.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
+assert.equal(nfpAccepted.impact.assessmentReason, 'GOLD_TRANSMISSION_EVIDENCE_UNAVAILABLE');
+assert.deepEqual(nfpAccepted.impact.interpretations, []);
+assert.equal(nfpAccepted.transmission.kind, 'PROCESS');
+assert.equal(nfpAccepted.transmission.processorVersion,
+  'gold-transmission-deterministic-processor-v3');
+assert.equal(nfpAccepted.transmission.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
+assert.equal(nfpAccepted.transmission.assessmentReason, 'CONSENSUS_FACTS_UNAVAILABLE');
+assert.deepEqual(nfpAccepted.transmission.paths, []);
+const reversedRevisions = structuredClone(nfpBase);
+reversedRevisions.canonicalEventState.facts.metrics
+  .find(metric => metric.metric_code === 'NFP_PAYROLL_CHANGE').prior_periods.reverse();
+assert.deepEqual(run(reversedRevisions), nfpAccepted);
+console.log('PASS exact official NFP facts and release-local revisions are admitted without signal inference');
+
 for (const [label, mutate] of [
-  ['unsupported family', state => { state.facts.release_family = 'US_NFP'; }],
+  ['unsupported family', state => { state.facts.release_family = 'US_PPI'; }],
   ['duplicate metric', state => { state.facts.metrics[1].metric_code = 'CPI_CORE_MOM'; }],
   ['non-canonical decimal', state => { state.facts.metrics[0].actual.value = '0.30'; }],
   ['invented consensus', state => { state.facts.metrics[0].consensus = { state: 'KNOWN', value: '0.2' }; }],
@@ -49,6 +79,47 @@ for (const [label, mutate] of [
   assert.equal(rejected.transmission.reason, 'INVALID_CANONICAL_EVENT_STATE_V2', `${label}: GT reason`);
 }
 console.log('PASS EI and GT reject the same unsupported/malformed CES V2 corpus');
+
+for (const [label, mutate] of [
+  ['missing payroll revision', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'NFP_PAYROLL_CHANGE')
+      .prior_periods.pop();
+  }],
+  ['duplicate payroll revision period', state => {
+    const prior = state.facts.metrics.find(metric => metric.metric_code === 'NFP_PAYROLL_CHANGE')
+      .prior_periods;
+    prior[0].reference_period = structuredClone(prior[1].reference_period);
+  }],
+  ['wrong payroll unit', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'NFP_PAYROLL_CHANGE').unit =
+      'LEVEL_PERCENT';
+  }],
+  ['fractional payroll', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'NFP_PAYROLL_CHANGE').actual.value =
+      '162.5';
+  }],
+  ['unsupported AHE precision', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'AVG_HOURLY_EARNINGS_MOM')
+      .actual.value = '0.25';
+  }],
+  ['invented NFP consensus', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'UNEMPLOYMENT_RATE').consensus =
+      { state: 'KNOWN', value: '4.0' };
+  }],
+  ['invented unemployment revision', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'UNEMPLOYMENT_RATE')
+      .prior_periods = [{}];
+  }],
+]) {
+  const eventVersion = structuredClone(nfpBase);
+  mutate(eventVersion.canonicalEventState);
+  const rejected = run(eventVersion);
+  assert.equal(rejected.impact.kind, 'ABSTAIN', `${label}: EI`);
+  assert.equal(rejected.impact.reason, 'INVALID_CANONICAL_EVENT_STATE_V2', `${label}: EI reason`);
+  assert.equal(rejected.transmission.kind, 'ABSTAIN', `${label}: GT`);
+  assert.equal(rejected.transmission.reason, 'INVALID_CANONICAL_EVENT_STATE_V2', `${label}: GT reason`);
+}
+console.log('PASS EI and GT fail closed on malformed NFP units, precision, consensus, and revisions');
 
 const future = run({ ...base, canonicalEventStateSchemaVersion: 3, canonicalEventState: { opaque: true } });
 assert.equal(future.impact.assessmentReason, 'UNSUPPORTED_CANONICAL_EVENT_STATE_SCHEMA');

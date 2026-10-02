@@ -21,7 +21,7 @@
  */
 
 export const EVENT_IMPACT_DETERMINISTIC_PROCESSOR_VERSION =
-  'event-impact-deterministic-processor-v2' as const;
+  'event-impact-deterministic-processor-v3' as const;
 
 export const SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION = 2 as const;
 
@@ -160,6 +160,16 @@ const EVENT_VERSION_KEYS = [
 const CANONICAL_EVENT_STATE_V1_KEYS = ['detail', 'event_type', 'subject'] as const;
 const CPI_CODES = new Set(['CPI_CORE_MOM', 'CPI_CORE_YOY', 'CPI_HEADLINE_MOM', 'CPI_HEADLINE_YOY']);
 const CPI_MOM_CODES = new Set(['CPI_CORE_MOM', 'CPI_HEADLINE_MOM']);
+const NFP_CODES = new Set([
+  'AVG_HOURLY_EARNINGS_MOM', 'NFP_PAYROLL_CHANGE', 'UNEMPLOYMENT_RATE',
+]);
+const NFP_UNITS: Readonly<Record<string, string>> = {
+  AVG_HOURLY_EARNINGS_MOM: 'PERCENT_CHANGE_MOM',
+  NFP_PAYROLL_CHANGE: 'THOUSANDS_OF_PERSONS',
+  UNEMPLOYMENT_RATE: 'LEVEL_PERCENT',
+};
+const CANONICAL_NUMBER = /^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$/;
+const CANONICAL_INTEGER = /^-?(0|[1-9][0-9]*)$/;
 
 const EVENT_TRANSITIONS: ReadonlySet<string> = new Set([
   'NOVELTY', 'CONFIRMATION', 'CORRECTION', 'REVERSAL',
@@ -216,38 +226,104 @@ function isCanonicalNonBlankText(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && normalizeWhitespace(value) === value;
 }
 
+function validMonthPeriod(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && hasExactKeys(value, ['kind', 'month', 'year'])
+    && value.kind === 'MONTH' && Number.isInteger(value.year)
+    && (value.year as number) >= 1900 && (value.year as number) <= 9999
+    && Number.isInteger(value.month) && (value.month as number) >= 1
+    && (value.month as number) <= 12;
+}
+
+function validKnownValue(value: unknown, integerOnly = false, oneDecimal = false): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, ['state', 'value'])
+      || value.state !== 'KNOWN' || typeof value.value !== 'string'
+      || value.value === '-0' || !CANONICAL_NUMBER.test(value.value)) return false;
+  if (integerOnly && !CANONICAL_INTEGER.test(value.value)) return false;
+  const decimalPoint = value.value.indexOf('.');
+  if (oneDecimal && decimalPoint >= 0 && value.value.slice(decimalPoint + 1).length !== 1) return false;
+  return true;
+}
+
+function validUnknownConsensus(value: unknown): boolean {
+  return isRecord(value) && hasExactKeys(value, ['state', 'value'])
+    && value.state === 'UNKNOWN' && value.value === null;
+}
+
+function validateCpiMetrics(metrics: readonly unknown[]): boolean {
+  if (metrics.length !== 4) return false;
+  const seen = new Set<string>();
+  let period = '';
+  for (const item of metrics) {
+    if (!isRecord(item) || !hasExactKeys(item, ['actual', 'consensus', 'metric_code', 'prior_periods', 'reference_period', 'unit'])
+        || typeof item.metric_code !== 'string' || !CPI_CODES.has(item.metric_code)
+        || seen.has(item.metric_code) || !validMonthPeriod(item.reference_period)) return false;
+    const expectedUnit = CPI_MOM_CODES.has(item.metric_code) ? 'PERCENT_CHANGE_MOM' : 'PERCENT_CHANGE_YOY';
+    const nextPeriod = `${item.reference_period.year}-${item.reference_period.month}`;
+    if (item.unit !== expectedUnit || (period !== '' && period !== nextPeriod)
+        || !validKnownValue(item.actual) || !validUnknownConsensus(item.consensus)
+        || !Array.isArray(item.prior_periods) || item.prior_periods.length !== 0) return false;
+    period = nextPeriod;
+    seen.add(item.metric_code);
+  }
+  return seen.size === 4;
+}
+
+function validateNfpPriorPeriods(value: unknown, currentMonthIndex: number): boolean {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const periods = new Set<number>();
+  for (const item of value) {
+    if (!isRecord(item) || !hasExactKeys(item, ['prior_value', 'reference_period', 'revised_value'])
+        || !validMonthPeriod(item.reference_period)
+        || !validKnownValue(item.prior_value, true)
+        || !validKnownValue(item.revised_value, true)) return false;
+    periods.add((item.reference_period.year as number) * 12
+      + (item.reference_period.month as number) - 1);
+  }
+  return periods.size === 2
+    && periods.has(currentMonthIndex - 2)
+    && periods.has(currentMonthIndex - 1);
+}
+
+function validateNfpMetrics(metrics: readonly unknown[]): boolean {
+  if (metrics.length !== 3) return false;
+  const seen = new Set<string>();
+  let period = '';
+  for (const item of metrics) {
+    if (!isRecord(item) || !hasExactKeys(item, ['actual', 'consensus', 'metric_code', 'prior_periods', 'reference_period', 'unit'])
+        || typeof item.metric_code !== 'string' || !NFP_CODES.has(item.metric_code)
+        || seen.has(item.metric_code) || !validMonthPeriod(item.reference_period)
+        || item.unit !== NFP_UNITS[item.metric_code]
+        || !validUnknownConsensus(item.consensus)) return false;
+    const nextPeriod = `${item.reference_period.year}-${item.reference_period.month}`;
+    if (period !== '' && period !== nextPeriod) return false;
+    const isPayroll = item.metric_code === 'NFP_PAYROLL_CHANGE';
+    if (!validKnownValue(item.actual, isPayroll, !isPayroll)) return false;
+    const currentMonthIndex = (item.reference_period.year as number) * 12
+      + (item.reference_period.month as number) - 1;
+    if (isPayroll) {
+      if (!validateNfpPriorPeriods(item.prior_periods, currentMonthIndex)) return false;
+    } else if (!Array.isArray(item.prior_periods) || item.prior_periods.length !== 0) {
+      return false;
+    }
+    period = nextPeriod;
+    seen.add(item.metric_code);
+  }
+  return seen.size === 3;
+}
+
 function validateCanonicalEventStateV2(value: unknown): boolean {
   if (!isRecord(value) || !hasExactKeys(value, ['detail', 'event_type', 'facts', 'subject'])
       || value.event_type !== 'STATISTICAL_RELEASE' || !isCanonicalNonBlankText(value.subject)
       || value.detail !== null || !isRecord(value.facts)
       || !hasExactKeys(value.facts, ['metrics', 'release_family'])
-      || value.facts.release_family !== 'US_CPI' || !Array.isArray(value.facts.metrics)
-      || value.facts.metrics.length !== 4) return false;
-  const seen = new Set<string>();
-  let period = '';
-  for (const item of value.facts.metrics) {
-    if (!isRecord(item) || !hasExactKeys(item, ['actual', 'consensus', 'metric_code', 'prior_periods', 'reference_period', 'unit'])
-        || typeof item.metric_code !== 'string' || !CPI_CODES.has(item.metric_code)
-        || seen.has(item.metric_code) || !isRecord(item.reference_period)
-        || !hasExactKeys(item.reference_period, ['kind', 'month', 'year'])
-        || item.reference_period.kind !== 'MONTH' || !Number.isInteger(item.reference_period.year)
-        || (item.reference_period.year as number) < 1900 || (item.reference_period.year as number) > 9999
-        || !Number.isInteger(item.reference_period.month) || (item.reference_period.month as number) < 1
-        || (item.reference_period.month as number) > 12) return false;
-    const expectedUnit = CPI_MOM_CODES.has(item.metric_code) ? 'PERCENT_CHANGE_MOM' : 'PERCENT_CHANGE_YOY';
-    const nextPeriod = `${item.reference_period.year}-${item.reference_period.month}`;
-    if (item.unit !== expectedUnit || (period !== '' && period !== nextPeriod)) return false;
-    period = nextPeriod;
-    if (!isRecord(item.actual) || !hasExactKeys(item.actual, ['state', 'value'])
-        || item.actual.state !== 'KNOWN' || typeof item.actual.value !== 'string'
-        || !/^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$/.test(item.actual.value)
-        || item.actual.value === '-0' || !isRecord(item.consensus)
-        || !hasExactKeys(item.consensus, ['state', 'value'])
-        || item.consensus.state !== 'UNKNOWN' || item.consensus.value !== null
-        || !Array.isArray(item.prior_periods) || item.prior_periods.length !== 0) return false;
-    seen.add(item.metric_code);
+      || !Array.isArray(value.facts.metrics)) return false;
+  if (value.facts.release_family === 'US_CPI') {
+    return validateCpiMetrics(value.facts.metrics);
   }
-  return seen.size === 4;
+  if (value.facts.release_family === 'US_NFP') {
+    return validateNfpMetrics(value.facts.metrics);
+  }
+  return false;
 }
 
 function isLeapYear(year: number): boolean {
