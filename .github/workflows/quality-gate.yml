@@ -239,6 +239,8 @@ jobs:
         run: node tests/test_market_driver_native_rows_postgres.mjs
       - name: Market Pricing historical persistence contract
         run: node tests/test_market_pricing_persistence_postgres.mjs
+      - name: Positioning historical evidence persistence contract
+        run: node tests/test_positioning_persistence_postgres.mjs
 
   market-partition-rls-postgres:
     runs-on: ubuntu-latest

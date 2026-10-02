@@ -1,8 +1,8 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-02T09:13Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-02T09:35Z`
 
-Main evidence reconciled through PR #77 / `10b926d08f92bcf42e974e92e5e102ab60362cfb`
+Main evidence reconciled through PR #78 / `b216e3fbdc21c5b6be4eddca565b95bf591ab44d`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
@@ -27,7 +27,7 @@ not merely for merged code.
 | Security SB-2 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0034; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1 operator hour |
 | Cloudflare bounded runtime | CODE_COMPLETE | Dashboard/token access; deployment authority | Yes, runtime | Manual GT/Event Facts paths in source; deployment not proven | Freeze deploy packet and execute when access exists | 0.5–1 day after access |
 | Market Pricing institutional contract | STAGING_PROVEN | Production migration and runtime evidence ingestion/read remain absent | Yes for production schema/runtime | MP-0 latest-only; MP-1 no-lookahead selector; MP-2 CI on PG17.6 plus hosted staging PG17.11 transaction/rollback proof with zero data residue | Independently authorize MP-2 production schema, then wire one bounded caller under separate runtime authority | 1–2 days after gates |
-| Positioning institutional contract | CONTRACT_CI_PROVEN | Source/licensing and directional methodology decisions | Yes, provider + semantic | P-0 exact evidence tuple, cutoff validation, deterministic ordering and forced `UNAVAILABLE` signal | Compare providers and freeze methodology only after explicit approval | 1–3 days plus provider |
+| Positioning institutional contract | STAGING_PROVEN | Source/licensing, production schema and directional methodology decisions | Yes, production schema + provider + semantic | P-0 forced `UNAVAILABLE`; P-1 CI on PG17.6 plus hosted staging PG17.11 replay/revision/as-of transaction proof with zero data residue | Independently authorize P-1 production schema; keep collection and methodology off pending separate approvals | 1–3 days plus gates/provider |
 | Regime institutional contract | CONTRACT_CI_PROVEN | Approved deterministic regime methodology and complete evidence inputs | Yes, semantic | R-0 exact MP-0/P-0 version+cutoff gate; forced `UNAVAILABLE` with no legacy fallback | Specify and validate R-1 methodology before activation | 2–4 days |
 | H1–H5 synthesis | CONTRACT_CI_PROVEN | Positive EI/GT, replayable Market Pricing, approved Positioning/Regime and S-1 methodology | Yes, semantic | S-0 exact upstream version+cutoff gate; five ordered explicit abstentions | Specify horizon durations/calibration/targets only after evidence gates close | 3–6 days |
 | AI Committee | CONTRACT_CI_PROVEN | Ready V2 horizons; approved provider/cost/runtime and C-1 method | Yes, provider + cost + runtime | C-0 exact S-0 version/cutoff gate; provider invocation forbidden; legacy output rejected | Freeze C-1 request/response, evidence and budget only after approvals | 2–4 days |
