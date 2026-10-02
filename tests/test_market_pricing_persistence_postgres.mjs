@@ -27,6 +27,7 @@ sql(`
   INSERT INTO public.data_sources VALUES ('source_a'), ('source_b');
 `);
 sql(readFileSync(new URL('database/migrations/20261002085845_market_pricing_history_as_of.sql', root), 'utf8'));
+sql(readFileSync(new URL('database/migrations/20261002091342_market_pricing_source_fk_index.sql', root), 'utf8'));
 
 assert.equal(sql(`SELECT relrowsecurity FROM pg_class
   WHERE oid='public.market_pricing_observations'::regclass;`), 't');
@@ -38,6 +39,18 @@ assert.equal(sql(`SELECT
   AND NOT has_table_privilege('service_role','public.market_pricing_observations','UPDATE')
   AND NOT has_table_privilege('service_role','public.market_pricing_observations','DELETE');`), 't');
 console.log('PASS MP-2 RLS and exact table privileges fail closed');
+
+assert.equal(sql(`SELECT EXISTS (
+  SELECT 1
+  FROM pg_index i
+  JOIN pg_attribute a
+    ON a.attrelid=i.indrelid AND a.attnum=i.indkey[0]
+  WHERE i.indrelid='public.market_pricing_observations'::regclass
+    AND a.attname='source'
+    AND i.indisvalid
+    AND i.indisready
+);`), 't');
+console.log('PASS source foreign key has a valid covering index');
 
 const replayIdentityObservedAt = '2025-01-01T00:00:00Z';
 const record = (value) => sql(`SET ROLE service_role; SELECT observation_id || '|' || outcome || '|' || ingested_at
