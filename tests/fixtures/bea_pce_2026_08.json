@@ -1,0 +1,26 @@
+{
+  "source": {
+    "authority": "US_BEA",
+    "provider": "bea",
+    "sourceCode": "bea_personal_income_outlays_release",
+    "sourceDomain": "bea.gov"
+  },
+  "release": {
+    "releaseFamily": "US_PCE",
+    "releaseStage": "SINGLE",
+    "releaseNumberRaw": "BEA 26–43",
+    "headerTitle": "Personal Income and Outlays, August 2026",
+    "publicReleaseAtRaw": "EMBARGOED UNTIL RELEASE AT 8:30 a.m. EDT, Wednesday, September 30, 2026",
+    "archivePath": "/news/2026/personal-income-and-outlays-august-2026",
+    "archiveSha256": "6c207be356d7a4a0023086bfed2c1ea3d6dc33c43be8496a39207d0fd2e2f329"
+  },
+  "summary": {
+    "referencePeriod": { "kind": "MONTH", "year": 2026, "month": 8 },
+    "metrics": [
+      { "seriesLabel": "PCE price index excluding food and energy", "changeBasis": "SAME_MONTH_YEAR_AGO", "valuePercent": 3.0 },
+      { "seriesLabel": "PCE price index", "changeBasis": "PRECEDING_MONTH", "valuePercent": 0.3 },
+      { "seriesLabel": "PCE price index excluding food and energy", "changeBasis": "PRECEDING_MONTH", "valuePercent": 0.2 },
+      { "seriesLabel": "PCE price index", "changeBasis": "SAME_MONTH_YEAR_AGO", "valuePercent": 3.4 }
+    ]
+  }
+}

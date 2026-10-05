@@ -9,12 +9,13 @@ const script = read('scripts/recovery_manifest.mjs');
 const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
 for (const value of [
-  '43bac1c22fe9c6c2bb97b55f1cba7b2034f49e1e',
-  '37354914224',
+  '7f91d559053b4374a0a6365df6d880e5e21d70b7',
+  '37357300543',
   '20260923133811 gold_transmission_atomic_rpc',
   'Recovery readiness', 'STAGING_PROVEN', 'LIVE_PROVEN', 'CI_PROVEN',
   'Estimated remaining engineering effort', 'Consensus',
   'pure DOL claims text parser + adapter', 'CPI/NFP/jobless-claims',
+  'pure BEA PCE adapter',
   'BLS July 2026 archive',
   'No trading or broker execution authority',
 ]) assert.ok(board.includes(value), `completion board missing ${value}`);
