@@ -1,15 +1,15 @@
 # XAU V2 — US DOL Weekly UI Claims Source Contract
 
-Status: **PURE ADAPTER — CI PROOF ONLY — NO RUNTIME ACTIVATION**
+Status: **PURE TEXT PARSER + ADAPTER — CI PROOF ONLY — NO RUNTIME ACTIVATION**
 
 ## 1. Scope
 
-This contract adds a deterministic, side-effect-free CES V2 adapter for the
-official U.S. Department of Labor Employment and Training Administration
-weekly unemployment-insurance claims release. It adds no fetcher, PDF parser,
-database write, identity lookup, Worker route, schedule, secret, provider,
-deployment, production mutation, consensus value, Gold interpretation or
-trading action.
+This contract adds a deterministic, side-effect-free text parser and CES V2
+adapter for the official U.S. Department of Labor Employment and Training
+Administration weekly unemployment-insurance claims release. It adds no
+fetcher, PDF decoder, database write, identity lookup, Worker route, schedule,
+secret, provider, deployment, production mutation, consensus value, Gold
+interpretation or trading action.
 
 The reviewed evidence fixture projects the official October 1, 2026 release:
 
@@ -23,6 +23,12 @@ The reviewed evidence fixture projects the official October 1, 2026 release:
 The DOL path is overwritten for each new release. The release number, not the
 URL, is the strong identity. Any future runtime must retain exact artifact
 bytes before invoking a parser or adapter.
+
+The retained CI fixture is the complete `pdftotext 24.02.0 -layout` projection
+of that PDF, normalized only by appending one final LF. Its provenance manifest
+freezes the source URL, raw-PDF byte count and SHA-256, extraction command, and
+normalized-text byte count and SHA-256. The raw PDF itself is not committed;
+therefore CI proves the retained projection, not independent PDF decoding.
 
 ## 2. Exact source tuple
 
@@ -97,19 +103,39 @@ market interpretation.
 Every non-resolved result carries a stable machine-readable reason. The
 adapter never falls back to another source, series, period or identity.
 
-## 7. Evidence and proof boundary
+## 7. Parser boundary
 
-The fixture values are transcribed from the official DOL release. The tests
-prove deterministic replay, no input mutation, canonical identity, metric
-ordering, metric-specific periods, release-local revisions, exact
-person-to-thousands rendering, strict negative cases, and absence of I/O,
-clock, environment, model, market or consensus dependencies.
+`dol-ui-claims-text-parser-v1` accepts only a bounded string of at most
+1,000,000 characters. It requires exactly one official embargo/publication
+line, one exact DOL footer release number, one initial-claims narrative block,
+and one continuing-claims narrative block. Missing or duplicated evidence,
+invalid comma-grouped person counts, unsupported titles, NUL bytes and
+oversized inputs fail closed.
+
+The parser derives only the immediately prior week dates by exact seven-day
+calendar subtraction. It validates the stated Thursday publication date, the
+one-to-seven-day publication lag, and the exact seven-day gap between initial
+and continuing claims. It emits the strict payload consumed by the existing
+adapter; the adapter remains responsible for Saturday, source-tuple and
+canonical-state validation. Parser and adapter composition is tested against
+the reviewed JSON fixture byte-for-byte at the object level.
+
+## 8. Evidence and proof boundary
+
+The structured fixture values are now reproduced from the retained official
+text projection by the pure parser rather than accepted solely as a manual
+transcription. The tests prove the retained text hash, recorded raw-PDF
+provenance, exact parser-to-fixture equality, deterministic replay, no input
+mutation, canonical identity, metric ordering, metric-specific periods,
+release-local revisions, exact person-to-thousands rendering, strict negative
+cases, and absence of network, database, clock, environment, model, market or
+consensus dependencies.
 
 This proof is code/fixture evidence only. It is not evidence of a live fetch,
-raw-byte retention, PDF parsing, persistence, deployment, scheduled capture,
-production activation or downstream positive inference.
+committed raw-PDF bytes, independent PDF decoding, persistence, deployment,
+scheduled capture, production activation or downstream positive inference.
 
-## 8. Conservative consumer admission
+## 9. Conservative consumer admission
 
 Event Impact and Gold Transmission processor version 4 admit only this exact
 three-metric shape, including valid Saturday periods, the one-week continuing
