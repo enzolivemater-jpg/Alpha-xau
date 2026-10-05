@@ -706,22 +706,22 @@ project's governance model. Stated once, here only:
 
 ### BEA — Bureau of Economic Analysis (candidate)
 - Category: I
-- Evidence State: TO_VERIFY
-- Architecture Disposition: CANDIDATE
+- Evidence State: CI_REVIEWED
+- Architecture Disposition: CI_ONLY
 - Criticality: NONE currently
 - Data Authority: PRIMARY_OFFICIAL
-- Current role: not integrated
-- Approved use: none currently — candidate role is official US economic releases relevant to PCE, GDP, and related macro-event truth
-- Prohibited/discouraged use: n/a — nothing connected to restrict; no API entitlement, quota, or licensing claim is made unless verified
-- Capability/data provided: TO_VERIFY
-- Access/authentication model: TO_VERIFY
-- Cost/quota status: TO_VERIFY
-- Licensing/data-rights status: TO_VERIFY — see § Data Rights and Licensing
-- Failure/dependency risk: none — not connected
-- Fallback/alternative: n/a
-- Evidence reference: none — candidate only, not evaluated
+- Current role: offline official-release fixture and pure `US_PCE` adapter proof only; not connected
+- Approved use: exact facts explicitly published on archived Personal Income and Outlays news pages, for deterministic CI fixtures/adapters only
+- Prohibited/discouraged use: no runtime fetch, interactive-table/API substitution, current-value overwrite of release-vintage facts, redistribution claim, consensus, signal or trading use
+- Capability/data provided: official release number, publication header, headline/core PCE price-index MoM and YoY facts, archived release pages
+- Access/authentication model: public archived news pages require no authentication for the reviewed CI evidence; no API access is claimed
+- Cost/quota status: public news-page retrieval for reviewed CI evidence; no paid provider or quota dependency introduced
+- Licensing/data-rights status: runtime retention/redistribution policy remains TO_VERIFY — this lot records factual public-release projections and hashes only
+- Failure/dependency risk: archived-page markup may change; absence, ambiguity or contradiction must fail closed
+- Fallback/alternative: none; current interactive data must not replace an archived release vintage
+- Evidence reference: `XAU_V2_EVENT_FACTS_BEA_PCE_SOURCE_CONTRACT.md`; official July/August 2026 release pages; CI fixtures record exact downloaded HTML hashes
 - Owner: Enzo
-- Next action: evaluate as a future official macro-event source; not implemented by this task
+- Next action: add conservative exact-shape consumer admission; keep runtime/retention off pending separate review
 
 ### Federal Reserve (official RAW source)
 - Category: I
@@ -1261,7 +1261,7 @@ evidence; no plan tier or quota is assumed unless verified.
 | US Treasury | TO_VERIFY | currently stored (RAW table) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | same as above | repo schema | this review |
 | OFAC | TO_VERIFY | currently stored (RAW table) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | same as above | repo schema | this review |
 | BLS (candidate) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
-| BEA (candidate) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
+| BEA (CI-only official release facts) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | official July/August 2026 archived news pages + `XAU_V2_EVENT_FACTS_BEA_PCE_SOURCE_CONTRACT.md`; this is source-fact evidence, not a rights conclusion | 2026-10-05 |
 | Future CME/COMEX | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
 | Future CFTC (Commitments of Traders) | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated; CFTC is the source authority for COT data, distinct from CME/COMEX | — |
 | Future LBMA | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | TO_VERIFY | none — not yet evaluated | — |
