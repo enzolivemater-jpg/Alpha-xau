@@ -1,0 +1,11 @@
+{
+  "sourceUrl": "https://www.dol.gov/ui/data.pdf",
+  "artifactPath": "/ui/data.pdf",
+  "retrievedAt": "2026-10-05",
+  "pdfBytes": 538666,
+  "pdfSha256": "e33ba5adcf0eb213d1d60ee96b55b9486d9a871250a99e28d6258a424cc0294e",
+  "extractionTool": "pdftotext 24.02.0 -layout",
+  "textNormalization": "append one final LF to the pdftotext output",
+  "normalizedTextBytes": 33782,
+  "normalizedTextSha256": "0474b67111c2f87866ad3c7cb82bb008619e012df0bdda2714249a8eb1a38efd"
+}

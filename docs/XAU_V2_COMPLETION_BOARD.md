@@ -1,12 +1,12 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-05T18:10Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-05T18:30Z`
 
-Main evidence reconciled through PR #83 / `5547c322656721cfb4408f10f57d0d1509930661`
+Main evidence reconciled through PR #84 / `43bac1c22fe9c6c2bb97b55f1cba7b2034f49e1e`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
-Main Quality Gate: run `37054312538` — `success`  
+Main Quality Gate: run `37354914224` — `success`
 Production Edge Functions: none
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
@@ -16,7 +16,7 @@ not merely for merged code.
 | Milestone | Status | Blocking dependency | Human Gate | Evidence | Next action | Estimated remaining engineering effort* |
 | --- | --- | --- | --- | --- | --- | --- |
 | Event Foundation | COMPLETE | None | No | Production schema/RPC history through 0021; prior live proofs | Regression maintenance only | <0.5 day |
-| Official-source provenance | CI_PROVEN | Bounded live official-artifact fetch/capture not activated | Yes, runtime | CPI path, pure BLS Employment Situation/NFP adapter, pure DOL weekly UI claims adapter, official fixtures, and conservative exact-shape consumers; no NFP/claims runtime or persistence activation | Add a bounded claims parser only with exact retained artifacts; live capture stays gated | 1–2 days |
+| Official-source provenance | CI_PROVEN | Raw DOL PDF retention/decoding and bounded live official-artifact capture not activated; BLS July AHE release-vintage percentage evidence unresolved | Yes, runtime + NFP source-method decision | CPI path; pure BLS Employment Situation/NFP adapter; pure DOL claims text parser + adapter; retained DOL text projection with PDF/text hashes; conservative exact-shape consumers; no NFP/claims runtime or persistence activation | Retain/decode exact raw PDF before any runtime; resolve NFP AHE evidence without inference; live capture stays gated | 1–2 days plus source decision |
 | Event Facts CES V2 | STAGING_PROVEN | Recovery gate; migrations 0029–0032 | Yes, schema | EF-12 hosted PG17.11 proof; EF-13 packet | Execute REC-1, then separately authorize schema rollout | 1–2 days after gate |
 | Event Impact V1 | LIVE_PROVEN | None | No | Prior 45-version/3-assessment proof and exact replay | Preserve while V2 remains gated | <0.5 day |
 | Event Impact V2 technical path | CI_PROVEN | CES V2 live facts; consensus policy | Yes, provider/semantic | Versioned deterministic consumer admits exact CPI/NFP/jobless-claims typed facts but preserves zero-interpretation insufficiency | Keep insufficiency output until consensus and positive methodology are authorized | 1–3 days after inputs |
@@ -67,6 +67,9 @@ windows for scheduled economic releases.
 - No Cloudflare deployment proof or runtime authority.
 - No authorized consensus provider; positive EI/GT semantic inference remains
   forbidden.
+- The BLS July 2026 archive supplies release-vintage AHE levels but no explicit
+  month-over-month percentage supporting the current `0.0` fixture; a parser
+  must not infer or revise that fact without an approved source rule.
 - No trading or broker execution authority.
 
 ## Reconciliation rule
