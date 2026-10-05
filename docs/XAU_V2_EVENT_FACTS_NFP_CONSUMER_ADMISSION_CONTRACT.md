@@ -16,8 +16,8 @@ changes:
 
 | Processor | Version |
 |---|---|
-| Event Impact | `event-impact-deterministic-processor-v3` |
-| Gold Transmission | `gold-transmission-deterministic-processor-v3` |
+| Event Impact | `event-impact-deterministic-processor-v4` |
+| Gold Transmission | `gold-transmission-deterministic-processor-v4` |
 
 ## 2. Exact admitted family
 

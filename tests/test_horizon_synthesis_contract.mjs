@@ -35,8 +35,8 @@ try {
 
 const cutoff = '2026-10-01T12:00:00.000Z';
 const input = {
-  eventImpact: { algorithmVersion: 'event-impact-deterministic-processor-v3', status: 'INSUFFICIENT_EVIDENCE', knowledgeCutoff: cutoff },
-  goldTransmission: { algorithmVersion: 'gold-transmission-deterministic-processor-v3', status: 'INSUFFICIENT_EVIDENCE', knowledgeCutoff: cutoff },
+  eventImpact: { algorithmVersion: 'event-impact-deterministic-processor-v4', status: 'INSUFFICIENT_EVIDENCE', knowledgeCutoff: cutoff },
+  goldTransmission: { algorithmVersion: 'gold-transmission-deterministic-processor-v4', status: 'INSUFFICIENT_EVIDENCE', knowledgeCutoff: cutoff },
   marketPricing: { schemaVersion: 'xau.market-pricing-snapshot.v1', algorithmVersion: 'market-pricing-envelope-1.0.0', state: 'DEGRADED', knowledgeCutoff: cutoff },
   positioning: { schemaVersion: 'xau.positioning-evidence.v1', algorithmVersion: 'positioning-evidence-normalizer-1.0.0', positioningState: 'UNAVAILABLE', knowledgeCutoff: cutoff },
   regime: { schemaVersion: 'xau.regime-assessment.v1', algorithmVersion: 'regime-dependency-gate-1.0.0', regime: 'UNAVAILABLE', knowledgeCutoff: cutoff },

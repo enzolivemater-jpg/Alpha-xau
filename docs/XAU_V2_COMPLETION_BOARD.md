@@ -1,11 +1,12 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-02T14:11Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-05T18:10Z`
 
-Main evidence reconciled through PR #81 / `aebbb80eb5d7dfe363e5245823543e5e76e9eef0`
+Main evidence reconciled through PR #83 / `5547c322656721cfb4408f10f57d0d1509930661`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
+Main Quality Gate: run `37054312538` — `success`  
 Production Edge Functions: none
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
@@ -15,12 +16,12 @@ not merely for merged code.
 | Milestone | Status | Blocking dependency | Human Gate | Evidence | Next action | Estimated remaining engineering effort* |
 | --- | --- | --- | --- | --- | --- | --- |
 | Event Foundation | COMPLETE | None | No | Production schema/RPC history through 0021; prior live proofs | Regression maintenance only | <0.5 day |
-| Official-source provenance | CI_PROVEN | Bounded live official-artifact fetch/capture not activated | Yes, runtime | CPI path, pure BLS Employment Situation/NFP adapter plus conservative consumers, and pure DOL weekly UI claims adapter with exact official fixture; no NFP/claims runtime or persistence activation | Add claims consumer admission or a bounded parser only with exact retained artifacts; live capture stays gated | 1–2 days |
+| Official-source provenance | CI_PROVEN | Bounded live official-artifact fetch/capture not activated | Yes, runtime | CPI path, pure BLS Employment Situation/NFP adapter, pure DOL weekly UI claims adapter, official fixtures, and conservative exact-shape consumers; no NFP/claims runtime or persistence activation | Add a bounded claims parser only with exact retained artifacts; live capture stays gated | 1–2 days |
 | Event Facts CES V2 | STAGING_PROVEN | Recovery gate; migrations 0029–0032 | Yes, schema | EF-12 hosted PG17.11 proof; EF-13 packet | Execute REC-1, then separately authorize schema rollout | 1–2 days after gate |
 | Event Impact V1 | LIVE_PROVEN | None | No | Prior 45-version/3-assessment proof and exact replay | Preserve while V2 remains gated | <0.5 day |
-| Event Impact V2 technical path | CI_PROVEN | CES V2 live facts; consensus policy | Yes, provider/semantic | Versioned deterministic consumer admits exact CPI/NFP typed facts but preserves zero-interpretation insufficiency | Keep insufficiency output until consensus and positive methodology are authorized | 1–3 days after inputs |
+| Event Impact V2 technical path | CI_PROVEN | CES V2 live facts; consensus policy | Yes, provider/semantic | Versioned deterministic consumer admits exact CPI/NFP/jobless-claims typed facts but preserves zero-interpretation insufficiency | Keep insufficiency output until consensus and positive methodology are authorized | 1–3 days after inputs |
 | Gold Transmission persistence | PROD_SCHEMA_READY | Worker route not deployed | Yes, runtime | GT schema/RPC live; rollback proof; 3 historical assessments | Deploy only bounded manual route after access/authority | 1–2 days after access |
-| Gold Transmission V2 semantics | CI_PROVEN | Typed facts and authorized transmission evidence/consensus | Yes, semantic | Versioned CPI/NFP validation with deterministic zero-path proof and `CONSENSUS_FACTS_UNAVAILABLE` | Design positive paths only after evidence source and methodology are approved | 3–7 days after decision |
+| Gold Transmission V2 semantics | CI_PROVEN | Typed facts and authorized transmission evidence/consensus | Yes, semantic | Versioned CPI/NFP/jobless-claims validation with deterministic zero-path proof and `CONSENSUS_FACTS_UNAVAILABLE` | Design positive paths only after evidence source and methodology are approved | 3–7 days after decision |
 | Consensus policy/provider | NOT_STARTED | Auditable source, licensing, timestamp and revision policy | Yes, provider/cost | Canonical state remains `UNKNOWN`; no provider authorized | Prepare provider comparison; do not integrate or purchase yet | 1–3 days contract + provider work |
 | Recovery readiness | CI_PROVEN | Named operator, target choice, encrypted off-site location | Yes, recovery | REC-1 PR #62; PG17 fail-closed manifest proof | Approve and execute isolated restore rehearsal | 1–2 operator hours |
 | Security SB-1 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0033; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1–2 operator hours |

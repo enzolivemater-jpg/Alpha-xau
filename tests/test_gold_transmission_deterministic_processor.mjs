@@ -38,7 +38,7 @@ try {
 test('module transpiles and loads', mod !== null);
 test('planner exported', typeof mod?.planDeterministicGoldTransmission === 'function');
 test('processor version frozen', mod?.GOLD_TRANSMISSION_DETERMINISTIC_PROCESSOR_VERSION
-  === 'gold-transmission-deterministic-processor-v3');
+  === 'gold-transmission-deterministic-processor-v4');
 test('supported event schema is exactly v2', mod?.GOLD_TRANSMISSION_SUPPORTED_EVENT_SCHEMA_VERSION === 2);
 if (mod === null) process.exit(1);
 
