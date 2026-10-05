@@ -108,3 +108,16 @@ clock, environment, model, market or consensus dependencies.
 This proof is code/fixture evidence only. It is not evidence of a live fetch,
 raw-byte retention, PDF parsing, persistence, deployment, scheduled capture,
 production activation or downstream positive inference.
+
+## 8. Conservative consumer admission
+
+Event Impact and Gold Transmission processor version 4 admit only this exact
+three-metric shape, including valid Saturday periods, the one-week continuing
+claims lag, one immediately prior release-local revision per metric,
+non-negative canonical thousands with at most three decimals, and UNKNOWN
+consensus.
+
+Admission produces no signal. Event Impact remains INSUFFICIENT_EVIDENCE with
+zero interpretations; Gold Transmission remains CONSENSUS_FACTS_UNAVAILABLE
+with zero paths. Any positive claims-to-Gold rule requires a separately
+reviewed methodology and evidence package.

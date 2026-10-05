@@ -21,7 +21,7 @@
  */
 
 export const EVENT_IMPACT_DETERMINISTIC_PROCESSOR_VERSION =
-  'event-impact-deterministic-processor-v3' as const;
+  'event-impact-deterministic-processor-v4' as const;
 
 export const SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION = 2 as const;
 
@@ -168,6 +168,9 @@ const NFP_UNITS: Readonly<Record<string, string>> = {
   NFP_PAYROLL_CHANGE: 'THOUSANDS_OF_PERSONS',
   UNEMPLOYMENT_RATE: 'LEVEL_PERCENT',
 };
+const CLAIMS_CODES = new Set([
+  'CLAIMS_4WK_AVERAGE', 'CONTINUING_CLAIMS', 'INITIAL_CLAIMS',
+]);
 const CANONICAL_NUMBER = /^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$/;
 const CANONICAL_INTEGER = /^-?(0|[1-9][0-9]*)$/;
 
@@ -311,6 +314,84 @@ function validateNfpMetrics(metrics: readonly unknown[]): boolean {
   return seen.size === 3;
 }
 
+function weekEndingOrdinal(value: unknown): number | null {
+  if (!isRecord(value) || !hasExactKeys(value, ['date', 'kind'])
+      || value.kind !== 'WEEK_ENDING' || typeof value.date !== 'string') return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.date);
+  if (match === null) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1900 || year > 9999 || month < 1 || month > 12
+      || day < 1 || day > daysInMonth(year, month)) return null;
+  const previousYear = year - 1;
+  let ordinal = previousYear * 365
+    + Math.floor(previousYear / 4)
+    - Math.floor(previousYear / 100)
+    + Math.floor(previousYear / 400);
+  for (let index = 1; index < month; index += 1) {
+    ordinal += daysInMonth(year, index);
+  }
+  ordinal += day - 1;
+  return ordinal % 7 === 5 ? ordinal : null;
+}
+
+function validClaimsKnownValue(value: unknown): boolean {
+  if (!validKnownValue(value)) return false;
+  const raw = (value as Record<string, unknown>).value as string;
+  if (raw.startsWith('-')) return false;
+  const decimalPoint = raw.indexOf('.');
+  return decimalPoint < 0 || raw.slice(decimalPoint + 1).length <= 3;
+}
+
+function validateClaimsPriorPeriod(value: unknown, currentOrdinal: number): boolean {
+  if (!Array.isArray(value) || value.length !== 1) return false;
+  const item = value[0];
+  if (!isRecord(item)
+      || !hasExactKeys(item, ['prior_value', 'reference_period', 'revised_value'])) {
+    return false;
+  }
+  const priorOrdinal = weekEndingOrdinal(item.reference_period);
+  return priorOrdinal !== null
+    && currentOrdinal - priorOrdinal === 7
+    && validClaimsKnownValue(item.prior_value)
+    && validClaimsKnownValue(item.revised_value);
+}
+
+function validateClaimsMetrics(metrics: readonly unknown[]): boolean {
+  if (metrics.length !== 3) return false;
+  const seen = new Set<string>();
+  const periods = new Map<string, number>();
+  for (const item of metrics) {
+    if (!isRecord(item)
+        || !hasExactKeys(item, [
+          'actual', 'consensus', 'metric_code', 'prior_periods',
+          'reference_period', 'unit',
+        ])
+        || typeof item.metric_code !== 'string'
+        || !CLAIMS_CODES.has(item.metric_code)
+        || seen.has(item.metric_code)
+        || item.unit !== 'THOUSANDS_OF_PERSONS'
+        || !validClaimsKnownValue(item.actual)
+        || !validUnknownConsensus(item.consensus)) return false;
+    const ordinal = weekEndingOrdinal(item.reference_period);
+    if (ordinal === null || !validateClaimsPriorPeriod(item.prior_periods, ordinal)) {
+      return false;
+    }
+    seen.add(item.metric_code);
+    periods.set(item.metric_code, ordinal);
+  }
+  const initial = periods.get('INITIAL_CLAIMS');
+  const continuing = periods.get('CONTINUING_CLAIMS');
+  const average = periods.get('CLAIMS_4WK_AVERAGE');
+  return seen.size === 3
+    && initial !== undefined
+    && continuing !== undefined
+    && average !== undefined
+    && initial === average
+    && initial - continuing === 7;
+}
+
 function validateCanonicalEventStateV2(value: unknown): boolean {
   if (!isRecord(value) || !hasExactKeys(value, ['detail', 'event_type', 'facts', 'subject'])
       || value.event_type !== 'STATISTICAL_RELEASE' || !isCanonicalNonBlankText(value.subject)
@@ -322,6 +403,9 @@ function validateCanonicalEventStateV2(value: unknown): boolean {
   }
   if (value.facts.release_family === 'US_NFP') {
     return validateNfpMetrics(value.facts.metrics);
+  }
+  if (value.facts.release_family === 'US_JOBLESS_CLAIMS') {
+    return validateClaimsMetrics(value.facts.metrics);
   }
   return false;
 }

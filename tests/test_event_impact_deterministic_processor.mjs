@@ -56,7 +56,7 @@ test('le module TypeScript transpile et se charge', mod !== null);
 test('planDeterministicEventImpact est exporté', typeof mod?.planDeterministicEventImpact === 'function');
 test(
   'version processeur V2 exportée',
-  mod?.EVENT_IMPACT_DETERMINISTIC_PROCESSOR_VERSION === 'event-impact-deterministic-processor-v3',
+  mod?.EVENT_IMPACT_DETERMINISTIC_PROCESSOR_VERSION === 'event-impact-deterministic-processor-v4',
 );
 test('schéma canonique supporté = 2', mod?.SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION === 2);
 

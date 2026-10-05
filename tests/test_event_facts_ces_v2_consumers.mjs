@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mapBlsCpiReleaseToEventFacts } from '../backend/event_facts/bls_cpi_adapter.ts';
 import { mapBlsEmploymentReleaseToEventFacts } from '../backend/event_facts/bls_employment_situation_adapter.ts';
+import { mapDolUiWeeklyClaimsReleaseToEventFacts } from '../backend/event_facts/dol_ui_weekly_claims_adapter.ts';
 import { planDeterministicEventImpact } from '../backend/event_impact/deterministic_processor.ts';
 import { planDeterministicGoldTransmission } from '../backend/gold_transmission/deterministic_processor.ts';
 
@@ -13,6 +14,11 @@ const nfpFixture = JSON.parse(readFileSync(new URL(
 ), 'utf8'));
 const nfpMapped = mapBlsEmploymentReleaseToEventFacts(nfpFixture);
 assert.equal(nfpMapped.kind, 'RESOLVED');
+const claimsFixture = JSON.parse(readFileSync(new URL(
+  './fixtures/dol_ui_weekly_claims_2026_10_01.json', import.meta.url,
+), 'utf8'));
+const claimsMapped = mapDolUiWeeklyClaimsReleaseToEventFacts(claimsFixture);
+assert.equal(claimsMapped.kind, 'RESOLVED');
 
 const base = {
   id: '11111111-1111-4111-8111-111111111111', clusterId: '22222222-2222-4222-8222-222222222222',
@@ -47,13 +53,13 @@ const nfpBase = {
 };
 const nfpAccepted = run(nfpBase);
 assert.equal(nfpAccepted.impact.kind, 'PROCESS');
-assert.equal(nfpAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v3');
+assert.equal(nfpAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v4');
 assert.equal(nfpAccepted.impact.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
 assert.equal(nfpAccepted.impact.assessmentReason, 'GOLD_TRANSMISSION_EVIDENCE_UNAVAILABLE');
 assert.deepEqual(nfpAccepted.impact.interpretations, []);
 assert.equal(nfpAccepted.transmission.kind, 'PROCESS');
 assert.equal(nfpAccepted.transmission.processorVersion,
-  'gold-transmission-deterministic-processor-v3');
+  'gold-transmission-deterministic-processor-v4');
 assert.equal(nfpAccepted.transmission.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
 assert.equal(nfpAccepted.transmission.assessmentReason, 'CONSENSUS_FACTS_UNAVAILABLE');
 assert.deepEqual(nfpAccepted.transmission.paths, []);
@@ -62,6 +68,31 @@ reversedRevisions.canonicalEventState.facts.metrics
   .find(metric => metric.metric_code === 'NFP_PAYROLL_CHANGE').prior_periods.reverse();
 assert.deepEqual(run(reversedRevisions), nfpAccepted);
 console.log('PASS exact official NFP facts and release-local revisions are admitted without signal inference');
+
+const claimsBase = {
+  ...base,
+  canonicalEventStateSchemaVersion: claimsMapped.canonicalEventStateSchemaVersion,
+  canonicalEventState: claimsMapped.canonicalEventState,
+  stateFingerprint: 'c'.repeat(64),
+};
+const claimsAccepted = run(claimsBase);
+assert.equal(claimsAccepted.impact.kind, 'PROCESS');
+assert.equal(claimsAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v4');
+assert.equal(claimsAccepted.impact.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
+assert.equal(claimsAccepted.impact.assessmentReason,
+  'GOLD_TRANSMISSION_EVIDENCE_UNAVAILABLE');
+assert.deepEqual(claimsAccepted.impact.interpretations, []);
+assert.equal(claimsAccepted.transmission.kind, 'PROCESS');
+assert.equal(claimsAccepted.transmission.processorVersion,
+  'gold-transmission-deterministic-processor-v4');
+assert.equal(claimsAccepted.transmission.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
+assert.equal(claimsAccepted.transmission.assessmentReason,
+  'CONSENSUS_FACTS_UNAVAILABLE');
+assert.deepEqual(claimsAccepted.transmission.paths, []);
+const reversedClaimsMetrics = structuredClone(claimsBase);
+reversedClaimsMetrics.canonicalEventState.facts.metrics.reverse();
+assert.deepEqual(run(reversedClaimsMetrics), claimsAccepted);
+console.log('PASS exact official jobless-claims facts are admitted without signal inference');
 
 for (const [label, mutate] of [
   ['unsupported family', state => { state.facts.release_family = 'US_PPI'; }],
@@ -120,6 +151,54 @@ for (const [label, mutate] of [
   assert.equal(rejected.transmission.reason, 'INVALID_CANONICAL_EVENT_STATE_V2', `${label}: GT reason`);
 }
 console.log('PASS EI and GT fail closed on malformed NFP units, precision, consensus, and revisions');
+
+for (const [label, mutate] of [
+  ['wrong claims unit', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'INITIAL_CLAIMS').unit = 'PERSONS';
+  }],
+  ['missing claims revision', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'INITIAL_CLAIMS')
+      .prior_periods = [];
+  }],
+  ['wrong continuing lag', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'CONTINUING_CLAIMS')
+      .reference_period.date = '2026-09-26';
+  }],
+  ['wrong revision week', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'INITIAL_CLAIMS')
+      .prior_periods[0].reference_period.date = '2026-09-12';
+  }],
+  ['non-Saturday claims period', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'INITIAL_CLAIMS')
+      .reference_period.date = '2026-09-25';
+  }],
+  ['negative claims value', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'CONTINUING_CLAIMS')
+      .actual.value = '-1';
+  }],
+  ['unsupported claims precision', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'CLAIMS_4WK_AVERAGE')
+      .actual.value = '200.0001';
+  }],
+  ['invented claims consensus', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'INITIAL_CLAIMS').consensus =
+      { state: 'KNOWN', value: '195' };
+  }],
+  ['duplicate claims metric', state => {
+    state.facts.metrics[1].metric_code = 'INITIAL_CLAIMS';
+  }],
+]) {
+  const eventVersion = structuredClone(claimsBase);
+  mutate(eventVersion.canonicalEventState);
+  const rejected = run(eventVersion);
+  assert.equal(rejected.impact.kind, 'ABSTAIN', `${label}: EI`);
+  assert.equal(rejected.impact.reason, 'INVALID_CANONICAL_EVENT_STATE_V2',
+    `${label}: EI reason`);
+  assert.equal(rejected.transmission.kind, 'ABSTAIN', `${label}: GT`);
+  assert.equal(rejected.transmission.reason, 'INVALID_CANONICAL_EVENT_STATE_V2',
+    `${label}: GT reason`);
+}
+console.log('PASS EI and GT fail closed on malformed jobless-claims periods, values, consensus, and revisions');
 
 const future = run({ ...base, canonicalEventStateSchemaVersion: 3, canonicalEventState: { opaque: true } });
 assert.equal(future.impact.assessmentReason, 'UNSUPPORTED_CANONICAL_EVENT_STATE_SCHEMA');
