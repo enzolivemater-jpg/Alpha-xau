@@ -26,6 +26,12 @@ assert.equal(
   manifest.normalizedTextSha256,
 );
 assert.equal(manifest.sourceUrl, 'https://www.dol.gov/ui/data.pdf');
+assert.equal(
+  manifest.archivedSourceUrl,
+  'https://www.dol.gov/sites/dolgov/files/OPA/newsreleases/ui-claims/20261543.pdf',
+);
+assert.equal(manifest.mediaType, 'application/pdf');
+assert.equal(manifest.rawArtifactFile, 'dol_ui_weekly_claims_2026_10_01.pdf');
 assert.equal(manifest.pdfBytes, 538666);
 assert.equal(
   manifest.pdfSha256,

@@ -1,15 +1,16 @@
 # XAU V2 — US DOL Weekly UI Claims Source Contract
 
-Status: **PURE TEXT PARSER + ADAPTER — CI PROOF ONLY — NO RUNTIME ACTIVATION**
+Status: **RAW PDF + BOUNDED DECODER + PURE PARSER/ADAPTER — CI PROOF ONLY — NO RUNTIME ACTIVATION**
 
 ## 1. Scope
 
-This contract adds a deterministic, side-effect-free text parser and CES V2
-adapter for the official U.S. Department of Labor Employment and Training
-Administration weekly unemployment-insurance claims release. It adds no
-fetcher, PDF decoder, database write, identity lookup, Worker route, schedule,
-secret, provider, deployment, production mutation, consensus value, Gold
-interpretation or trading action.
+This contract retains the exact official PDF, adds a bounded local/CI decoder,
+then applies a deterministic, side-effect-free text parser and CES V2 adapter
+for the U.S. Department of Labor Employment and Training Administration weekly
+unemployment-insurance claims release. It adds no fetcher or runtime decoder,
+database write, identity lookup, Worker route, schedule, secret, provider,
+deployment, production mutation, consensus value, Gold interpretation or
+trading action.
 
 The reviewed evidence fixture projects the official October 1, 2026 release:
 
@@ -24,11 +25,16 @@ The DOL path is overwritten for each new release. The release number, not the
 URL, is the strong identity. Any future runtime must retain exact artifact
 bytes before invoking a parser or adapter.
 
-The retained CI fixture is the complete `pdftotext 24.02.0 -layout` projection
+The retained CI fixture includes the exact nine-page official archive PDF at
+`/sites/dolgov/files/OPA/newsreleases/ui-claims/20261543.pdf` (538666 bytes,
+SHA-256 `e33ba5adcf0eb213d1d60ee96b55b9486d9a871250a99e28d6258a424cc0294e`)
+and the complete `pdftotext 24.02.0 -layout` projection
 of that PDF, normalized only by appending one final LF. Its provenance manifest
 freezes the source URL, raw-PDF byte count and SHA-256, extraction command, and
-normalized-text byte count and SHA-256. The raw PDF itself is not committed;
-therefore CI proves the retained projection, not independent PDF decoding.
+normalized-text byte count and SHA-256. CI authenticates the PDF before calling
+the external decoder, runs `pdftotext` without a shell under timeout/output
+bounds, and proves that the resulting projection matches the retained text
+byte-for-byte before parsing.
 
 ## 2. Exact source tuple
 

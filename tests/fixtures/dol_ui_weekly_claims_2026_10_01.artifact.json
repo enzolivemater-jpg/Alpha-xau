@@ -1,7 +1,11 @@
 {
   "sourceUrl": "https://www.dol.gov/ui/data.pdf",
+  "archivedSourceUrl": "https://www.dol.gov/sites/dolgov/files/OPA/newsreleases/ui-claims/20261543.pdf",
   "artifactPath": "/ui/data.pdf",
   "retrievedAt": "2026-10-05",
+  "archiveVerifiedAt": "2026-10-08",
+  "mediaType": "application/pdf",
+  "rawArtifactFile": "dol_ui_weekly_claims_2026_10_01.pdf",
   "pdfBytes": 538666,
   "pdfSha256": "e33ba5adcf0eb213d1d60ee96b55b9486d9a871250a99e28d6258a424cc0294e",
   "extractionTool": "pdftotext 24.02.0 -layout",
