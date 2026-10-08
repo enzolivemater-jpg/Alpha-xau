@@ -1174,6 +1174,21 @@ GRANT UPDATE ON alerts TO authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
 
+-- Les futurs objets ne sont jamais exposés implicitement par la Data API.
+-- Chaque migration créatrice doit accorder ses privilèges explicitement.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES
+  FROM anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS
+  FROM anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE USAGE, SELECT ON SEQUENCES
+  FROM anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE EXECUTE ON FUNCTIONS
+  FROM PUBLIC;
+
 -- news_articles : surcharge des privilèges par défaut ci-dessus. Couche de
 -- preuve brute, non vetted pour consommation directe (contrairement à
 -- news_events) : aucun accès client, écriture backend seule, jamais
