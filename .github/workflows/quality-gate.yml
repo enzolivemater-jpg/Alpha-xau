@@ -137,6 +137,8 @@ jobs:
         run: node tests/test_public_schema_create_hardening_postgres.mjs
       - name: Data API default privileges contract
         run: node tests/test_data_api_default_privileges_postgres.mjs
+      - name: Data API default ACL preflight contract
+        run: node tests/test_data_api_default_acl_preflight_postgres.mjs
 
   event-impact-postgres:
     runs-on: ubuntu-latest

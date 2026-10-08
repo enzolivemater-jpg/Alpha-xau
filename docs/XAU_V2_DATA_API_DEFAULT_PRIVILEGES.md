@@ -6,7 +6,7 @@ Captured: `2026-10-08`
 Production project: `ejvwmjgfvhsslqiydwpz`  
 Staging project: `viskjhkkcnzqxkuvibdx`  
 Candidate migration: `20261008094133_data_api_default_privileges.sql`  
-Candidate SHA-256: `0b7c189687ea62b06c54747b1277b39164416d2ae6dab0555fb4a4b07e3eb9d2`
+Candidate SHA-256: `ac67440e06be6283e1da22487b554e9ceeb84094ebbb26c83da09d33e24b4905`
 
 ## 1. Finding and boundary
 
@@ -28,13 +28,15 @@ unchanged while future objects become opt-in.
 The CLI-generated migration changes default privileges for objects subsequently
 created by role `postgres` in schema `public`:
 
-- no implicit `SELECT`, `INSERT`, `UPDATE`, or `DELETE` on future tables for
-  `anon`, `authenticated`, or `service_role`;
+- no implicit table privilege, including `SELECT`, `INSERT`, `UPDATE`,
+  `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER`, or PostgreSQL 17 `MAINTAIN`,
+  on future tables for `anon`, `authenticated`, or `service_role`;
 - no implicit `EXECUTE` on future `public` functions for application roles;
 - no implicit `EXECUTE` from `PUBLIC` on any future function created by
   `postgres` in this database, because PostgreSQL cannot override that built-in
   global default with a schema-scoped revocation;
-- no implicit `USAGE` or `SELECT` on future sequences for application roles.
+- no implicit `USAGE`, `SELECT`, or `UPDATE` on future sequences for
+  application roles.
 
 It does not revoke any current table, view, function, sequence, schema, or RLS
 privilege. It creates or drops no object and performs no DML. A migration that
@@ -63,13 +65,17 @@ operator must establish whether Supabase has removed or platform-manages those
 rows, or obtain a separately reviewed payload. A non-empty unresolved result is
 a fail-closed stop, not a reason to widen this migration interactively.
 
+The read-only SB-5 capture and evaluator are defined in
+`XAU_V2_DATA_API_DEFAULT_ACL_PREFLIGHT.md`. They make this stop deterministic;
+they do not authorize or apply any live change.
+
 ## 5. Production authorization gate
 
 SB-3 is code-only. Immediately before any production action, repeat the live
 default/object ACL inventory and approve this exact record:
 
 ```text
-DATA_API_DEFAULTS_MIGRATION_SHA256=0b7c189687ea62b06c54747b1277b39164416d2ae6dab0555fb4a4b07e3eb9d2
+DATA_API_DEFAULTS_MIGRATION_SHA256=ac67440e06be6283e1da22487b554e9ceeb84094ebbb26c83da09d33e24b4905
 FINAL_MAIN_SHA=<40-hex SHA>
 PRODUCTION_PREFLIGHT_REPEATED=YES
 CURRENT_FRONTEND_ACLS_PRESERVED=YES

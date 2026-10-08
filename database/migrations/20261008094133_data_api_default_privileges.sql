@@ -7,7 +7,7 @@
 BEGIN;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES
+  REVOKE ALL PRIVILEGES ON TABLES
   FROM anon, authenticated, service_role;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
@@ -15,7 +15,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   FROM anon, authenticated, service_role;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  REVOKE USAGE, SELECT ON SEQUENCES
+  REVOKE ALL PRIVILEGES ON SEQUENCES
   FROM anon, authenticated, service_role;
 
 -- PostgreSQL's built-in PUBLIC function grant is global. A schema-scoped

@@ -17,9 +17,9 @@ const statements = migration
 
 assert.deepEqual(statements, [
   'BEGIN',
-  'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM anon, authenticated, service_role',
+  'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL PRIVILEGES ON TABLES FROM anon, authenticated, service_role',
   'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated, service_role',
-  'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE USAGE, SELECT ON SEQUENCES FROM anon, authenticated, service_role',
+  'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL PRIVILEGES ON SEQUENCES FROM anon, authenticated, service_role',
   'ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC',
   'COMMIT',
 ]);
@@ -54,7 +54,7 @@ for (const path of [
 console.log('PASS pending new-object migrations carry explicit service-role grants');
 
 assert.match(dossier, /SB-3 CODE CANDIDATE — NOT LIVE-APPLIED/);
-assert.equal(hash, '0b7c189687ea62b06c54747b1277b39164416d2ae6dab0555fb4a4b07e3eb9d2');
+assert.equal(hash, 'ac67440e06be6283e1da22487b554e9ceeb84094ebbb26c83da09d33e24b4905');
 assert.ok(dossier.includes(hash));
 assert.match(dossier, /APPLY_ONLY_20261008094133=YES/);
 assert.match(dossier, /SUPABASE_ADMIN_DEFAULT_ACL_DISPOSITION=/);
