@@ -1,12 +1,13 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-05T18:40Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-08T09:54Z`
 
-Main evidence reconciled through PR #85 / `7f91d559053b4374a0a6365df6d880e5e21d70b7`
+Main evidence reconciled through PR #88 / `a902ecb6a4a514f57547c78fd8cb3914611af90a`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
-Main Quality Gate: run `37357300543` — `success`
+PR #88 Quality Gate: run `37759371912` — `success` (10/10 jobs)
+Post-merge push Quality Gate for `a902ecb6`: no run associated as of reconciliation
 Production Edge Functions: none
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
@@ -26,6 +27,7 @@ not merely for merged code.
 | Recovery readiness | CI_PROVEN | Named operator, target choice, encrypted off-site location | Yes, recovery | REC-1 PR #62; PG17 fail-closed manifest proof | Approve and execute isolated restore rehearsal | 1–2 operator hours |
 | Security SB-1 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0033; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1–2 operator hours |
 | Security SB-2 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0034; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1 operator hour |
+| Security SB-3 | CI_PROVEN | Independent production authorization; managed `supabase_admin` default-ACL disposition | Yes, schema | Migration `20261008094133`; PostgreSQL 17.6 future-object/ACL-preservation proof; PR #88 run `37759371912` | Resolve managed-role preflight, then apply/re-audit only after scoped approval | 1–2 operator hours |
 | Cloudflare bounded runtime | CODE_COMPLETE | Dashboard/token access; deployment authority | Yes, runtime | Manual GT/Event Facts paths in source; deployment not proven | Freeze deploy packet and execute when access exists | 0.5–1 day after access |
 | Market Pricing institutional contract | STAGING_PROVEN | Production migration and runtime evidence ingestion/read remain absent | Yes for production schema/runtime | MP-0 latest-only; MP-1 no-lookahead selector; MP-2 CI on PG17.6 plus hosted staging PG17.11 transaction/rollback proof with zero data residue | Independently authorize MP-2 production schema, then wire one bounded caller under separate runtime authority | 1–2 days after gates |
 | Positioning institutional contract | STAGING_PROVEN | Source/licensing, production schema and directional methodology decisions | Yes, production schema + provider + semantic | P-0 forced `UNAVAILABLE`; P-1 CI on PG17.6 plus hosted staging PG17.11 replay/revision/as-of transaction proof with zero data residue | Independently authorize P-1 production schema; keep collection and methodology off pending separate approvals | 1–3 days plus gates/provider |
@@ -50,7 +52,8 @@ windows for scheduled economic releases.
 1. Authorize and execute REC-1 with a named operator and isolated target.
 2. Separately authorize Event Facts schema migrations 0029–0032 while runtime
    remains off.
-3. Optionally authorize SB-1/SB-2 (0033/0034) as independent payloads.
+3. Optionally authorize SB-1/SB-2/SB-3 as three independent payloads; SB-3
+   additionally requires a resolved `supabase_admin` default-ACL disposition.
 4. Separately authorize MP-2 production schema; keep provider ingestion and
    runtime reads off until their own decisions are approved.
 5. Obtain Cloudflare deployment access and authorize one bounded manual caller.
@@ -63,7 +66,8 @@ windows for scheduled economic releases.
 
 - No current restorable backup or successful isolated restore rehearsal.
 - No named recovery operator or approved encrypted off-site location.
-- No authorization to apply migrations 0029–0034.
+- No authorization to apply migrations 0029–0034 or timestamped SB-3 migration
+  `20261008094133`.
 - No Cloudflare deployment proof or runtime authority.
 - No authorized consensus provider; positive EI/GT semantic inference remains
   forbidden.
