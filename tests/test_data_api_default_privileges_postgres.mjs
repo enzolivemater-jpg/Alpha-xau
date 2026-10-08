@@ -68,7 +68,9 @@ sql(`
 `);
 
 for (const role of ['anon', 'authenticated', 'service_role']) {
-  for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
+  for (const privilege of [
+    'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN',
+  ]) {
     assert.equal(
       sql(`SELECT has_table_privilege('${role}', 'public.after_table', '${privilege}');`),
       'f',
@@ -77,6 +79,7 @@ for (const role of ['anon', 'authenticated', 'service_role']) {
   }
   assert.equal(sql(`SELECT has_sequence_privilege('${role}', 'public.after_sequence', 'USAGE');`), 'f');
   assert.equal(sql(`SELECT has_sequence_privilege('${role}', 'public.after_sequence', 'SELECT');`), 'f');
+  assert.equal(sql(`SELECT has_sequence_privilege('${role}', 'public.after_sequence', 'UPDATE');`), 'f');
   assert.equal(sql(`SELECT has_function_privilege('${role}', 'public.after_count()', 'EXECUTE');`), 'f');
 }
 
