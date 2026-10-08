@@ -1,12 +1,12 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-08T09:59Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-08T14:43Z`
 
-Main evidence reconciled through PR #89 / `f927ea8afa852674c606414f584df5d5cac9b21b`
+Main evidence reconciled through PR #90 / `32bf6fa577f007d0c3245c40d728bcc7613f288c`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
-Main Quality Gate: run `37760196556` — `success` (10/10 jobs)
+Main Quality Gate: run `37760664145` — `success` (10/10 jobs)
 Production Edge Functions: none
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
@@ -27,6 +27,7 @@ not merely for merged code.
 | Security SB-1 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0033; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1–2 operator hours |
 | Security SB-2 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0034; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1 operator hour |
 | Security SB-3 | CI_PROVEN | Independent production authorization; managed `supabase_admin` default-ACL disposition | Yes, schema | Migration `20261008094133`; PostgreSQL 17.6 future-object/ACL-preservation proof; PR #88 run `37759371912` | Resolve managed-role preflight, then apply/re-audit only after scoped approval | 1–2 operator hours |
+| Security SB-4 | CI_PROVEN | None | No | Post-SB-3 migration linter; positive/negative SQL corpus; 73/73 local suites; PR #91 run `37794267054` | Preserve explicit object ACLs and timestamp ordering in every future migration | Maintenance only |
 | Cloudflare bounded runtime | CODE_COMPLETE | Dashboard/token access; deployment authority | Yes, runtime | Manual GT/Event Facts paths in source; deployment not proven | Freeze deploy packet and execute when access exists | 0.5–1 day after access |
 | Market Pricing institutional contract | STAGING_PROVEN | Production migration and runtime evidence ingestion/read remain absent | Yes for production schema/runtime | MP-0 latest-only; MP-1 no-lookahead selector; MP-2 CI on PG17.6 plus hosted staging PG17.11 transaction/rollback proof with zero data residue | Independently authorize MP-2 production schema, then wire one bounded caller under separate runtime authority | 1–2 days after gates |
 | Positioning institutional contract | STAGING_PROVEN | Source/licensing, production schema and directional methodology decisions | Yes, production schema + provider + semantic | P-0 forced `UNAVAILABLE`; P-1 CI on PG17.6 plus hosted staging PG17.11 replay/revision/as-of transaction proof with zero data residue | Independently authorize P-1 production schema; keep collection and methodology off pending separate approvals | 1–3 days plus gates/provider |
