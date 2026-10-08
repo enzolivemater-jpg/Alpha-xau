@@ -1,12 +1,12 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-08T14:56Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-08T15:08Z`
 
-Main evidence reconciled through PR #91 / `61d6429d9004e31931eb10634bf573d1ed8aadac`
+Main evidence reconciled through PR #92 / `2e89f7c64540de51475a41bb1a2324d2aab6ead3`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
-Main Quality Gate: run `37794682669` — `success` (10/10 jobs)
+Main Quality Gate: run `37797009275` — `success` (10/10 jobs)
 Production Edge Functions: none
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
@@ -16,7 +16,7 @@ not merely for merged code.
 | Milestone | Status | Blocking dependency | Human Gate | Evidence | Next action | Estimated remaining engineering effort* |
 | --- | --- | --- | --- | --- | --- | --- |
 | Event Foundation | COMPLETE | None | No | Production schema/RPC history through 0021; prior live proofs | Regression maintenance only | <0.5 day |
-| Official-source provenance | CI_PROVEN | Raw DOL PDF retention/decoding and bounded live official-artifact capture not activated; BLS July AHE release-vintage percentage evidence unresolved | Yes, runtime + NFP source-method decision | CPI path; pure BLS NFP adapter; pure DOL claims text parser + adapter; pure BEA PCE adapter; official release-vintage fixtures/hashes; conservative CPI/NFP/claims/PCE consumers | Retain/decode exact raw artifacts before runtime; resolve NFP AHE evidence without inference | 1–2 days plus source decision |
+| Official-source provenance | CI_PROVEN | Bounded live official-artifact capture not activated; BLS July AHE release-vintage percentage evidence unresolved | Yes, runtime + NFP source-method decision | CPI path; pure BLS NFP adapter; raw DOL archive PDF + bounded decoder + claims parser/adapter; pure BEA PCE adapter; exact fixture hashes; conservative CPI/NFP/claims/PCE consumers; 75/75 local suites; PR #93 run `37798129022` | Resolve NFP AHE evidence without inference; keep live capture behind runtime/deployment authority | 1–2 days plus source decision |
 | Event Facts CES V2 | STAGING_PROVEN | Recovery gate; migrations 0029–0032 | Yes, schema | EF-12 hosted PG17.11 proof; EF-13 packet | Execute REC-1, then separately authorize schema rollout | 1–2 days after gate |
 | Event Impact V1 | LIVE_PROVEN | None | No | Prior 45-version/3-assessment proof and exact replay | Preserve while V2 remains gated | <0.5 day |
 | Event Impact V2 technical path | CI_PROVEN | CES V2 live facts; consensus policy | Yes, provider/semantic | Versioned deterministic consumer admits exact CPI/NFP/jobless-claims/PCE typed facts but preserves zero-interpretation insufficiency | Keep insufficiency output until consensus and positive methodology are authorized | 1–3 days after inputs |
