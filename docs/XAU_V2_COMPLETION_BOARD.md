@@ -1,13 +1,12 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-08T09:54Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-08T09:59Z`
 
-Main evidence reconciled through PR #88 / `a902ecb6a4a514f57547c78fd8cb3914611af90a`
+Main evidence reconciled through PR #89 / `f927ea8afa852674c606414f584df5d5cac9b21b`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
-PR #88 Quality Gate: run `37759371912` — `success` (10/10 jobs)
-Post-merge push Quality Gate for `a902ecb6`: no run associated as of reconciliation
+Main Quality Gate: run `37760196556` — `success` (10/10 jobs)
 Production Edge Functions: none
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
