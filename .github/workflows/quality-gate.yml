@@ -135,6 +135,8 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
       - name: Public schema CREATE hardening contract
         run: node tests/test_public_schema_create_hardening_postgres.mjs
+      - name: Data API default privileges contract
+        run: node tests/test_data_api_default_privileges_postgres.mjs
 
   event-impact-postgres:
     runs-on: ubuntu-latest
