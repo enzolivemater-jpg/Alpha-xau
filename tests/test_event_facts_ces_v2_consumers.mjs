@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { mapBeaPceReleaseToEventFacts } from '../backend/event_facts/bea_pce_adapter.ts';
 import { mapBlsCpiReleaseToEventFacts } from '../backend/event_facts/bls_cpi_adapter.ts';
 import { mapBlsEmploymentReleaseToEventFacts } from '../backend/event_facts/bls_employment_situation_adapter.ts';
 import { mapDolUiWeeklyClaimsReleaseToEventFacts } from '../backend/event_facts/dol_ui_weekly_claims_adapter.ts';
@@ -19,6 +20,11 @@ const claimsFixture = JSON.parse(readFileSync(new URL(
 ), 'utf8'));
 const claimsMapped = mapDolUiWeeklyClaimsReleaseToEventFacts(claimsFixture);
 assert.equal(claimsMapped.kind, 'RESOLVED');
+const pceFixture = JSON.parse(readFileSync(new URL(
+  './fixtures/bea_pce_2026_08.json', import.meta.url,
+), 'utf8'));
+const pceMapped = mapBeaPceReleaseToEventFacts(pceFixture);
+assert.equal(pceMapped.kind, 'RESOLVED');
 
 const base = {
   id: '11111111-1111-4111-8111-111111111111', clusterId: '22222222-2222-4222-8222-222222222222',
@@ -53,13 +59,13 @@ const nfpBase = {
 };
 const nfpAccepted = run(nfpBase);
 assert.equal(nfpAccepted.impact.kind, 'PROCESS');
-assert.equal(nfpAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v4');
+assert.equal(nfpAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v5');
 assert.equal(nfpAccepted.impact.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
 assert.equal(nfpAccepted.impact.assessmentReason, 'GOLD_TRANSMISSION_EVIDENCE_UNAVAILABLE');
 assert.deepEqual(nfpAccepted.impact.interpretations, []);
 assert.equal(nfpAccepted.transmission.kind, 'PROCESS');
 assert.equal(nfpAccepted.transmission.processorVersion,
-  'gold-transmission-deterministic-processor-v4');
+  'gold-transmission-deterministic-processor-v5');
 assert.equal(nfpAccepted.transmission.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
 assert.equal(nfpAccepted.transmission.assessmentReason, 'CONSENSUS_FACTS_UNAVAILABLE');
 assert.deepEqual(nfpAccepted.transmission.paths, []);
@@ -77,14 +83,14 @@ const claimsBase = {
 };
 const claimsAccepted = run(claimsBase);
 assert.equal(claimsAccepted.impact.kind, 'PROCESS');
-assert.equal(claimsAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v4');
+assert.equal(claimsAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v5');
 assert.equal(claimsAccepted.impact.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
 assert.equal(claimsAccepted.impact.assessmentReason,
   'GOLD_TRANSMISSION_EVIDENCE_UNAVAILABLE');
 assert.deepEqual(claimsAccepted.impact.interpretations, []);
 assert.equal(claimsAccepted.transmission.kind, 'PROCESS');
 assert.equal(claimsAccepted.transmission.processorVersion,
-  'gold-transmission-deterministic-processor-v4');
+  'gold-transmission-deterministic-processor-v5');
 assert.equal(claimsAccepted.transmission.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
 assert.equal(claimsAccepted.transmission.assessmentReason,
   'CONSENSUS_FACTS_UNAVAILABLE');
@@ -93,6 +99,31 @@ const reversedClaimsMetrics = structuredClone(claimsBase);
 reversedClaimsMetrics.canonicalEventState.facts.metrics.reverse();
 assert.deepEqual(run(reversedClaimsMetrics), claimsAccepted);
 console.log('PASS exact official jobless-claims facts are admitted without signal inference');
+
+const pceBase = {
+  ...base,
+  canonicalEventStateSchemaVersion: pceMapped.canonicalEventStateSchemaVersion,
+  canonicalEventState: pceMapped.canonicalEventState,
+  stateFingerprint: 'd'.repeat(64),
+};
+const pceAccepted = run(pceBase);
+assert.equal(pceAccepted.impact.kind, 'PROCESS');
+assert.equal(pceAccepted.impact.processorVersion, 'event-impact-deterministic-processor-v5');
+assert.equal(pceAccepted.impact.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
+assert.equal(pceAccepted.impact.assessmentReason,
+  'GOLD_TRANSMISSION_EVIDENCE_UNAVAILABLE');
+assert.deepEqual(pceAccepted.impact.interpretations, []);
+assert.equal(pceAccepted.transmission.kind, 'PROCESS');
+assert.equal(pceAccepted.transmission.processorVersion,
+  'gold-transmission-deterministic-processor-v5');
+assert.equal(pceAccepted.transmission.assessmentStatus, 'INSUFFICIENT_EVIDENCE');
+assert.equal(pceAccepted.transmission.assessmentReason,
+  'CONSENSUS_FACTS_UNAVAILABLE');
+assert.deepEqual(pceAccepted.transmission.paths, []);
+const reversedPceMetrics = structuredClone(pceBase);
+reversedPceMetrics.canonicalEventState.facts.metrics.reverse();
+assert.deepEqual(run(reversedPceMetrics), pceAccepted);
+console.log('PASS exact official PCE facts are admitted without signal inference');
 
 for (const [label, mutate] of [
   ['unsupported family', state => { state.facts.release_family = 'US_PPI'; }],
@@ -199,6 +230,47 @@ for (const [label, mutate] of [
     `${label}: GT reason`);
 }
 console.log('PASS EI and GT fail closed on malformed jobless-claims periods, values, consensus, and revisions');
+
+for (const [label, mutate] of [
+  ['wrong PCE unit', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'PCE_CORE_MOM').unit =
+      'PERCENT_CHANGE_YOY';
+  }],
+  ['duplicate PCE metric', state => {
+    state.facts.metrics[1].metric_code = 'PCE_CORE_MOM';
+  }],
+  ['mismatched PCE month', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'PCE_HEADLINE_YOY')
+      .reference_period = { kind: 'MONTH', year: 2026, month: 7 };
+  }],
+  ['unsupported PCE precision', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'PCE_HEADLINE_MOM')
+      .actual.value = '0.25';
+  }],
+  ['non-canonical PCE decimal', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'PCE_CORE_YOY')
+      .actual.value = '3.0';
+  }],
+  ['invented PCE consensus', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'PCE_CORE_MOM').consensus =
+      { state: 'KNOWN', value: '0.2' };
+  }],
+  ['invented PCE prior', state => {
+    state.facts.metrics.find(metric => metric.metric_code === 'PCE_HEADLINE_YOY')
+      .prior_periods = [{}];
+  }],
+]) {
+  const eventVersion = structuredClone(pceBase);
+  mutate(eventVersion.canonicalEventState);
+  const rejected = run(eventVersion);
+  assert.equal(rejected.impact.kind, 'ABSTAIN', `${label}: EI`);
+  assert.equal(rejected.impact.reason, 'INVALID_CANONICAL_EVENT_STATE_V2',
+    `${label}: EI reason`);
+  assert.equal(rejected.transmission.kind, 'ABSTAIN', `${label}: GT`);
+  assert.equal(rejected.transmission.reason, 'INVALID_CANONICAL_EVENT_STATE_V2',
+    `${label}: GT reason`);
+}
+console.log('PASS EI and GT fail closed on malformed PCE units, periods, values, consensus, and priors');
 
 const future = run({ ...base, canonicalEventStateSchemaVersion: 3, canonicalEventState: { opaque: true } });
 assert.equal(future.impact.assessmentReason, 'UNSUPPORTED_CANONICAL_EVENT_STATE_SCHEMA');

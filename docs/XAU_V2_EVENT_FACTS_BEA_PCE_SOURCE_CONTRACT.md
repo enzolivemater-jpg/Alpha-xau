@@ -109,6 +109,11 @@ release separation, fact/hash correction identity stability, canonical values,
 order independence, negative cases and absence of network, database, clock,
 environment, model, market or consensus dependencies.
 
+CI also proves exact-shape conservative admission by Event Impact and Gold
+Transmission through
+`XAU_V2_EVENT_FACTS_PCE_CONSUMER_ADMISSION_CONTRACT.md`. That admission emits
+zero interpretations and zero paths; it is not positive inference.
+
 CI does not prove live fetch, retained raw HTML bytes, HTML parsing,
-persistence, runtime activation, consumer admission, deployment or positive
-inference. Those remain separately reviewed work.
+persistence, runtime activation, deployment or positive inference. Those
+remain separately reviewed work.
