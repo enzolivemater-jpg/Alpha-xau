@@ -1185,7 +1185,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE USAGE, SELECT ON SEQUENCES
   FROM anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+-- Le droit EXECUTE de PUBLIC est un défaut global PostgreSQL; une révocation
+-- limitée au schéma ne peut pas le neutraliser.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
   REVOKE EXECUTE ON FUNCTIONS
   FROM PUBLIC;
 

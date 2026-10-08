@@ -6,7 +6,7 @@ Captured: `2026-10-08`
 Production project: `ejvwmjgfvhsslqiydwpz`  
 Staging project: `viskjhkkcnzqxkuvibdx`  
 Candidate migration: `20261008094133_data_api_default_privileges.sql`  
-Candidate SHA-256: `b022445c3fb7b6fd646f12f9184e746e4d63dd97e8898d298d3fb5bc4713ba72`
+Candidate SHA-256: `0b7c189687ea62b06c54747b1277b39164416d2ae6dab0555fb4a4b07e3eb9d2`
 
 ## 1. Finding and boundary
 
@@ -30,7 +30,10 @@ created by role `postgres` in schema `public`:
 
 - no implicit `SELECT`, `INSERT`, `UPDATE`, or `DELETE` on future tables for
   `anon`, `authenticated`, or `service_role`;
-- no implicit `EXECUTE` on future functions for application roles or `PUBLIC`;
+- no implicit `EXECUTE` on future `public` functions for application roles;
+- no implicit `EXECUTE` from `PUBLIC` on any future function created by
+  `postgres` in this database, because PostgreSQL cannot override that built-in
+  global default with a schema-scoped revocation;
 - no implicit `USAGE` or `SELECT` on future sequences for application roles.
 
 It does not revoke any current table, view, function, sequence, schema, or RLS
@@ -46,7 +49,8 @@ permissive defaults. It verifies that:
 
 - pre-existing table, sequence, and function ACLs and data are unchanged;
 - future objects inherit none of the Data API privileges revoked by SB-3;
-- `PUBLIC` does not restore implicit function execution;
+- `PUBLIC` does not restore implicit function execution, including from the
+  PostgreSQL built-in global default;
 - an explicit later grant restores only the intended service-role access;
 - the owner retains normal object and data access.
 
@@ -65,7 +69,7 @@ SB-3 is code-only. Immediately before any production action, repeat the live
 default/object ACL inventory and approve this exact record:
 
 ```text
-DATA_API_DEFAULTS_MIGRATION_SHA256=b022445c3fb7b6fd646f12f9184e746e4d63dd97e8898d298d3fb5bc4713ba72
+DATA_API_DEFAULTS_MIGRATION_SHA256=0b7c189687ea62b06c54747b1277b39164416d2ae6dab0555fb4a4b07e3eb9d2
 FINAL_MAIN_SHA=<40-hex SHA>
 PRODUCTION_PREFLIGHT_REPEATED=YES
 CURRENT_FRONTEND_ACLS_PRESERVED=YES

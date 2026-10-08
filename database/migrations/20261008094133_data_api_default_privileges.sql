@@ -18,7 +18,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE USAGE, SELECT ON SEQUENCES
   FROM anon, authenticated, service_role;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+-- PostgreSQL's built-in PUBLIC function grant is global. A schema-scoped
+-- REVOKE cannot override it, so this one revocation must be global too.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
   REVOKE EXECUTE ON FUNCTIONS
   FROM PUBLIC;
 
