@@ -9,8 +9,8 @@ const script = read('scripts/recovery_manifest.mjs');
 const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
 for (const value of [
-  'a902ecb6a4a514f57547c78fd8cb3914611af90a',
-  '37759371912',
+  'f927ea8afa852674c606414f584df5d5cac9b21b',
+  '37760196556',
   '20260923133811 gold_transmission_atomic_rpc',
   'Recovery readiness', 'STAGING_PROVEN', 'LIVE_PROVEN', 'CI_PROVEN',
   'Security SB-3', '20261008094133',
@@ -22,7 +22,7 @@ for (const value of [
 ]) assert.ok(board.includes(value), `completion board missing ${value}`);
 
 assert.match(board, /Effort ranges are engineering estimates, not completion facts/);
-assert.match(board, /Post-merge push Quality Gate[^\n]+no run associated/);
+assert.doesNotMatch(board, /no run associated/i);
 assert.doesNotMatch(board, /\b\d{1,3}% complete\b/i);
 console.log('PASS completion board uses evidence levels, gates, blockers, actions, and explicit effort estimates');
 
