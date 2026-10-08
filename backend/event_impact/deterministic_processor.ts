@@ -21,7 +21,7 @@
  */
 
 export const EVENT_IMPACT_DETERMINISTIC_PROCESSOR_VERSION =
-  'event-impact-deterministic-processor-v4' as const;
+  'event-impact-deterministic-processor-v5' as const;
 
 export const SUPPORTED_CANONICAL_EVENT_STATE_SCHEMA_VERSION = 2 as const;
 
@@ -160,6 +160,8 @@ const EVENT_VERSION_KEYS = [
 const CANONICAL_EVENT_STATE_V1_KEYS = ['detail', 'event_type', 'subject'] as const;
 const CPI_CODES = new Set(['CPI_CORE_MOM', 'CPI_CORE_YOY', 'CPI_HEADLINE_MOM', 'CPI_HEADLINE_YOY']);
 const CPI_MOM_CODES = new Set(['CPI_CORE_MOM', 'CPI_HEADLINE_MOM']);
+const PCE_CODES = new Set(['PCE_CORE_MOM', 'PCE_CORE_YOY', 'PCE_HEADLINE_MOM', 'PCE_HEADLINE_YOY']);
+const PCE_MOM_CODES = new Set(['PCE_CORE_MOM', 'PCE_HEADLINE_MOM']);
 const NFP_CODES = new Set([
   'AVG_HOURLY_EARNINGS_MOM', 'NFP_PAYROLL_CHANGE', 'UNEMPLOYMENT_RATE',
 ]);
@@ -264,6 +266,27 @@ function validateCpiMetrics(metrics: readonly unknown[]): boolean {
     const nextPeriod = `${item.reference_period.year}-${item.reference_period.month}`;
     if (item.unit !== expectedUnit || (period !== '' && period !== nextPeriod)
         || !validKnownValue(item.actual) || !validUnknownConsensus(item.consensus)
+        || !Array.isArray(item.prior_periods) || item.prior_periods.length !== 0) return false;
+    period = nextPeriod;
+    seen.add(item.metric_code);
+  }
+  return seen.size === 4;
+}
+
+function validatePceMetrics(metrics: readonly unknown[]): boolean {
+  if (metrics.length !== 4) return false;
+  const seen = new Set<string>();
+  let period = '';
+  for (const item of metrics) {
+    if (!isRecord(item) || !hasExactKeys(item, ['actual', 'consensus', 'metric_code', 'prior_periods', 'reference_period', 'unit'])
+        || typeof item.metric_code !== 'string' || !PCE_CODES.has(item.metric_code)
+        || seen.has(item.metric_code) || !validMonthPeriod(item.reference_period)) return false;
+    const expectedUnit = PCE_MOM_CODES.has(item.metric_code)
+      ? 'PERCENT_CHANGE_MOM' : 'PERCENT_CHANGE_YOY';
+    const nextPeriod = `${item.reference_period.year}-${item.reference_period.month}`;
+    if (item.unit !== expectedUnit || (period !== '' && period !== nextPeriod)
+        || !validKnownValue(item.actual, false, true)
+        || !validUnknownConsensus(item.consensus)
         || !Array.isArray(item.prior_periods) || item.prior_periods.length !== 0) return false;
     period = nextPeriod;
     seen.add(item.metric_code);
@@ -400,6 +423,9 @@ function validateCanonicalEventStateV2(value: unknown): boolean {
       || !Array.isArray(value.facts.metrics)) return false;
   if (value.facts.release_family === 'US_CPI') {
     return validateCpiMetrics(value.facts.metrics);
+  }
+  if (value.facts.release_family === 'US_PCE') {
+    return validatePceMetrics(value.facts.metrics);
   }
   if (value.facts.release_family === 'US_NFP') {
     return validateNfpMetrics(value.facts.metrics);

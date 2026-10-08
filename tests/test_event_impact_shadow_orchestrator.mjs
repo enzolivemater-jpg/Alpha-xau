@@ -318,11 +318,11 @@ for (const [field, value] of [
 {
   const futurePlan = {
     kind: 'PROCESS',
-    processorVersion: 'event-impact-deterministic-processor-v4',
+    processorVersion: 'event-impact-deterministic-processor-v5',
     eventVersionId: EVENT_VERSION_ID,
     canonicalEventStateSchemaVersion: 1,
     producerType: 'DETERMINISTIC',
-    algorithmVersion: 'event-impact-deterministic-processor-v4',
+    algorithmVersion: 'event-impact-deterministic-processor-v5',
     knowledgeCutoff: CUTOFF,
     assessmentStatus: 'ASSESSED',
     assessmentReason: 'GOLD_TRANSMISSION_EVIDENCE_UNAVAILABLE',
