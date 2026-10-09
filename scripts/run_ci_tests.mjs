@@ -39,6 +39,7 @@ const TEST_FILES = [
   'tests/test_bls_cpi_event_facts_adapter.mjs',
   'tests/test_bls_employment_situation_adapter.mjs',
   'tests/test_bls_employment_situation_ahe_artifact.mjs',
+  'tests/test_bls_employment_situation_html_parser.mjs',
   'tests/test_dol_ui_weekly_claims_adapter.mjs',
   'tests/test_dol_ui_weekly_claims_text_parser.mjs',
   'tests/test_dol_ui_weekly_claims_pdf_artifact.mjs',
