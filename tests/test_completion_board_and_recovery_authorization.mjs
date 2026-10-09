@@ -16,9 +16,9 @@ for (const value of [
   'Recovery readiness', 'STAGING_PROVEN', 'LIVE_PROVEN', 'CI_PROVEN',
   'Security SB-3', '20261008094133', 'Security SB-4', 'Security SB-5',
   'Estimated remaining engineering effort', 'Consensus',
-  'raw BLS July/August archive HTML + authenticated bounded parser + NFP adapter',
-  'raw DOL archive PDF + bounded decoder + claims parser/adapter', 'CPI/NFP/jobless-claims',
-  'pure BEA PCE adapter',
+  'raw BLS HTML + bounded NFP parser/adapter',
+  'raw DOL PDF + bounded claims decoder/parser/adapter', 'CPI/NFP/jobless-claims',
+  'raw BEA HTML + bounded PCE parser/adapter',
   'BLS July 2026 archive',
   'No trading or broker execution authority',
 ]) assert.ok(board.includes(value), `completion board missing ${value}`);

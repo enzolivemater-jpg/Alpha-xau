@@ -1,24 +1,25 @@
 # XAU V2 — US BEA PCE Source Contract
 
-Status: **PURE ADAPTER — CI PROOF ONLY — NO RUNTIME ACTIVATION**
+Status: **RAW HTML + BOUNDED PARSER + PURE ADAPTER — CI PROOF ONLY — NOT ACTIVATED**
 
 ## 1. Scope
 
-This contract introduces a deterministic, side-effect-free CES V2 adapter for
-the U.S. Bureau of Economic Analysis Personal Income and Outlays release. It
-adds no live fetcher, HTML parser, persistence, identity lookup, Worker route,
-schedule, secret, deployment, production mutation, consensus value, economic
+This contract retains exact official HTML and introduces a bounded,
+deterministic source-to-projection parser plus a side-effect-free CES V2 adapter
+for the U.S. Bureau of Economic Analysis Personal Income and Outlays release.
+It adds no live fetcher, persistence, identity lookup, Worker route, schedule,
+secret, deployment, production mutation, consensus value, economic
 interpretation, Gold path or trading action.
 
-The reviewed evidence consists of the official archived July and August 2026
-BEA news-release pages. Each fixture records the exact downloaded HTML SHA-256
-and a lossless structured projection of the release header and the four PCE
-price-index facts explicitly stated in that release.
+The reviewed evidence consists of the official July and August 2026 BEA
+news-release pages, retained in deterministic gzip envelopes. Each manifest
+freezes both compressed and decoded byte counts/hashes. Authentication precedes
+bounded decoding and DOM parsing.
 
-| Reference month | Official page | Release number | Downloaded HTML SHA-256 |
-|---|---|---|---|
-| July 2026 | `/news/2026/personal-income-and-outlays-july-2026` | `BEA 26–39` | `6dbc1950e4a7b06691c4cf7206623cd0231fd94d565fc6a0eaf954ddedec65ec` |
-| August 2026 | `/news/2026/personal-income-and-outlays-august-2026` | `BEA 26–43` | `6c207be356d7a4a0023086bfed2c1ea3d6dc33c43be8496a39207d0fd2e2f329` |
+| Reference month | Official page | Release | Raw HTML bytes / SHA-256 | Gzip bytes / SHA-256 |
+|---|---|---|---|---|
+| July 2026 | `/news/2026/personal-income-and-outlays-july-2026` | `BEA 26–39` | 53,457 / `6dbc1950e4a7b06691c4cf7206623cd0231fd94d565fc6a0eaf954ddedec65ec` | 10,926 / `56b12a6599905151d07e3764ec206284207a5785698db2bafda156449aa30398` |
+| August 2026 | `/news/2026/personal-income-and-outlays-august-2026` | `BEA 26–43` | 52,287 / `6c207be356d7a4a0023086bfed2c1ea3d6dc33c43be8496a39207d0fd2e2f329` | 10,574 / `db355998c31bf698ec3cc9db736bd0b644b1cbff4898bf519b836eb71f58a837` |
 
 ## 2. Exact source tuple
 
@@ -38,6 +39,8 @@ proximity for this exact tuple.
 ## 3. Release identity
 
 Strategy version: `bea_personal_income_outlays_v1`.
+
+Parser version: `bea-pce-html-parser-v1`.
 
 The exact BEA news-page release-number grammar is `BEA NN–NN`, using the en
 dash published by BEA. The adapter maps that grammar to canonical ASCII
@@ -75,6 +78,12 @@ negative zero to `0`. Metric order carries no meaning; output is sorted by
 The reference period is the price-index month, not the publication date. Title
 and archive slug must exactly encode that same month and year.
 
+The parser reads the exact release number, title, embargo text and archive path;
+extracts headline/core MoM and YoY values from the two official PCE narrative
+paragraphs; and independently reads the current-month headline/core MoM cells
+from the release summary table. Narrative and table MoM values must agree.
+Missing, duplicated or contradictory evidence emits no partial projection.
+
 ## 5. Revisions and annual update boundary
 
 The August 2026 release is part of BEA's annual update and its comparison table
@@ -104,16 +113,17 @@ Every failure has a stable reason. There is no fallback.
 
 ## 8. Proof boundary
 
-CI proves deterministic replay, no input mutation, exact identity, consecutive
-release separation, fact/hash correction identity stability, canonical values,
-order independence, negative cases and absence of network, database, clock,
-environment, model, market or consensus dependencies.
+CI proves exact compressed and decoded byte authentication, bounded decoding,
+deterministic raw-HTML replay into the reviewed projections, narrative/table
+agreement, exact identity, consecutive release separation, fact/hash correction
+identity stability, canonical values, order independence, negative cases and
+absence of network, database, clock, environment, model, market or consensus
+dependencies.
 
 CI also proves exact-shape conservative admission by Event Impact and Gold
 Transmission through
 `XAU_V2_EVENT_FACTS_PCE_CONSUMER_ADMISSION_CONTRACT.md`. That admission emits
 zero interpretations and zero paths; it is not positive inference.
 
-CI does not prove live fetch, retained raw HTML bytes, HTML parsing,
-persistence, runtime activation, deployment or positive inference. Those
-remain separately reviewed work.
+CI does not prove live fetch/capture, persistence, runtime activation,
+deployment or positive inference. Those remain separately reviewed work.
