@@ -1,14 +1,14 @@
 # XAU V2 — US BLS Employment Situation / NFP Source Contract
 
-Status: `RAW HTML EVIDENCE AUDIT + PURE ADAPTER — CI PROOF ONLY — NOT ACTIVATED`
-Baseline verified against: `1ce4030f20e754973c666fb25b36538bea7d9e69`
+Status: `RAW HTML + BOUNDED PARSER + PURE ADAPTER — CI PROOF ONLY — NOT ACTIVATED`
+Baseline verified against: `ff2e34ea30c37cf17f382d3839ec57b98590ed2a`
 
 This contract retains two exact official US Bureau of Labor Statistics archive
 HTML artifacts in deterministic gzip envelopes, audits their
-average-hourly-earnings evidence hierarchy, and feeds only the reviewed
-projection to a pure fail-closed adapter. It adds no live fetch, runtime parser,
-database write, identity lookup, Worker route, cron, deployment, consensus
-provider, or CES V2 runtime activation.
+average-hourly-earnings evidence hierarchy, deterministically reconstructs the
+reviewed release projection, and feeds it to a pure fail-closed adapter. It adds
+no live fetch, runtime parser, database write, identity lookup, Worker route,
+cron, deployment, consensus provider, or CES V2 runtime activation.
 
 ## 1. Frozen source and identity
 
@@ -23,6 +23,7 @@ provider, or CES V2 runtime activation.
 | Release stage | `SINGLE` |
 | Identity strategy | `OFFICIAL_RELEASE_ID` |
 | Strategy version | `bls_employment_situation_v1` |
+| Parser version | `bls-employment-html-parser-v1` |
 | Adapter version | `bls-employment-event-facts-adapter-v1` |
 
 The official `USDL-YY-NNNN` identifier establishes release identity within the
@@ -76,6 +77,14 @@ files are deterministic CI evidence, not a live collector. July's structured
 projection therefore sets `averageHourlyEarningsMom` to `null`, and the adapter
 returns `UNAVAILABLE` without emitting partial facts. Release identity remains
 independently resolvable from the official `USDL` identifier.
+
+The parser obtains the release identifier, title, embargo timestamp and archive
+path from the authenticated release; reads total nonfarm payroll and the
+unemployment rate from their exact summary-table row/column header relations;
+and parses both release-local payroll revisions from the narrative. It requires
+each narrative headline/revised value to agree with the corresponding table
+cell before it can emit the exact reviewed JSON projection. July parses
+successfully with AHE MoM `null`; August parses and composes to `RESOLVED`.
 
 ## 3. Exact metric mapping
 
@@ -156,15 +165,17 @@ No non-resolved state emits partial facts or a fallback identity.
 
 `backend/event_facts/bls_employment_situation_adapter.ts` is pure: no imports,
 network, database, environment, clock, randomness, LLM, market price, score, or
-legacy fallback. Exact-key validation rejects smuggled fields at every accepted
-projection level.
+legacy fallback. The bounded local/CI parser uses only the retained authenticated
+artifact and a development-only DOM implementation; it has no fetch, database,
+environment, clock, model or runtime activation. Exact-key validation rejects
+smuggled fields at every accepted projection level.
 
 This lot does **not** expand the current CPI-only persistence validator.
 The pure EI/GT consumers may separately admit the exact `US_NFP` shape only to
 produce their existing conservative insufficiency outputs with zero paths and
-zero interpretations. Persistence, source artifacts, parsing, orchestration,
-and runtime activation remain blocked pending separate review and the
-applicable Human Gates. The adapter alone is not authorization
+zero interpretations. Persistence, live artifact capture, orchestration and
+runtime activation remain blocked pending separate review and the applicable
+Human Gates. The parser and adapter are not authorization
 to fetch, store, deploy, enrich, score, alert, or trade.
 
 ## 9. Acceptance evidence
@@ -177,12 +188,14 @@ The deterministic test must prove:
    weekly hours, not average hourly earnings;
 3. July AHE MoM is `UNAVAILABLE`, while August `0.3` is admitted only from the
    explicit narrative percentage;
-4. August resolves without input mutation and July emits no partial facts;
-5. identity and output are replay-deterministic;
-6. all three August series map to exact CES metrics and units;
-7. both payroll revisions survive and canonicalize chronologically;
-8. consensus remains structurally impossible to inject;
-9. missing, malformed, conflicting, unsupported, altered-artifact, and
+4. raw HTML deterministically reproduces both reviewed JSON projections;
+5. August composes to `RESOLVED`, while July remains `UNAVAILABLE` without
+   partial facts;
+6. identity and output are replay-deterministic;
+7. all three August series map to exact CES metrics and units;
+8. both payroll revisions survive and canonicalize chronologically;
+9. table/narrative contradictions, missing rows, untrusted provenance,
+   unauthenticated bytes, missing, malformed, conflicting, unsupported, and
    correction paths fail or resolve exactly as specified;
-10. neither the audit nor adapter has network, database, runtime, provider,
+10. neither the audit, parser nor adapter has network, database, runtime, provider,
     model, or market dependency.
