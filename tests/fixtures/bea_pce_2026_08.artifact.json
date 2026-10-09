@@ -1,0 +1,11 @@
+{
+  "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-august-2026",
+  "retrievedAt": "2026-10-09",
+  "mediaType": "text/html",
+  "contentEncoding": "gzip",
+  "compressedArtifactFile": "bea_pce_2026_08.archive.html.gz",
+  "compressedBytes": 10574,
+  "compressedSha256": "db355998c31bf698ec3cc9db736bd0b644b1cbff4898bf519b836eb71f58a837",
+  "rawHtmlBytes": 52287,
+  "rawHtmlSha256": "6c207be356d7a4a0023086bfed2c1ea3d6dc33c43be8496a39207d0fd2e2f329"
+}
