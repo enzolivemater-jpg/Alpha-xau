@@ -36,9 +36,6 @@
       "seriesId": "LNS14000000",
       "levelPercent": 4.1
     },
-    "averageHourlyEarningsMom": {
-      "seriesId": "CES0500000003",
-      "monthOverMonthPercent": 0.0
-    }
+    "averageHourlyEarningsMom": null
   }
 }

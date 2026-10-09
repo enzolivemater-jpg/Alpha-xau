@@ -1,12 +1,12 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-08T15:08Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-09T08:41Z`
 
-Main evidence reconciled through PR #92 / `2e89f7c64540de51475a41bb1a2324d2aab6ead3`
+Main evidence reconciled through PR #93 / `1ce4030f20e754973c666fb25b36538bea7d9e69`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
 Open pull requests: none  
-Main Quality Gate: run `37797009275` — `success` (10/10 jobs)
+Main Quality Gate: run `37798675239` — `success` (10/10 jobs)
 Production Edge Functions: none
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
@@ -16,7 +16,7 @@ not merely for merged code.
 | Milestone | Status | Blocking dependency | Human Gate | Evidence | Next action | Estimated remaining engineering effort* |
 | --- | --- | --- | --- | --- | --- | --- |
 | Event Foundation | COMPLETE | None | No | Production schema/RPC history through 0021; prior live proofs | Regression maintenance only | <0.5 day |
-| Official-source provenance | CI_PROVEN | Bounded live official-artifact capture not activated; BLS July AHE release-vintage percentage evidence unresolved | Yes, runtime + NFP source-method decision | CPI path; pure BLS NFP adapter; raw DOL archive PDF + bounded decoder + claims parser/adapter; pure BEA PCE adapter; exact fixture hashes; conservative CPI/NFP/claims/PCE consumers; 75/75 local suites; PR #93 run `37798129022` | Resolve NFP AHE evidence without inference; keep live capture behind runtime/deployment authority | 1–2 days plus source decision |
+| Official-source provenance | CI_PROVEN | Bounded live official-artifact capture not activated; July AHE MoM intentionally unavailable unless a separate source/derivation rule is approved | Yes, runtime + any derived-AHE rule | CPI path; raw BLS July/August archive HTML + authenticated hierarchy/narrative audit; pure NFP adapter; raw DOL archive PDF + bounded decoder + claims parser/adapter; pure BEA PCE adapter; exact hashes; conservative consumers; 76/76 local suites; PR #93 run `37798129022`; PR #94 run `37907477341` (10/10) | Keep July fail-closed; add only exact raw-artifact parser paths before any separately authorized runtime | 1–2 days plus source decision |
 | Event Facts CES V2 | STAGING_PROVEN | Recovery gate; migrations 0029–0032 | Yes, schema | EF-12 hosted PG17.11 proof; EF-13 packet | Execute REC-1, then separately authorize schema rollout | 1–2 days after gate |
 | Event Impact V1 | LIVE_PROVEN | None | No | Prior 45-version/3-assessment proof and exact replay | Preserve while V2 remains gated | <0.5 day |
 | Event Impact V2 technical path | CI_PROVEN | CES V2 live facts; consensus policy | Yes, provider/semantic | Versioned deterministic consumer admits exact CPI/NFP/jobless-claims/PCE typed facts but preserves zero-interpretation insufficiency | Keep insufficiency output until consensus and positive methodology are authorized | 1–3 days after inputs |
@@ -72,9 +72,10 @@ windows for scheduled economic releases.
 - No Cloudflare deployment proof or runtime authority.
 - No authorized consensus provider; positive EI/GT semantic inference remains
   forbidden.
-- The BLS July 2026 archive supplies release-vintage AHE levels but no explicit
-  month-over-month percentage supporting the current `0.0` fixture; a parser
-  must not infer or revise that fact without an approved source rule.
+- The BLS July 2026 archive supplies release-vintage AHE levels and a `+2 cents`
+  statement but no explicit AHE month-over-month percentage. The former `0.0`
+  fixture is quarantined as `null`; deriving a percentage remains forbidden
+  without an approved source rule.
 - No trading or broker execution authority.
 
 ## Reconciliation rule

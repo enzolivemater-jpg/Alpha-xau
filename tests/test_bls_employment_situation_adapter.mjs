@@ -112,12 +112,15 @@ reversed.summary.payroll.priorRevisions.reverse();
 test('source revision order carries no meaning',
   JSON.stringify(mapBlsEmploymentReleaseToEventFacts(reversed)) === JSON.stringify(result));
 const julyResult = mapBlsEmploymentReleaseToEventFacts(july);
-test('consecutive official fixture resolves', julyResult.kind === 'RESOLVED', JSON.stringify(julyResult));
-test('consecutive release identity differs', julyResult.kind === 'RESOLVED'
-  && julyResult.releaseIdentity.identityValue !== result.releaseIdentity.identityValue);
-test('source zero canonicalizes to unsigned zero', julyResult.kind === 'RESOLVED'
-  && julyResult.canonicalEventState.facts.metrics.find(metric =>
-    metric.metric_code === 'AVG_HOURLY_EARNINGS_MOM')?.actual.value === '0');
+expectState(julyResult, 'UNAVAILABLE', 'REQUIRED_OFFICIAL_EVIDENCE_UNAVAILABLE',
+  'July archive lacks explicit AHE month-over-month percent evidence');
+const julyIdentity = resolveBlsEmploymentReleaseIdentity(july);
+test('unavailable July facts retain a resolvable official release identity',
+  !('kind' in julyIdentity));
+test('consecutive release identity differs', !('kind' in julyIdentity)
+  && julyIdentity.identityValue !== result.releaseIdentity.identityValue);
+test('July adapter output cannot fabricate a zero AHE percentage',
+  julyResult.kind === 'UNAVAILABLE' && !('canonicalEventState' in julyResult));
 
 const corrected = clone(august);
 corrected.summary.payroll.currentChangeThousands = 163;

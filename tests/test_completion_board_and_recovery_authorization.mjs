@@ -9,12 +9,13 @@ const script = read('scripts/recovery_manifest.mjs');
 const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
 for (const value of [
-  '2e89f7c64540de51475a41bb1a2324d2aab6ead3',
-  '37797009275', '37794267054', '37796386665', '37798129022',
+  '1ce4030f20e754973c666fb25b36538bea7d9e69',
+  '37798675239', '37794267054', '37796386665', '37798129022', '37907477341',
   '20260923133811 gold_transmission_atomic_rpc',
   'Recovery readiness', 'STAGING_PROVEN', 'LIVE_PROVEN', 'CI_PROVEN',
   'Security SB-3', '20261008094133', 'Security SB-4', 'Security SB-5',
   'Estimated remaining engineering effort', 'Consensus',
+  'raw BLS July/August archive HTML + authenticated hierarchy/narrative audit',
   'raw DOL archive PDF + bounded decoder + claims parser/adapter', 'CPI/NFP/jobless-claims',
   'pure BEA PCE adapter',
   'BLS July 2026 archive',
