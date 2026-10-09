@@ -10,7 +10,7 @@ const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
 for (const value of [
   '1ce4030f20e754973c666fb25b36538bea7d9e69',
-  '37798675239', '37794267054', '37796386665', '37798129022',
+  '37798675239', '37794267054', '37796386665', '37798129022', '37907477341',
   '20260923133811 gold_transmission_atomic_rpc',
   'Recovery readiness', 'STAGING_PROVEN', 'LIVE_PROVEN', 'CI_PROVEN',
   'Security SB-3', '20261008094133', 'Security SB-4', 'Security SB-5',
