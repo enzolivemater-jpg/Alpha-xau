@@ -1,0 +1,11 @@
+{
+  "sourceUrl": "https://www.bls.gov/news.release/archives/empsit_08072026.htm",
+  "retrievedAt": "2026-10-09",
+  "mediaType": "text/html",
+  "contentEncoding": "gzip",
+  "compressedArtifactFile": "bls_employment_situation_2026_07.archive.html.gz",
+  "compressedBytes": 93928,
+  "compressedSha256": "e0b3e348f9009e41256094b33f684ede691af889be2370d17226b1400f706d2f",
+  "rawHtmlBytes": 1066217,
+  "rawHtmlSha256": "4602e50c53ccfc789d52ef73191171d9918141516b7734524e70f2b8326024a5"
+}
