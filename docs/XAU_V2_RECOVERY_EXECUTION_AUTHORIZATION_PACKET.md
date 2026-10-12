@@ -1,6 +1,6 @@
 # XAU V2 — REC-1 execution authorization packet
 
-Status: `READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED`
+Status: `REC-1 V3 READY FOR FRESH HUMAN DECISION — NOT AUTHORIZED`
 
 Captured: `2026-10-01T07:46Z`  
 Production project: `ejvwmjgfvhsslqiydwpz`
@@ -31,10 +31,11 @@ Frozen implementation hashes:
 | Item | SHA-256 |
 | --- | --- |
 | `scripts/recovery_manifest.mjs` | `fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31` |
-| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `be23335099ce6e0c6d8a061bd430cd484806d5f4b648c4b5ccf2c074deca7012` |
+| `scripts/prepare_recovery_roles.mjs` | `623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd` |
+| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `1e2815a7545d745fcfb80d10e9199186a5b78a8595e3f54778d022e45068daf4` |
 
-The two implementation hashes above are the frozen REC-1 payload. A change to
-either file invalidates this packet and requires a new review. The current
+The three implementation hashes above are the frozen REC-1 V3 payload. A change to
+any file invalidates this packet and requires a new review. The current
 40-hex `main` SHA is intentionally supplied by the approver at execution time:
 hard-coding it in this document would make the packet invalidate itself when
 its own commit is merged. Any repository change after approval invalidates the
@@ -93,6 +94,34 @@ hashes above and a fresh maintenance window.
 No production restore, migration, runtime, route, schedule, secret, provider,
 broker, or trading authority is added by this revision.
 
+### Payload revision — 2026-10-12 (REC-1 V3 managed-parameter resume)
+
+The second authorized REC-1 attempt completed source capture, logical backup,
+encryption, decryption verification, and encrypted off-site copy, then stopped
+fail-closed during isolated target restore on the generated role-dump statement
+`GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";`.
+
+Read-only reconciliation proved that production and the approved fresh target
+already expose the same platform-managed `SET` privilege on
+`log_min_messages`, granted by `supabase_admin`. The failed restore
+transaction did not apply application schema/data or migration history.
+
+V3 preserves the original `roles.sql`, validates it against the encrypted
+bundle checksum ledger, proves the target already owns the exact managed
+parameter ACL, and creates a distinct `roles.restore.sql` that omits only the
+single reviewed statement. Any checksum drift, missing/duplicate/variant
+statement, additional managed parameter ACL, target ACL mismatch, or restore
+error means `STOP`.
+
+A bounded `RESUME_VERIFIED_BACKUP` mode may reuse the already verified
+encrypted backup and therefore authorizes no new production capture or dump.
+A fresh approval is still required for the isolated target restore and exact
+comparison.
+
+**Every earlier REC-1 execution approval is stale and void** for V3. No
+production restore, migration, runtime, route, schedule, provider, broker, or
+trading authority is added.
+
 ## 2. Why it is needed
 
 Production is on Supabase Free and no verified restorable recovery point is
@@ -137,8 +166,7 @@ read-only inventory before approval.
 
 ## 5. Expected effect and blast radius
 
-- Production: read-only catalog/count queries plus logical dump reads; possible
-  temporary load and longer query duration, but no intended write or downtime.
+- Production: `FULL` mode permits only the separately approved read-only capture/dump. `RESUME_VERIFIED_BACKUP` performs no production access and reuses only the approved encrypted artifact.
 - Target: schema/data replacement within the chosen isolated project; target
   contents may be destroyed.
 - Off-site store: one encrypted database artifact plus checksums/evidence.
@@ -156,9 +184,10 @@ credential exposure, or unexpected platform behavior.
 - approved target mode/ref and destructive reset authority when applicable;
 - approved restricted off-site destination and working encryption recipient;
 - Supabase CLI, Docker, PostgreSQL 17 `psql`, `age`, and `sha256sum` verified;
-- runtime/writers reconfirmed off;
+- runtime/writers reconfirmed off for `FULL`; target routes/writers reconfirmed off for every mode;
 - no shell tracing/history leakage;
-- source and target credentials supplied out of band;
+- source credentials supplied out of band only for `FULL`; resume mode must not request or use them;
+- target credentials and recovery identity supplied out of band;
 - current docs and CLI `--help` rechecked at execution time.
 
 ## 6a. Review mode
@@ -175,12 +204,9 @@ is unavailable and `STOP` applies:
    records a non-secret `SOLO_OPERATOR_JUSTIFICATION`;
 2. the owner explicitly approves `SOLO_OPERATOR_EXCEPTION=YES` in the §9
    response;
-3. production access remains read-only capture and dump only;
-   `PRODUCTION_RESTORE_AUTHORIZED=NO`;
+3. production access is either read-only capture/dump in `FULL` mode or completely disabled in `RESUME_VERIFIED_BACKUP`; `PRODUCTION_RESTORE_AUTHORIZED=NO`;
 4. the target is non-production only, under §4;
-5. `FINAL_MAIN_SHA`, `REC1_SCRIPT_SHA256`, and `REC1_RUNBOOK_SHA256` match
-   exactly and are recomputed at execution preflight, and every command runs
-   from that checkout without modification;
+5. `FINAL_MAIN_SHA`, `REC1_SCRIPT_SHA256`, `REC1_ROLES_NORMALIZER_SHA256`, and `REC1_RUNBOOK_SHA256` match exactly and are recomputed at execution preflight, and every command runs from that checkout without modification;
 6. the local tooling preflight is `PASS`;
 7. source and target manifests are compared by `recovery_manifest.mjs compare`
    with exact `status: PASS`; no human judgement can substitute for it;
@@ -232,6 +258,7 @@ EF-12 ref and `TARGET_RESET_AUTHORIZED=YES`.
 
 ```text
 REC1_EXECUTION_AUTHORIZED=YES
+REC1_EXECUTION_MODE=FULL|RESUME_VERIFIED_BACKUP
 CHANGE_REFERENCE=<ticket/change id>
 RECOVERY_OPERATOR=<full name>
 RECOVERY_REVIEW_MODE=INDEPENDENT_REVIEWER|SOLO_OPERATOR_EXCEPTION
@@ -247,14 +274,19 @@ ENCRYPTED_OFFSITE_LOCATION=<restricted destination reference>
 ENCRYPTION_RECIPIENT_CONFIRMED=YES
 FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
 REC1_SCRIPT_SHA256=fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31
-REC1_RUNBOOK_SHA256=be23335099ce6e0c6d8a061bd430cd484806d5f4b648c4b5ccf2c074deca7012
-PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES
+REC1_ROLES_NORMALIZER_SHA256=623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd
+REC1_RUNBOOK_SHA256=1e2815a7545d745fcfb80d10e9199186a5b78a8595e3f54778d022e45068daf4
+RESUME_SOURCE_ARTIFACT_SHA256=<64 hex or N/A for FULL>
+PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES|NO
+SOURCE_RECAPTURE_AUTHORIZED=YES|NO
 PRODUCTION_RESTORE_AUTHORIZED=NO
 MIGRATIONS_0029_0034_AUTHORIZED=NO
 RUNTIME_AUTHORIZED=NO
 APPROVER=<full name>
 APPROVED_AT=<ISO-8601>
 ```
+
+Execution-mode fields must agree: `FULL` requires `PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES`, `SOURCE_RECAPTURE_AUTHORIZED=YES`, and `RESUME_SOURCE_ARTIFACT_SHA256=N/A`. `RESUME_VERIFIED_BACKUP` requires both production/source-recapture fields to be `NO` and a concrete 64-hex `RESUME_SOURCE_ARTIFACT_SHA256`. Resume mode must not request or use production credentials.
 
 Review-mode fields must agree: `INDEPENDENT_REVIEWER` requires
 `SOLO_OPERATOR_EXCEPTION=NO` and a named reviewer who is not the operator;
@@ -267,6 +299,6 @@ Generic language such as “continue”, “validate”, or “I authorize” do
 authorize credential use, production extraction, or target destruction.
 
 At execution preflight, the operator must verify that `FINAL_MAIN_SHA` equals
-the remote `main` head and recompute both REC-1 SHA-256 values from that exact
+the remote `main` head and recompute all three REC-1 V3 SHA-256 values from that exact
 checkout. A mismatch, uncommitted file, or subsequent commit means `STOP` and
 requires renewed approval with the new SHA.
