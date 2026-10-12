@@ -9,9 +9,9 @@ const script = read('scripts/recovery_manifest.mjs');
 const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
 for (const value of [
-  'ff2e34ea30c37cf17f382d3839ec57b98590ed2a',
-  '37907851018', '37794267054', '37796386665', '37798129022', '37907477341',
-  '37909217202',
+  'a4bdd6d43d048f98dc7e506537a82d4f7488d119',
+  '37909587607', '37794267054', '37796386665', '37798129022', '37907477341',
+  '37909217202', '37910638244',
   '20260923133811 gold_transmission_atomic_rpc',
   'Recovery readiness', 'STAGING_PROVEN', 'LIVE_PROVEN', 'CI_PROVEN',
   'Security SB-3', '20261008094133', 'Security SB-4', 'Security SB-5',
@@ -21,6 +21,7 @@ for (const value of [
   'raw BEA HTML + bounded PCE parser/adapter',
   'BLS July 2026 archive',
   'No trading or broker execution authority',
+  'local tooling preflight `PASS` reported 2026-10-12',
 ]) assert.ok(board.includes(value), `completion board missing ${value}`);
 
 assert.match(board, /Effort ranges are engineering estimates, not completion facts/);
@@ -40,6 +41,7 @@ for (const value of [
   'PRODUCTION_RESTORE_AUTHORIZED=NO',
   'MIGRATIONS_0029_0034_AUTHORIZED=NO', 'RUNTIME_AUTHORIZED=NO',
   'FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>',
+  'REC1_LOCAL_TOOLING_PREFLIGHT=PASS',
 ]) assert.ok(packet.includes(value), `authorization packet missing ${value}`);
 
 assert.match(packet, /production ref can never be a target/i);
@@ -49,4 +51,5 @@ assert.match(packet, /hard-coding it in this document would make the packet inva
 assert.match(packet, /verify that `FINAL_MAIN_SHA` equals\s+the remote `main` head/i);
 assert.doesNotMatch(packet, /FINAL_MAIN_SHA=[0-9a-f]{40}/);
 assert.doesNotMatch(packet, /REC1_EXECUTION_AUTHORIZED=YES[\s\S]*RECOVERY_OPERATOR=(?!<)/);
+assert.match(packet, /no PR may merge until REC-1 is explicitly declared complete/i);
 console.log('PASS REC-1 packet freezes implementation while binding approval to the execution-time main head');

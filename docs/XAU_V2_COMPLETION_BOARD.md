@@ -1,13 +1,17 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-09T09:02Z`
+Status: `LIVE BOARD — RECONCILED 2026-10-12T08:04Z — PRODUCTION FREEZE`
 
-Main evidence reconciled through PR #94 / `ff2e34ea30c37cf17f382d3839ec57b98590ed2a`
+Main evidence reconciled through PR #95 / `a4bdd6d43d048f98dc7e506537a82d4f7488d119`
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
-Open pull requests: none  
-Main Quality Gate: run `37907851018` — `success` (10/10 jobs)
+Open pull requests: #96 — preparation only; merge forbidden during freeze
+Main Quality Gate: run `37909587607` — `success` (10/10 jobs)
 Production Edge Functions: none
+
+Owner freeze: keep `main` exactly at the SHA above until REC-1 is explicitly
+declared complete. No PR merge, deployment, migration, or production action is
+authorized by architecture or CI work.
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
 reserved for a component that has reached its required production evidence,
@@ -16,14 +20,14 @@ not merely for merged code.
 | Milestone | Status | Blocking dependency | Human Gate | Evidence | Next action | Estimated remaining engineering effort* |
 | --- | --- | --- | --- | --- | --- | --- |
 | Event Foundation | COMPLETE | None | No | Production schema/RPC history through 0021; prior live proofs | Regression maintenance only | <0.5 day |
-| Official-source provenance | CI_PROVEN | Bounded live official-artifact capture not activated; July AHE MoM intentionally unavailable unless a separate source/derivation rule is approved | Yes, runtime + any derived-AHE rule | CPI path; raw BLS HTML + bounded NFP parser/adapter; raw DOL PDF + bounded claims decoder/parser/adapter; raw BEA HTML + bounded PCE parser/adapter; exact hashes; conservative consumers; 78/78 local suites; PR #93 run `37798129022` (10/10); PR #94 run `37907477341` (10/10); PR #95 run `37909217202` (10/10) | Keep July fail-closed; extend only deterministic offline producer/planner paths before any separately authorized runtime | 1–2 days plus source decision |
+| Official-source provenance | CI_PROVEN | Bounded live official-artifact capture not activated; July AHE MoM intentionally unavailable unless a separate source/derivation rule is approved | Yes, runtime + any derived-AHE rule | CPI path; raw BLS HTML + bounded NFP parser/adapter; raw DOL PDF + bounded claims decoder/parser/adapter; raw BEA HTML + bounded PCE parser/adapter; exact hashes; conservative consumers; 78/78 local suites; PR #93 run `37798129022` (10/10); PR #94 run `37907477341` (10/10); PR #95 run `37909217202` (10/10); PR #96 run `37910638244` (10/10) | Keep July fail-closed; extend only deterministic offline producer/planner paths before any separately authorized runtime | 1–2 days plus source decision |
 | Event Facts CES V2 | STAGING_PROVEN | Recovery gate; migrations 0029–0032 | Yes, schema | EF-12 hosted PG17.11 proof; EF-13 packet | Execute REC-1, then separately authorize schema rollout | 1–2 days after gate |
 | Event Impact V1 | LIVE_PROVEN | None | No | Prior 45-version/3-assessment proof and exact replay | Preserve while V2 remains gated | <0.5 day |
 | Event Impact V2 technical path | CI_PROVEN | CES V2 live facts; consensus policy | Yes, provider/semantic | Versioned deterministic consumer admits exact CPI/NFP/jobless-claims/PCE typed facts but preserves zero-interpretation insufficiency | Keep insufficiency output until consensus and positive methodology are authorized | 1–3 days after inputs |
 | Gold Transmission persistence | PROD_SCHEMA_READY | Worker route not deployed | Yes, runtime | GT schema/RPC live; rollback proof; 3 historical assessments | Deploy only bounded manual route after access/authority | 1–2 days after access |
 | Gold Transmission V2 semantics | CI_PROVEN | Typed facts and authorized transmission evidence/consensus | Yes, semantic | Versioned CPI/NFP/jobless-claims/PCE validation with deterministic zero-path proof and `CONSENSUS_FACTS_UNAVAILABLE` | Design positive paths only after evidence source and methodology are approved | 3–7 days after decision |
 | Consensus policy/provider | NOT_STARTED | Auditable source, licensing, timestamp and revision policy | Yes, provider/cost | Canonical state remains `UNKNOWN`; no provider authorized | Prepare provider comparison; do not integrate or purchase yet | 1–3 days contract + provider work |
-| Recovery readiness | CI_PROVEN | Named operator, target choice, encrypted off-site location | Yes, recovery | REC-1 PR #62; PG17 fail-closed manifest proof | Approve and execute isolated restore rehearsal | 1–2 operator hours |
+| Recovery readiness | CI_PROVEN | Named operator, target choice, encrypted off-site location, execution and exact restore proof | Yes, recovery | REC-1 PR #62; PG17 fail-closed manifest proof; local tooling preflight `PASS` reported 2026-10-12 | Keep production frozen; complete authorization packet and isolated restore rehearsal | 1–2 operator hours |
 | Security SB-1 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0033; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1–2 operator hours |
 | Security SB-2 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0034; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1 operator hour |
 | Security SB-3 | CI_PROVEN | Independent production authorization; managed `supabase_admin` default-ACL disposition | Yes, schema | Corrected migration `20261008094133`, hash `ac67440e...`; all future table/sequence privileges revoked; PostgreSQL 17 proof; PR #92 run `37796386665` | Resolve managed-role disposition, then apply/re-audit only after scoped approval | 1–2 operator hours |
@@ -65,6 +69,9 @@ windows for scheduled economic releases.
 
 ## Current hard stops
 
+- Owner-directed production freeze keeps `main` at
+  `a4bdd6d43d048f98dc7e506537a82d4f7488d119`; no PR may merge until REC-1 is
+  explicitly declared complete.
 - No current restorable backup or successful isolated restore rehearsal.
 - No named recovery operator or approved encrypted off-site location.
 - No authorization to apply migrations 0029–0034 or timestamped SB-3 migration
