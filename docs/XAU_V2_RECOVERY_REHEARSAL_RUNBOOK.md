@@ -1,6 +1,6 @@
 # XAU V2 — verified logical backup and recovery rehearsal
 
-Status: `REC-1 OPERATOR KIT V2 READY — RE-EXECUTION NOT AUTHORIZED`
+Status: `REC-1 OPERATOR KIT V3 READY — RESUME/RE-EXECUTION NOT AUTHORIZED`
 
 Production project: `ejvwmjgfvhsslqiydwpz` (`ALPHA-XAU-TERMINAL`)  
 Required target: a dedicated, disposable, non-production Supabase project  
@@ -22,6 +22,49 @@ the guarded transaction and fails closed otherwise. No production action,
 migration, runtime activation, or prior REC-1 authorization is carried forward
 by this re-freeze; a fresh execution authorization and maintenance window are
 required.
+
+## 0a. REC-1 V3 managed-parameter ACL compatibility note
+
+The second authorized REC-1 attempt completed the source manifest, logical
+backup, encryption, decryption verification, and off-site copy, then stopped
+during the isolated target restore at the generated role dump statement:
+
+`GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";`
+
+The target restore transaction failed closed with
+`permission denied for parameter log_min_messages`. The target therefore
+received no application schema/data or migration history. The earlier
+`ALTER DEFAULT PRIVILEGES ... REVOKE` preparation remained applied.
+
+Read-only catalog reconciliation after the stop proved that the source and
+target already contain the same managed parameter ACL for
+`log_min_messages`: `supabase_realtime_admin` has `SET`, granted by
+`supabase_admin`. This is a platform-managed privilege already provisioned on
+the fresh target, not project-owned state that REC-1 needs to recreate.
+
+V3 therefore permits one fail-closed compatibility transform of the generated
+role dump: omit that exact single statement from the restore input only after
+all of the following checks pass:
+
+1. the encrypted backup from the failed run decrypts successfully;
+2. its recorded plaintext SHA-256 checks all pass;
+3. `roles.sql` contains exactly one `ON PARAMETER` statement and it is the
+   exact frozen `log_min_messages` grant above;
+4. the target catalog already exposes that exact `SET` privilege with
+   `supabase_admin` as grantor;
+5. the derived `roles-restore.sql` differs from `roles.sql` by exactly that
+   one line, and its SHA-256 is recorded.
+
+The original `roles.sql` remains unmodified in the encrypted recovery
+artifact. Any additional parameter ACL, different grantee/grantor, missing
+target privilege, checksum mismatch, or other restore error means `STOP`.
+This compatibility rule does not waive arbitrary role errors.
+
+A V3 resume may reuse the already verified encrypted backup from the failed V2
+run and perform no new production read/dump. Resume requires a fresh
+authorization bound to the V3 runbook hash, exact prior encrypted-artifact
+SHA-256, and prior workdir. Production credentials must not be requested or
+used in resume mode.
 
 This runbook implements recovery Option A from the Event Facts production
 authorization packet. It does not authorize an operator, production access,
@@ -185,11 +228,51 @@ functions, schedules, and application secrets. Supabase warns that new-project
 default privileges can grant excess table privileges, so revoke those defaults
 before restoring the schema.
 
+For a normal full run, use the freshly produced files from Steps 3–5. For an
+authorized V3 resume, first decrypt the previously verified encrypted artifact
+into a new private workdir and run `sha256sum -c plaintext-sha256.txt`.
+Do not trust leftover plaintext from the failed workdir as the resume source.
+
+Before restoring roles, enforce the managed-parameter compatibility guard:
+
+```bash
+EXPECTED_PARAMETER_GRANT='GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";'
+
+test "$(grep -Ec 'ON PARAMETER' "$RECOVERY_WORKDIR/roles.sql")" = "1"
+test "$(grep -Fxc "$EXPECTED_PARAMETER_GRANT" "$RECOVERY_WORKDIR/roles.sql")" = "1"
+
+TARGET_PARAMETER_ACL="$(
+  psql --dbname "$TARGET_DB_URL" -X -Atqc "
+    SELECT count(*)
+    FROM pg_catalog.pg_parameter_acl p
+    CROSS JOIN LATERAL pg_catalog.aclexplode(p.paracl) a
+    WHERE p.parname='log_min_messages'
+      AND pg_catalog.pg_get_userbyid(a.grantee)='supabase_realtime_admin'
+      AND a.privilege_type='SET'
+      AND pg_catalog.pg_get_userbyid(a.grantor)='supabase_admin';
+  "
+)"
+test "$TARGET_PARAMETER_ACL" = "1"
+
+awk -v skip="$EXPECTED_PARAMETER_GRANT" '$0 != skip'   "$RECOVERY_WORKDIR/roles.sql" > "$RECOVERY_WORKDIR/roles-restore.sql"
+
+test "$(wc -l < "$RECOVERY_WORKDIR/roles.sql")" -eq   "$(( $(wc -l < "$RECOVERY_WORKDIR/roles-restore.sql") + 1 ))"
+
+ROLE_RESTORE_SHA256="$(sha256sum "$RECOVERY_WORKDIR/roles-restore.sql" | awk '{print $1}')"
+echo "MANAGED_PARAMETER_ACL_COMPATIBILITY=PASS"
+```
+
+The exact generated grant is omitted only from the restore input because the
+fresh managed target already has the same platform-owned privilege. Preserve
+the original `roles.sql`; never overwrite it.
+
+Then restore:
+
 ```bash
 psql --variable ON_ERROR_STOP=1 --dbname "$TARGET_DB_URL" \
   --command 'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;'
 psql --single-transaction --variable ON_ERROR_STOP=1 \
-  --file "$RECOVERY_WORKDIR/roles.sql" \
+  --file "$RECOVERY_WORKDIR/roles-restore.sql" \
   --file "$RECOVERY_WORKDIR/schema.sql" \
   --command 'SET session_replication_role = replica' \
   --file "$RECOVERY_WORKDIR/data.sql" \
@@ -259,6 +342,9 @@ RESTORE_STARTED_AT=<ISO-8601 UTC>
 RESTORE_FINISHED_AT=<ISO-8601 UTC>
 COMPARISON_STATUS=PASS
 COMPARISON_RESULT_SHA256=<64 hex>
+MANAGED_PARAMETER_ACL_COMPATIBILITY=PASS
+ROLE_RESTORE_SHA256=<64 hex>
+RESUME_SOURCE_ARTIFACT_SHA256=<64 hex or N/A for full run>
 PLAINTEXT_CLEANUP_EVIDENCE=<reference>
 DECRYPTION_VERIFIED=YES
 RECOVERY_REVIEW_MODE=INDEPENDENT_REVIEWER|SOLO_OPERATOR_EXCEPTION
