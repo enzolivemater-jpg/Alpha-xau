@@ -6,7 +6,7 @@ const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 const script = read('scripts/recovery_manifest.mjs');
 
 for (const required of [
-  'REC-1 OPERATOR KIT READY — NOT EXECUTED',
+  'REC-1 OPERATOR KIT V2 READY — RE-EXECUTION NOT AUTHORIZED',
   'ejvwmjgfvhsslqiydwpz',
   'supabase db dump --db-url "$SOURCE_DB_URL"',
   '--role-only', '--data-only', '--use-copy', '--schema supabase_migrations',
@@ -27,7 +27,7 @@ assert.match(runbook, /Storage API objects, Edge Functions/);
 assert.ok(!/postgres(?:ql)?:\/\/[^\s<]*:[^\s@<]+@/.test(runbook), 'credential-like URL in runbook');
 
 for (const guard of [
-  "default_transaction_read_only=on",
+  "BEGIN TRANSACTION READ ONLY",
   "RECOVERY_ALLOW_PRODUCTION_READ_ONLY",
   "RECOVERY_REHEARSAL",
   "production can never be a recovery rehearsal target",
@@ -42,5 +42,11 @@ for (const guard of [
 
 assert.ok(!script.includes('PGPASSWORD:'), 'script must not construct a password value');
 assert.ok(!script.includes('--dbname'), 'script must use libpq env rather than URL arguments');
+assert.ok(!script.includes('default_transaction_read_only=on'),
+  'manifest must not depend on pooler/session startup GUC for read-only safety');
+assert.ok(script.includes("SET LOCAL statement_timeout = '60s'"),
+  'manifest must scope statement_timeout to the read-only transaction');
+assert.ok(script.includes("SET LOCAL lock_timeout = '5s'"),
+  'manifest must scope lock_timeout to the read-only transaction');
 console.log('PASS recovery runbook freezes complete dump, isolated restore, equivalence, and authorization guards');
 
