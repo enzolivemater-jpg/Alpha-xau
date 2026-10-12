@@ -6,16 +6,22 @@ const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 const script = read('scripts/recovery_manifest.mjs');
 
 for (const required of [
-  'REC-1 OPERATOR KIT READY — NOT EXECUTED',
+  'REC-1 V3 OPERATOR KIT FROZEN — RESUME NOT EXECUTED',
   'ejvwmjgfvhsslqiydwpz',
   'supabase db dump --db-url "$SOURCE_DB_URL"',
   '--role-only', '--data-only', '--use-copy', '--schema supabase_migrations',
   'psql --single-transaction --variable ON_ERROR_STOP=1',
   'xau-recovery.tar.age', 'COMPARISON_STATUS=PASS',
+  'scripts/prepare_recovery_roles.mjs', 'roles.restore.sql',
+  'SOURCE_ROLES_SHA256', 'RESTORE_ROLES_SHA256',
   'This does not authorize migrations 0029–0033 or runtime.',
 ]) assert.ok(runbook.includes(required), `runbook missing ${required}`);
 
 assert.match(runbook, /generic instruction such as “continue” is insufficient/i);
+assert.match(runbook, /does not authorize another production access or dump/i);
+assert.match(runbook, /exactly one occurrence of the exact statement above/i);
+assert.match(runbook, /Keep `ON_ERROR_STOP=1` for the entire restore/);
+assert.doesNotMatch(runbook, /--file "\$RECOVERY_WORKDIR\/roles\.sql"/);
 assert.ok(runbook.includes(
   'supabase db dump --db-url "$SOURCE_DB_URL" -f "$RECOVERY_WORKDIR/data.sql" --use-copy --data-only \\\n'
   + '  -x "storage.buckets_vectors" -x "storage.vector_indexes"',

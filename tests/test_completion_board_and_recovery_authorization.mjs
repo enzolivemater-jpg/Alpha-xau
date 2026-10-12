@@ -6,11 +6,12 @@ const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'
 const board = read('docs/XAU_V2_COMPLETION_BOARD.md');
 const packet = read('docs/XAU_V2_RECOVERY_EXECUTION_AUTHORIZATION_PACKET.md');
 const script = read('scripts/recovery_manifest.mjs');
+const rolesNormalizer = read('scripts/prepare_recovery_roles.mjs');
 const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
 for (const value of [
-  'ff2e34ea30c37cf17f382d3839ec57b98590ed2a',
-  '37907851018', '37794267054', '37796386665', '37798129022', '37907477341',
+  'a4bdd6d43d048f98dc7e506537a82d4f7488d119',
+  '37909587607', '37794267054', '37796386665', '37798129022', '37907477341',
   '37909217202',
   '20260923133811 gold_transmission_atomic_rpc',
   'Recovery readiness', 'STAGING_PROVEN', 'LIVE_PROVEN', 'CI_PROVEN',
@@ -29,24 +30,27 @@ assert.doesNotMatch(board, /\b\d{1,3}% complete\b/i);
 console.log('PASS completion board uses evidence levels, gates, blockers, actions, and explicit effort estimates');
 
 const scriptHash = createHash('sha256').update(script).digest('hex');
+const rolesNormalizerHash = createHash('sha256').update(rolesNormalizer).digest('hex');
 const runbookHash = createHash('sha256').update(runbook).digest('hex');
 assert.equal(scriptHash, '9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70');
-assert.equal(runbookHash, '9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee');
+assert.equal(rolesNormalizerHash, '623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd');
+assert.equal(runbookHash, 'f94774fec208b38c440aacce61f4994aa2dabc0cfdc32125e1c40d652b72c052');
 for (const value of [
-  scriptHash, runbookHash, 'READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED',
+  scriptHash, rolesNormalizerHash, runbookHash, 'REC-1 V3 FROZEN — RESUME NOT AUTHORIZED',
   'TARGET_MODE=NEW_DEDICATED_PROJECT|RESET_EF12_STAGING',
   'TARGET_RESET_AUTHORIZED=YES|NO',
-  'PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES',
+  'USE_EXISTING_VERIFIED_BACKUP_ONLY=YES', 'PRODUCTION_ACCESS_AUTHORIZED=NO',
   'PRODUCTION_RESTORE_AUTHORIZED=NO',
   'MIGRATIONS_0029_0034_AUTHORIZED=NO', 'RUNTIME_AUTHORIZED=NO',
-  'FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>',
+  'FROZEN_MAIN_SHA=a4bdd6d43d048f98dc7e506537a82d4f7488d119',
+  'REC1_V3_COMMIT_SHA=<reviewed 40-hex V3 branch commit>',
 ]) assert.ok(packet.includes(value), `authorization packet missing ${value}`);
 
 assert.match(packet, /production ref can never be a target/i);
-assert.match(packet, /Every previous REC-1 execution approval is\s+stale and void/);
+assert.match(packet, /All earlier REC-1 payload approvals and hashes are stale/);
 assert.match(packet, /Generic language such as “continue”/);
-assert.match(packet, /hard-coding it in this document would make the packet invalidate itself/i);
-assert.match(packet, /verify that `FINAL_MAIN_SHA` equals\s+the remote `main` head/i);
-assert.doesNotMatch(packet, /FINAL_MAIN_SHA=[0-9a-f]{40}/);
-assert.doesNotMatch(packet, /REC1_EXECUTION_AUTHORIZED=YES[\s\S]*RECOVERY_OPERATOR=(?!<)/);
+assert.match(packet, /Production\s+freeze keeps `main` at `a4bdd6d/i);
+assert.match(packet, /verify that remote `main` still equals\s+`FROZEN_MAIN_SHA`/i);
+assert.doesNotMatch(packet, /REC1_V3_COMMIT_SHA=[0-9a-f]{40}/);
+assert.doesNotMatch(packet, /REC1_V3_RESUME_AUTHORIZED=YES[\s\S]*RECOVERY_OPERATOR=(?!<)/);
 console.log('PASS REC-1 packet freezes implementation while binding approval to the execution-time main head');

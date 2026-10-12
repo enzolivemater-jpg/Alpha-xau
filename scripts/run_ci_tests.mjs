@@ -103,6 +103,7 @@ const TEST_FILES = [
   'tests/test_positioning_evidence_contract.mjs',
   'tests/test_positioning_persistence_contract.mjs',
   'tests/test_pre_pm_evidence_risk_contract.mjs',
+  'tests/test_prepare_recovery_roles.mjs',
   'tests/test_release_identity_lookup.mjs',
   'tests/test_recovery_rehearsal_contract.mjs',
   'tests/test_regime_contract.mjs',

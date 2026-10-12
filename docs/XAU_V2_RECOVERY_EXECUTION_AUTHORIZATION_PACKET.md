@@ -1,27 +1,30 @@
 # XAU V2 — REC-1 execution authorization packet
 
-Status: `READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED`
+Status: `REC-1 V3 FROZEN — RESUME NOT AUTHORIZED`
 
-Captured: `2026-10-01T07:46Z`  
+Captured: `2026-10-01T07:46Z`
+
+V3 correction frozen: `2026-10-12`
+
 Production project: `ejvwmjgfvhsslqiydwpz`
 
-This packet authorizes only a read-only production manifest capture and logical
-database dump, encrypted off-site retention, and an isolated non-production
-restore rehearsal under the merged REC-1 runbook. It never authorizes a
+This packet does not itself authorize execution. The V3 resume path uses only
+the already captured and verified encrypted backup, then restores it into an
+isolated non-production target. It authorizes no new production access or dump,
 production restore, migration, runtime deployment, route, schedule, secret
 rotation, provider purchase, or broker/trading action.
 
 ## 1. Exact requested action
 
-A named operator executes
+A named operator resumes
 [`XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md`](XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md)
 without modification:
 
-1. capture a read-only production equivalence manifest;
-2. export roles, application schema, application data, and migration history
-   with the current official Supabase CLI flow;
-3. encrypt the bundle before off-site transfer;
-4. restore it only into the approved isolated target;
+1. verify and decrypt the existing encrypted artifact in a private work area;
+2. verify the original `roles.sql` against its included checksum ledger;
+3. produce a distinct `roles.restore.sql` that omits exactly the reviewed
+   platform-managed `log_min_messages` privilege statement;
+4. restore it only into the approved isolated target with `ON_ERROR_STOP=1`;
 5. capture the target manifest and require exact comparator `PASS`;
 6. store the non-secret evidence ledger and obtain operator/reviewer sign-off.
 
@@ -30,14 +33,15 @@ Frozen implementation hashes:
 | Item | SHA-256 |
 | --- | --- |
 | `scripts/recovery_manifest.mjs` | `9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70` |
-| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee` |
+| `scripts/prepare_recovery_roles.mjs` | `623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd` |
+| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `f94774fec208b38c440aacce61f4994aa2dabc0cfdc32125e1c40d652b72c052` |
 
-The two implementation hashes above are the frozen REC-1 payload. A change to
-either file invalidates this packet and requires a new review. The current
-40-hex `main` SHA is intentionally supplied by the approver at execution time:
-hard-coding it in this document would make the packet invalidate itself when
-its own commit is merged. Any repository change after approval invalidates the
-approval until `FINAL_MAIN_SHA` is reconciled again.
+The three implementation hashes above are the frozen REC-1 V3 payload. A
+change to any file invalidates this packet and requires a new review. Production
+freeze keeps `main` at `a4bdd6d43d048f98dc7e506537a82d4f7488d119`; V3 is
+therefore executed only from its separately reviewed commit, without merging.
+The approver binds that 40-hex commit at execution time because a commit cannot
+embed its own SHA. Any V3 branch change after approval invalidates the approval.
 
 ### Payload revision — 2026-10-02 (current Supabase backup flow)
 
@@ -60,11 +64,30 @@ Material changes, both from the current official Supabase guidance:
 
 No other REC-1 guarantee changed.
 
+### Payload revision — 2026-10-12 (managed parameter privilege)
+
+The failed restore exposed one exact source dump statement:
+
+```sql
+GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";
+```
+
+Supabase documents that managed projects do not expose full superuser access
+and that reserved settings such as `log_min_messages` are mediated by platform
+privileges. V3 never weakens `ON_ERROR_STOP`; instead it verifies the immutable
+source dump hash and creates a separate restore file that omits exactly that
+one reviewed statement. Unknown variants, duplicates, missing statements,
+checksum drift, or an existing output file fail closed.
+
+All earlier REC-1 payload approvals and hashes are stale. The authorization
+given on 2026-10-12 covers only this correction, local validation, and re-freeze;
+it does not authorize the target restore or any production access.
+
 ## 2. Why it is needed
 
-Production is on Supabase Free and no verified restorable recovery point is
-currently evidenced. Event Facts production rollout is blocked until a fresh
-backup has been restored successfully in isolation. A dump alone does not
+The encrypted backup has been captured and verified, but it is not yet a proven
+restorable recovery point. Event Facts production rollout remains blocked until
+that exact backup passes the isolated restore comparison. A dump alone does not
 close the gate.
 
 ## 3. Current preflight evidence
@@ -79,6 +102,10 @@ Read-only reconciliation at `2026-10-01T07:46Z` confirms:
 - migrations 0029–0034 are not live-applied;
 - no Edge Function and no installed `pg_cron`;
 - SB-1/SB-2 live findings remain unchanged, as expected.
+
+The 2026-10-12 operator report additionally confirms that tooling preflight is
+`PASS`, the encrypted backup is already verified, and restore stopped at the
+managed `log_min_messages` privilege without waiving the error.
 
 ## 4. Target decision
 
@@ -104,8 +131,8 @@ read-only inventory before approval.
 
 ## 5. Expected effect and blast radius
 
-- Production: read-only catalog/count queries plus logical dump reads; possible
-  temporary load and longer query duration, but no intended write or downtime.
+- Production: no access in the V3 resume path; the existing verified encrypted
+  artifact is the only permitted source.
 - Target: schema/data replacement within the chosen isolated project; target
   contents may be destroyed.
 - Off-site store: one encrypted database artifact plus checksums/evidence.
@@ -118,13 +145,13 @@ credential exposure, or unexpected platform behavior.
 ## 6. Preconditions
 
 - named operator and independent reviewer;
-- approved UTC maintenance window;
+- approved restore window;
 - approved target mode/ref and destructive reset authority when applicable;
 - approved restricted off-site destination and working encryption recipient;
 - Supabase CLI, Docker, PostgreSQL 17 `psql`, `age`, and `sha256sum` verified;
-- runtime/writers reconfirmed off;
+- target routes and writers reconfirmed off;
 - no shell tracing/history leakage;
-- source and target credentials supplied out of band;
+- target credentials and recovery identity supplied out of band;
 - current docs and CLI `--help` rechecked at execution time.
 
 ## 7. Recovery and rollback
@@ -154,19 +181,22 @@ uses a new target and `TARGET_RESET_AUTHORIZED=NO`; Option B must use the frozen
 EF-12 ref and `TARGET_RESET_AUTHORIZED=YES`.
 
 ```text
-REC1_EXECUTION_AUTHORIZED=YES
+REC1_V3_RESUME_AUTHORIZED=YES
 RECOVERY_OPERATOR=<full name>
 RECOVERY_REVIEWER=<full name, different person if available>
-MAINTENANCE_WINDOW_UTC=<start/end ISO-8601>
+RESTORE_WINDOW_UTC=<start/end ISO-8601>
 TARGET_MODE=NEW_DEDICATED_PROJECT|RESET_EF12_STAGING
 TARGET_PROJECT_REF=<20-character non-production ref>
 TARGET_RESET_AUTHORIZED=YES|NO
 ENCRYPTED_OFFSITE_LOCATION=<restricted destination reference>
 ENCRYPTION_RECIPIENT_CONFIRMED=YES
-FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
+FROZEN_MAIN_SHA=a4bdd6d43d048f98dc7e506537a82d4f7488d119
+REC1_V3_COMMIT_SHA=<reviewed 40-hex V3 branch commit>
 REC1_SCRIPT_SHA256=9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70
-REC1_RUNBOOK_SHA256=9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee
-PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES
+REC1_ROLES_NORMALIZER_SHA256=623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd
+REC1_RUNBOOK_SHA256=f94774fec208b38c440aacce61f4994aa2dabc0cfdc32125e1c40d652b72c052
+USE_EXISTING_VERIFIED_BACKUP_ONLY=YES
+PRODUCTION_ACCESS_AUTHORIZED=NO
 PRODUCTION_RESTORE_AUTHORIZED=NO
 MIGRATIONS_0029_0034_AUTHORIZED=NO
 RUNTIME_AUTHORIZED=NO
@@ -178,7 +208,7 @@ Missing, ambiguous, stale, contradictory, or mismatched fields mean `STOP`.
 Generic language such as “continue”, “validate”, or “I authorize” does not
 authorize credential use, production extraction, or target destruction.
 
-At execution preflight, the operator must verify that `FINAL_MAIN_SHA` equals
-the remote `main` head and recompute both REC-1 SHA-256 values from that exact
-checkout. A mismatch, uncommitted file, or subsequent commit means `STOP` and
-requires renewed approval with the new SHA.
+At execution preflight, the operator must verify that remote `main` still equals
+`FROZEN_MAIN_SHA`, check out exactly `REC1_V3_COMMIT_SHA`, and recompute all
+three REC-1 V3 SHA-256 values there. A mismatch, uncommitted file, merge, or
+subsequent V3 commit means `STOP` and requires renewed approval.

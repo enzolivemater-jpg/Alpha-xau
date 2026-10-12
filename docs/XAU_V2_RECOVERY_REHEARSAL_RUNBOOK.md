@@ -1,6 +1,6 @@
 # XAU V2 — verified logical backup and recovery rehearsal
 
-Status: `REC-1 OPERATOR KIT READY — NOT EXECUTED`
+Status: `REC-1 V3 OPERATOR KIT FROZEN — RESUME NOT EXECUTED`
 
 Production project: `ejvwmjgfvhsslqiydwpz` (`ALPHA-XAU-TERMINAL`)  
 Required target: a dedicated, disposable, non-production Supabase project  
@@ -159,11 +159,49 @@ functions, schedules, and application secrets. Supabase warns that new-project
 default privileges can grant excess table privileges, so revoke those defaults
 before restoring the schema.
 
+### 6.1 Resume from the already verified encrypted backup
+
+REC-1 V3 permits resuming from the previously captured encrypted artifact; it
+does not authorize another production access or dump. In a new private work
+directory, verify the encrypted artifact against its separately retained
+SHA-256, decrypt it with the approved recovery identity, and extract the five
+SQL files, source manifest, and `plaintext-sha256.txt`. Stop on any checksum,
+decryption, archive-membership, or extraction error. Never extract over the
+original capture directory and never edit `roles.sql`.
+
+The observed role dump contains one platform-managed privilege statement:
+
+```sql
+GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";
+```
+
+Supabase does not grant full superuser access on managed projects and delegates
+reserved configuration privileges through its platform controls. Restore this
+source-owned role configuration without attempting to re-grant that managed
+privilege. Produce a separate, checksum-bound restore copy:
+
+```bash
+node scripts/prepare_recovery_roles.mjs \
+  "$RECOVERY_WORKDIR/roles.sql" \
+  "$RECOVERY_WORKDIR/plaintext-sha256.txt" \
+  "$RECOVERY_WORKDIR/roles.restore.sql" \
+  > "$RECOVERY_WORKDIR/roles-normalization.json"
+sha256sum "$RECOVERY_WORKDIR/roles.restore.sql" \
+  "$RECOVERY_WORKDIR/roles-normalization.json"
+```
+
+The normalizer requires the original `roles.sql` hash recorded inside the
+verified bundle, exactly one occurrence of the exact statement above, a new
+output path, and a non-existing output file. It removes no role, role setting,
+membership, or other parameter privilege. Missing, duplicated, checksum-drifted,
+or syntactically different input is `FAIL`; do not broaden the rule manually.
+Keep `ON_ERROR_STOP=1` for the entire restore.
+
 ```bash
 psql --variable ON_ERROR_STOP=1 --dbname "$TARGET_DB_URL" \
   --command 'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;'
 psql --single-transaction --variable ON_ERROR_STOP=1 \
-  --file "$RECOVERY_WORKDIR/roles.sql" \
+  --file "$RECOVERY_WORKDIR/roles.restore.sql" \
   --file "$RECOVERY_WORKDIR/schema.sql" \
   --command 'SET session_replication_role = replica' \
   --file "$RECOVERY_WORKDIR/data.sql" \
@@ -177,7 +215,9 @@ unset TARGET_DB_URL
 
 Any non-zero command means `FAIL`; do not partially waive errors. Custom login
 role passwords are intentionally not present in logical backups and must be
-reset separately if such roles exist. Do not attach the target to an app.
+reset separately if such roles exist. The omission is accepted only if the
+target already exposes the Supabase-managed `supabase_realtime_admin` role;
+otherwise stop. Do not attach the target to an app.
 
 ## 7. Prove equivalence
 
@@ -229,6 +269,9 @@ PSQL_VERSION=<version>
 ENCRYPTED_ARTIFACT_LOCATION=<restricted off-site reference>
 ENCRYPTED_ARTIFACT_SHA256=<64 hex>
 SOURCE_MANIFEST_SHA256=<64 hex>
+SOURCE_ROLES_SHA256=<64 hex from roles-normalization.json>
+RESTORE_ROLES_SHA256=<64 hex from roles-normalization.json>
+ROLES_NORMALIZATION_RESULT_SHA256=<64 hex>
 RESTORE_STARTED_AT=<ISO-8601 UTC>
 RESTORE_FINISHED_AT=<ISO-8601 UTC>
 COMPARISON_STATUS=PASS

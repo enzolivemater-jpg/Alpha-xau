@@ -1,12 +1,14 @@
 # XAU V2 — institutional completion board
 
-Status: `LIVE BOARD — RECONCILED 2026-10-09T09:02Z`
+Status: `PRODUCTION FREEZE — REC-1 V3 LOCAL VALIDATION`
 
-Main evidence reconciled through PR #94 / `ff2e34ea30c37cf17f382d3839ec57b98590ed2a`
+Frozen main: `a4bdd6d43d048f98dc7e506537a82d4f7488d119`
+
 Production: `ejvwmjgfvhsslqiydwpz` — `ACTIVE_HEALTHY`, PostgreSQL 17.6  
 Live migration tail: `20260923133811 gold_transmission_atomic_rpc`  
-Open pull requests: none  
-Main Quality Gate: run `37907851018` — `success` (10/10 jobs)
+Open pull request #96 must not be merged during the production freeze
+
+Main Quality Gate: run `37909587607` — `success` (10/10 jobs)
 Production Edge Functions: none
 
 Statuses mean only the strongest evidence actually obtained. `COMPLETE` is
@@ -23,7 +25,7 @@ not merely for merged code.
 | Gold Transmission persistence | PROD_SCHEMA_READY | Worker route not deployed | Yes, runtime | GT schema/RPC live; rollback proof; 3 historical assessments | Deploy only bounded manual route after access/authority | 1–2 days after access |
 | Gold Transmission V2 semantics | CI_PROVEN | Typed facts and authorized transmission evidence/consensus | Yes, semantic | Versioned CPI/NFP/jobless-claims/PCE validation with deterministic zero-path proof and `CONSENSUS_FACTS_UNAVAILABLE` | Design positive paths only after evidence source and methodology are approved | 3–7 days after decision |
 | Consensus policy/provider | NOT_STARTED | Auditable source, licensing, timestamp and revision policy | Yes, provider/cost | Canonical state remains `UNKNOWN`; no provider authorized | Prepare provider comparison; do not integrate or purchase yet | 1–3 days contract + provider work |
-| Recovery readiness | CI_PROVEN | Named operator, target choice, encrypted off-site location | Yes, recovery | REC-1 PR #62; PG17 fail-closed manifest proof | Approve and execute isolated restore rehearsal | 1–2 operator hours |
+| Recovery readiness | LOCAL_VALIDATED | Isolated target restore and exact comparison remain unexecuted | Yes, recovery resume | Verified encrypted backup; tooling preflight PASS; V3 checksum-bound managed-privilege normalizer; fail-closed tests | Review V3 PR, then separately authorize resume from the existing backup | 1–2 operator hours |
 | Security SB-1 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0033; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1–2 operator hours |
 | Security SB-2 | CI_PROVEN | Independent production authorization | Yes, schema | Migration 0034; PostgreSQL 17 proof | Apply/re-audit only after scoped approval | 1 operator hour |
 | Security SB-3 | CI_PROVEN | Independent production authorization; managed `supabase_admin` default-ACL disposition | Yes, schema | Corrected migration `20261008094133`, hash `ac67440e...`; all future table/sequence privileges revoked; PostgreSQL 17 proof; PR #92 run `37796386665` | Resolve managed-role disposition, then apply/re-audit only after scoped approval | 1–2 operator hours |
@@ -50,7 +52,8 @@ windows for scheduled economic releases.
 
 ## Critical path now
 
-1. Authorize and execute REC-1 with a named operator and isolated target.
+1. Review REC-1 V3, then separately authorize resuming the isolated restore
+   from the existing verified encrypted backup; no new production capture.
 2. Separately authorize Event Facts schema migrations 0029–0032 while runtime
    remains off.
 3. Optionally authorize SB-1/SB-2/SB-3 as three independent payloads; SB-3
@@ -65,8 +68,9 @@ windows for scheduled economic releases.
 
 ## Current hard stops
 
-- No current restorable backup or successful isolated restore rehearsal.
-- No named recovery operator or approved encrypted off-site location.
+- The verified encrypted backup has not yet passed an isolated restore and
+  exact manifest comparison.
+- REC-1 V3 correction authority does not authorize target restore execution.
 - No authorization to apply migrations 0029–0034 or timestamped SB-3 migration
   `20261008094133`.
 - No Cloudflare deployment proof or runtime authority.
