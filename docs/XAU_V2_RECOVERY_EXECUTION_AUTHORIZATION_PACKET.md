@@ -30,8 +30,8 @@ Frozen implementation hashes:
 
 | Item | SHA-256 |
 | --- | --- |
-| `scripts/recovery_manifest.mjs` | `9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70` |
-| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `cf431d92e97405c692ebb5189883652923676f12ed7558b609b586ad63c07b8b` |
+| `scripts/recovery_manifest.mjs` | `fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31` |
+| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `be23335099ce6e0c6d8a061bd430cd484806d5f4b648c4b5ccf2c074deca7012` |
 
 The two implementation hashes above are the frozen REC-1 payload. A change to
 either file invalidates this packet and requires a new review. The current
@@ -71,6 +71,27 @@ The only material change is governance: an explicit review mode (§6a) with
 `INDEPENDENT_REVIEWER` as the default and a narrowly bounded
 `SOLO_OPERATOR_EXCEPTION`. No command, guard, comparator rule, target rule, or
 stop condition changed.
+
+### Payload revision — 2026-10-12 (REC-1 V2 transaction-level read-only guard)
+
+The first authorized REC-1 execution attempt stopped before any logical dump or
+target restore because the source manifest observed `transaction_read_only=off`
+while the previous implementation relied on the startup/session GUC
+`default_transaction_read_only=on` through the Supabase Session pooler. The
+target remained empty.
+
+The frozen payload now wraps every manifest catalog/count query in an explicit
+PostgreSQL `BEGIN TRANSACTION READ ONLY`, applies `statement_timeout` and
+`lock_timeout` with `SET LOCAL`, and still verifies
+`transaction_read_only=on` from inside the guarded transaction.
+
+**Every previous REC-1 execution approval is stale and void**, including the
+2026-10-12 approval that quoted script hash `9d0d3ea0…ec70` and runbook hash
+`cf431d92…ecb7b`. Re-execution requires a fresh approval carrying the current
+hashes above and a fresh maintenance window.
+
+No production restore, migration, runtime, route, schedule, secret, provider,
+broker, or trading authority is added by this revision.
 
 ## 2. Why it is needed
 
@@ -224,8 +245,8 @@ TARGET_RESET_AUTHORIZED=YES|NO
 ENCRYPTED_OFFSITE_LOCATION=<restricted destination reference>
 ENCRYPTION_RECIPIENT_CONFIRMED=YES
 FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
-REC1_SCRIPT_SHA256=9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70
-REC1_RUNBOOK_SHA256=cf431d92e97405c692ebb5189883652923676f12ed7558b609b586ad63c07b8b
+REC1_SCRIPT_SHA256=fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31
+REC1_RUNBOOK_SHA256=be23335099ce6e0c6d8a061bd430cd484806d5f4b648c4b5ccf2c074deca7012
 PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES
 PRODUCTION_RESTORE_AUTHORIZED=NO
 MIGRATIONS_0029_0034_AUTHORIZED=NO
