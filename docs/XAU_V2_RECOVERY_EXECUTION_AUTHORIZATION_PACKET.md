@@ -23,14 +23,15 @@ without modification:
 3. encrypt the bundle before off-site transfer;
 4. restore it only into the approved isolated target;
 5. capture the target manifest and require exact comparator `PASS`;
-6. store the non-secret evidence ledger and obtain operator/reviewer sign-off.
+6. store the non-secret evidence ledger and obtain sign-off under the approved
+   review mode (§6a).
 
 Frozen implementation hashes:
 
 | Item | SHA-256 |
 | --- | --- |
 | `scripts/recovery_manifest.mjs` | `9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70` |
-| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee` |
+| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `cf431d92e97405c692ebb5189883652923676f12ed7558b609b586ad63c07b8b` |
 
 The two implementation hashes above are the frozen REC-1 payload. A change to
 either file invalidates this packet and requires a new review. The current
@@ -59,6 +60,17 @@ Material changes, both from the current official Supabase guidance:
    carries neither.
 
 No other REC-1 guarantee changed.
+
+### Payload revision — 2026-10-12 (review mode and solo-operator exception)
+
+The frozen runbook changed. **Every previous REC-1 execution approval is stale
+and void**, including any approval that quoted runbook hash `9bbfbfd6…ceee`.
+`scripts/recovery_manifest.mjs` is unchanged.
+
+The only material change is governance: an explicit review mode (§6a) with
+`INDEPENDENT_REVIEWER` as the default and a narrowly bounded
+`SOLO_OPERATOR_EXCEPTION`. No command, guard, comparator rule, target rule, or
+stop condition changed.
 
 ## 2. Why it is needed
 
@@ -117,7 +129,8 @@ credential exposure, or unexpected platform behavior.
 
 ## 6. Preconditions
 
-- named operator and independent reviewer;
+- named operator and, by default, a named independent human reviewer; the
+  §6a solo-operator exception is the only alternative;
 - approved UTC maintenance window;
 - approved target mode/ref and destructive reset authority when applicable;
 - approved restricted off-site destination and working encryption recipient;
@@ -126,6 +139,48 @@ credential exposure, or unexpected platform behavior.
 - no shell tracing/history leakage;
 - source and target credentials supplied out of band;
 - current docs and CLI `--help` rechecked at execution time.
+
+## 6a. Review mode
+
+`RECOVERY_REVIEW_MODE=INDEPENDENT_REVIEWER` is the default and preferred rule:
+a named human reviewer who is a different person from the operator verifies
+the Step 8 evidence and signs off.
+
+`RECOVERY_REVIEW_MODE=SOLO_OPERATOR_EXCEPTION` is an explicit exception. It is
+valid only when **all** of the following hold; if any one fails, the exception
+is unavailable and `STOP` applies:
+
+1. no independent human reviewer is reasonably available, and the approval
+   records a non-secret `SOLO_OPERATOR_JUSTIFICATION`;
+2. the owner explicitly approves `SOLO_OPERATOR_EXCEPTION=YES` in the §9
+   response;
+3. production access remains read-only capture and dump only;
+   `PRODUCTION_RESTORE_AUTHORIZED=NO`;
+4. the target is non-production only, under §4;
+5. `FINAL_MAIN_SHA`, `REC1_SCRIPT_SHA256`, and `REC1_RUNBOOK_SHA256` match
+   exactly and are recomputed at execution preflight, and every command runs
+   from that checkout without modification;
+6. the local tooling preflight is `PASS`;
+7. source and target manifests are compared by `recovery_manifest.mjs compare`
+   with exact `status: PASS`; no human judgement can substitute for it;
+8. decryption of the encrypted bundle with the recovery identity is verified;
+9. the runbook Step 8 evidence ledger is complete;
+10. a post-run automated secondary audit (for example ChatGPT/Claude or a
+    script) recomputes the recorded SHA-256 values, checks every ledger field,
+    and is recorded as `AUTOMATED_SECONDARY_AUDIT`. It is never represented as
+    a human reviewer or reviewer sign-off;
+11. any mismatch, missing field, error, or audit `FAIL` causes `STOP`.
+
+Assurance statement: in this mode one person performs and approves the
+operation. Segregation of duties is **reduced**, not equivalent to an
+independent human review. The ledger must record
+`SEGREGATION_OF_DUTIES=REDUCED`, and `RECOVERY_REVIEWER` and
+`REVIEWER_SIGN_OFF` must be `NONE`. No reviewer identity may be invented, and
+the operator, Claude, ChatGPT, or any other tool may not be named as reviewer.
+
+Scope: this exception applies only to REC-1. It grants no migration,
+deployment, runtime, route, schedule, secret, provider, broker, or trading
+authority, and it does not change the reviewer rule of any other gate.
 
 ## 7. Recovery and rollback
 
@@ -138,7 +193,8 @@ restore comparison.
 
 ## 8. Remaining uncertainty
 
-- final operator and reviewer identities;
+- final operator identity and review mode (reviewer identity in
+  `INDEPENDENT_REVIEWER` mode);
 - target mode and project capacity/cost;
 - approved encrypted off-site destination;
 - execution-window production load;
@@ -156,7 +212,11 @@ EF-12 ref and `TARGET_RESET_AUTHORIZED=YES`.
 ```text
 REC1_EXECUTION_AUTHORIZED=YES
 RECOVERY_OPERATOR=<full name>
-RECOVERY_REVIEWER=<full name, different person if available>
+RECOVERY_REVIEW_MODE=INDEPENDENT_REVIEWER|SOLO_OPERATOR_EXCEPTION
+RECOVERY_REVIEWER=<full name of a different person, or NONE only in SOLO_OPERATOR_EXCEPTION mode>
+SOLO_OPERATOR_EXCEPTION=YES|NO
+SOLO_OPERATOR_JUSTIFICATION=<non-secret rationale, or N/A in INDEPENDENT_REVIEWER mode>
+AUTOMATED_SECONDARY_AUDIT_REQUIRED=YES
 MAINTENANCE_WINDOW_UTC=<start/end ISO-8601>
 TARGET_MODE=NEW_DEDICATED_PROJECT|RESET_EF12_STAGING
 TARGET_PROJECT_REF=<20-character non-production ref>
@@ -165,7 +225,7 @@ ENCRYPTED_OFFSITE_LOCATION=<restricted destination reference>
 ENCRYPTION_RECIPIENT_CONFIRMED=YES
 FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
 REC1_SCRIPT_SHA256=9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70
-REC1_RUNBOOK_SHA256=9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee
+REC1_RUNBOOK_SHA256=cf431d92e97405c692ebb5189883652923676f12ed7558b609b586ad63c07b8b
 PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES
 PRODUCTION_RESTORE_AUTHORIZED=NO
 MIGRATIONS_0029_0034_AUTHORIZED=NO
@@ -173,6 +233,12 @@ RUNTIME_AUTHORIZED=NO
 APPROVER=<full name>
 APPROVED_AT=<ISO-8601>
 ```
+
+Review-mode fields must agree: `INDEPENDENT_REVIEWER` requires
+`SOLO_OPERATOR_EXCEPTION=NO` and a named reviewer who is not the operator;
+`SOLO_OPERATOR_EXCEPTION` requires `SOLO_OPERATOR_EXCEPTION=YES`,
+`RECOVERY_REVIEWER=NONE`, a non-empty justification, and the owner as
+`APPROVER`.
 
 Missing, ambiguous, stale, contradictory, or mismatched fields mean `STOP`.
 Generic language such as “continue”, “validate”, or “I authorize” does not

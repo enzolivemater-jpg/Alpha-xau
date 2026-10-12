@@ -14,9 +14,16 @@ Step 1. Production remains on hold until the signed evidence in Step 8 exists.
 
 ## 1. Preconditions and stop conditions
 
-Record a named recovery operator, change/ticket reference, UTC maintenance
-window, source project ref, target project ref, and approved encrypted off-site
-location. Stop if any field is missing.
+Record a named recovery operator, review mode, change/ticket reference, UTC
+maintenance window, source project ref, target project ref, and approved
+encrypted off-site location. Stop if any field is missing.
+
+The review mode is `INDEPENDENT_REVIEWER` by default: a named human reviewer
+who is not the operator verifies Step 8. `SOLO_OPERATOR_EXCEPTION` is permitted
+only under §6a of the REC-1 execution authorization packet, with every
+condition there satisfied. It provides reduced segregation-of-duties
+assurance and does not relax any other step, guard, or stop condition in this
+runbook.
 
 The target must be isolated and disposable, have no production routes,
 schedules, webhooks, Edge Functions, or application secrets, and must never be
@@ -234,13 +241,29 @@ RESTORE_FINISHED_AT=<ISO-8601 UTC>
 COMPARISON_STATUS=PASS
 COMPARISON_RESULT_SHA256=<64 hex>
 PLAINTEXT_CLEANUP_EVIDENCE=<reference>
+DECRYPTION_VERIFIED=YES
+RECOVERY_REVIEW_MODE=INDEPENDENT_REVIEWER|SOLO_OPERATOR_EXCEPTION
+SEGREGATION_OF_DUTIES=FULL|REDUCED
 OPERATOR_SIGN_OFF=<name and ISO-8601>
-REVIEWER_SIGN_OFF=<name and ISO-8601>
+REVIEWER_SIGN_OFF=<different person's name and ISO-8601; NONE only in SOLO_OPERATOR_EXCEPTION>
+AUTOMATED_SECONDARY_AUDIT=<tool, ISO-8601, result PASS|FAIL, and record reference>
 ```
 
-The recovery gate closes only after a reviewer verifies all fields, the
-encrypted artifact can be accessed by the recovery identity, and the exact
-comparison passes. This does not authorize migrations 0029–0033 or runtime.
+In `INDEPENDENT_REVIEWER` mode the recovery gate closes only after the human
+reviewer verifies all fields, the encrypted artifact can be accessed by the
+recovery identity, and the exact comparison passes.
+
+In `SOLO_OPERATOR_EXCEPTION` mode no human reviewer exists and none may be
+invented: `REVIEWER_SIGN_OFF=NONE` and `SEGREGATION_OF_DUTIES=REDUCED`. The
+gate closes only after the operator/owner signs off, `COMPARISON_STATUS=PASS`
+comes from the comparator itself, decryption with the recovery identity is
+verified, every field above is complete, and a post-run automated secondary
+audit has recomputed the recorded SHA-256 values and confirmed each field. That
+audit is recorded only as `AUTOMATED_SECONDARY_AUDIT`; it is never represented
+as a human reviewer or as reviewer sign-off. Any mismatch or audit `FAIL`
+means `STOP`, and the gate stays open.
+
+This does not authorize migrations 0029–0034 or runtime.
 
 ## 9. Official references frozen for this procedure
 

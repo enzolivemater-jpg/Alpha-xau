@@ -31,7 +31,7 @@ console.log('PASS completion board uses evidence levels, gates, blockers, action
 const scriptHash = createHash('sha256').update(script).digest('hex');
 const runbookHash = createHash('sha256').update(runbook).digest('hex');
 assert.equal(scriptHash, '9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70');
-assert.equal(runbookHash, '9bbfbfd683833c1c189fa8155297884a88336c41f3f5961643ff1b312d21ceee');
+assert.equal(runbookHash, 'cf431d92e97405c692ebb5189883652923676f12ed7558b609b586ad63c07b8b');
 for (const value of [
   scriptHash, runbookHash, 'READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED',
   'TARGET_MODE=NEW_DEDICATED_PROJECT|RESET_EF12_STAGING',
@@ -50,3 +50,24 @@ assert.match(packet, /verify that `FINAL_MAIN_SHA` equals\s+the remote `main` he
 assert.doesNotMatch(packet, /FINAL_MAIN_SHA=[0-9a-f]{40}/);
 assert.doesNotMatch(packet, /REC1_EXECUTION_AUTHORIZED=YES[\s\S]*RECOVERY_OPERATOR=(?!<)/);
 console.log('PASS REC-1 packet freezes implementation while binding approval to the execution-time main head');
+
+for (const value of [
+  'RECOVERY_REVIEW_MODE=INDEPENDENT_REVIEWER|SOLO_OPERATOR_EXCEPTION',
+  'SOLO_OPERATOR_EXCEPTION=YES|NO',
+  'SOLO_OPERATOR_JUSTIFICATION=<non-secret rationale',
+  'AUTOMATED_SECONDARY_AUDIT_REQUIRED=YES',
+]) assert.ok(packet.includes(value), `authorization packet missing ${value}`);
+assert.match(packet, /`RECOVERY_REVIEW_MODE=INDEPENDENT_REVIEWER` is the default/);
+assert.match(packet, /Segregation of duties is \*\*reduced\*\*/);
+assert.match(packet, /never represented as\s+a human reviewer/);
+assert.match(packet, /exception applies only to REC-1\. It grants no migration,\s+deployment, runtime/);
+assert.match(packet, /Every previous REC-1 execution approval is stale\s+and void\*\*, including any approval that quoted runbook hash `9bbfbfd6…ceee`/);
+assert.doesNotMatch(packet, /different person if available/);
+assert.doesNotMatch(packet, /SOLO_OPERATOR_EXCEPTION=YES\n/);
+for (const value of [
+  'RECOVERY_REVIEW_MODE=INDEPENDENT_REVIEWER|SOLO_OPERATOR_EXCEPTION',
+  'SEGREGATION_OF_DUTIES=FULL|REDUCED', 'DECRYPTION_VERIFIED=YES',
+  'AUTOMATED_SECONDARY_AUDIT=<tool',
+]) assert.ok(runbook.includes(value), `runbook missing ${value}`);
+assert.match(runbook, /it is never represented\s+as a human reviewer or as reviewer sign-off/);
+console.log('PASS REC-1 keeps independent review as default and bounds the solo-operator exception');
