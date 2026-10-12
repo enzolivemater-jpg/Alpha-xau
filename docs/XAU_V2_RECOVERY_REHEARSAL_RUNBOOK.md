@@ -218,12 +218,23 @@ before restoring the schema.
 
 For an authorized V3 resume, decrypt the previously verified encrypted artifact
 into a new private work directory. Do not reuse or edit plaintext from a failed
-restore directory. Verify the embedded plaintext ledger before doing anything
-with the SQL files:
+restore directory. Verify the embedded plaintext ledger against the files in the **new**
+`RECOVERY_WORKDIR` before doing anything with the SQL files:
 
 ```bash
-sha256sum -c "$RECOVERY_WORKDIR/plaintext-sha256.txt"
+node scripts/verify_recovery_plaintext.mjs \
+  "$RECOVERY_WORKDIR/plaintext-sha256.txt" \
+  "$RECOVERY_WORKDIR" \
+  > "$RECOVERY_WORKDIR/plaintext-verification.json"
 ```
+
+The capture-time ledger may contain absolute paths from the original private
+work directory. The verifier treats those paths only as recorded provenance:
+it requires exactly the six reviewed recovery basenames, resolves every file
+from the newly decrypted `RECOVERY_WORKDIR`, rejects symlinks/escapes, and
+recomputes each SHA-256 there. It never follows the old absolute ledger paths.
+Any missing, duplicate, unexpected, non-regular, escaped, or checksum-drifted
+file means `STOP`.
 
 The original `roles.sql` must remain immutable. First prove that the isolated
 target already has exactly the platform-managed privilege that caused the prior
@@ -336,6 +347,7 @@ PSQL_VERSION=<version>
 ENCRYPTED_ARTIFACT_LOCATION=<restricted off-site reference>
 ENCRYPTED_ARTIFACT_SHA256=<64 hex>
 SOURCE_MANIFEST_SHA256=<64 hex>
+PLAINTEXT_VERIFICATION_RESULT_SHA256=<64 hex>
 SOURCE_ROLES_SHA256=<64 hex>
 RESTORE_ROLES_SHA256=<64 hex>
 ROLES_NORMALIZATION_RESULT_SHA256=<64 hex>
