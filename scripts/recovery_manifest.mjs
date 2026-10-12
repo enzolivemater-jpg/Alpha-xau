@@ -32,18 +32,22 @@ function requireBinary(name) {
 }
 
 function psql(query) {
-  const pgoptions = [
-    process.env.PGOPTIONS ?? '',
-    '-c default_transaction_read_only=on',
-    '-c statement_timeout=60000',
-    '-c lock_timeout=5000',
-  ].filter(Boolean).join(' ');
+  // Use a transaction-level guard instead of a session startup GUC. Supabase
+  // poolers may not preserve startup/session options consistently, while
+  // BEGIN TRANSACTION READ ONLY is enforced by PostgreSQL for this transaction.
+  const guardedQuery = `
+BEGIN TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '60s';
+SET LOCAL lock_timeout = '5s';
+${query};
+COMMIT;
+`;
   try {
     return execFileSync('psql', [
-      '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', query,
+      '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-c', guardedQuery,
     ], {
       encoding: 'utf8',
-      env: { ...process.env, PGOPTIONS: pgoptions },
+      env: process.env,
       timeout: 70000,
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();

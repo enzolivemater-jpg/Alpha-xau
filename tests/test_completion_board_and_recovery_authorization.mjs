@@ -30,8 +30,8 @@ console.log('PASS completion board uses evidence levels, gates, blockers, action
 
 const scriptHash = createHash('sha256').update(script).digest('hex');
 const runbookHash = createHash('sha256').update(runbook).digest('hex');
-assert.equal(scriptHash, '9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70');
-assert.equal(runbookHash, 'cf431d92e97405c692ebb5189883652923676f12ed7558b609b586ad63c07b8b');
+assert.equal(scriptHash, 'fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31');
+assert.equal(runbookHash, 'be23335099ce6e0c6d8a061bd430cd484806d5f4b648c4b5ccf2c074deca7012');
 for (const value of [
   scriptHash, runbookHash, 'READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED',
   'TARGET_MODE=NEW_DEDICATED_PROJECT|RESET_EF12_STAGING',
