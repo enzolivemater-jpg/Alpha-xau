@@ -32,9 +32,10 @@ Frozen implementation hashes:
 | --- | --- |
 | `scripts/recovery_manifest.mjs` | `fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31` |
 | `scripts/prepare_recovery_roles.mjs` | `623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd` |
-| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `1e2815a7545d745fcfb80d10e9199186a5b78a8595e3f54778d022e45068daf4` |
+| `scripts/verify_recovery_plaintext.mjs` | `c0624627a8c877f1f8e541f0891045b3b8348f450d524c3cf1294e35f5cd5e7f` |
+| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `05007a87f0a4164c22f49a659ae6493a8c81ba8b76d53a40f4bdce2e35e99880` |
 
-The three implementation hashes above are the frozen REC-1 V3 payload. A change to
+The four implementation hashes above are the frozen REC-1 V3 payload. A change to
 any file invalidates this packet and requires a new review. The current
 40-hex `main` SHA is intentionally supplied by the approver at execution time:
 hard-coding it in this document would make the packet invalidate itself when
@@ -122,6 +123,24 @@ comparison.
 production restore, migration, runtime, route, schedule, provider, broker, or
 trading authority is added.
 
+### Payload revision — 2026-10-12 (fresh-workdir plaintext verification)
+
+The previously frozen V3 runbook used `sha256sum -c` directly on the embedded
+capture-time ledger after decrypting into a new private work directory. Because
+that ledger records the original absolute private paths, a stale original
+directory could satisfy the check without proving the newly decrypted files.
+
+The frozen payload now uses `scripts/verify_recovery_plaintext.mjs`. It accepts
+only the six reviewed recovery basenames, resolves every verified file from the
+new `RECOVERY_WORKDIR`, rejects symlinks/path escapes, and recomputes each
+SHA-256 there. Capture-time absolute paths are retained only as provenance and
+are never followed during resume verification.
+
+**Every earlier REC-1 execution approval is stale and void** after this
+correction. A fresh authorization must carry all four current implementation
+hashes. This correction adds no production access, restore, migration, runtime,
+deployment, provider, broker, or trading authority.
+
 ## 2. Why it is needed
 
 Production is on Supabase Free and no verified restorable recovery point is
@@ -206,7 +225,7 @@ is unavailable and `STOP` applies:
    response;
 3. production access is either read-only capture/dump in `FULL` mode or completely disabled in `RESUME_VERIFIED_BACKUP`; `PRODUCTION_RESTORE_AUTHORIZED=NO`;
 4. the target is non-production only, under §4;
-5. `FINAL_MAIN_SHA`, `REC1_SCRIPT_SHA256`, `REC1_ROLES_NORMALIZER_SHA256`, and `REC1_RUNBOOK_SHA256` match exactly and are recomputed at execution preflight, and every command runs from that checkout without modification;
+5. `FINAL_MAIN_SHA`, `REC1_SCRIPT_SHA256`, `REC1_ROLES_NORMALIZER_SHA256`, `REC1_PLAINTEXT_VERIFIER_SHA256`, and `REC1_RUNBOOK_SHA256` match exactly and are recomputed at execution preflight, and every command runs from that checkout without modification;
 6. the local tooling preflight is `PASS`;
 7. source and target manifests are compared by `recovery_manifest.mjs compare`
    with exact `status: PASS`; no human judgement can substitute for it;
@@ -275,7 +294,8 @@ ENCRYPTION_RECIPIENT_CONFIRMED=YES
 FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
 REC1_SCRIPT_SHA256=fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31
 REC1_ROLES_NORMALIZER_SHA256=623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd
-REC1_RUNBOOK_SHA256=1e2815a7545d745fcfb80d10e9199186a5b78a8595e3f54778d022e45068daf4
+REC1_PLAINTEXT_VERIFIER_SHA256=c0624627a8c877f1f8e541f0891045b3b8348f450d524c3cf1294e35f5cd5e7f
+REC1_RUNBOOK_SHA256=05007a87f0a4164c22f49a659ae6493a8c81ba8b76d53a40f4bdce2e35e99880
 RESUME_SOURCE_ARTIFACT_SHA256=<64 hex or N/A for FULL>
 PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES|NO
 SOURCE_RECAPTURE_AUTHORIZED=YES|NO
@@ -299,6 +319,6 @@ Generic language such as “continue”, “validate”, or “I authorize” do
 authorize credential use, production extraction, or target destruction.
 
 At execution preflight, the operator must verify that `FINAL_MAIN_SHA` equals
-the remote `main` head and recompute all three REC-1 V3 SHA-256 values from that exact
+the remote `main` head and recompute all four REC-1 V3 SHA-256 values from that exact
 checkout. A mismatch, uncommitted file, or subsequent commit means `STOP` and
 requires renewed approval with the new SHA.
