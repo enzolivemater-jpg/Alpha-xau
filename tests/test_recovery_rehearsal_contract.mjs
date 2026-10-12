@@ -6,12 +6,15 @@ const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 const script = read('scripts/recovery_manifest.mjs');
 
 for (const required of [
-  'REC-1 OPERATOR KIT V2 READY — RE-EXECUTION NOT AUTHORIZED',
+  'REC-1 V3 OPERATOR KIT READY — RESUME/RE-EXECUTION NOT AUTHORIZED',
   'ejvwmjgfvhsslqiydwpz',
   'supabase db dump --db-url "$SOURCE_DB_URL"',
   '--role-only', '--data-only', '--use-copy', '--schema supabase_migrations',
   'psql --single-transaction --variable ON_ERROR_STOP=1',
   'xau-recovery.tar.age', 'COMPARISON_STATUS=PASS',
+  'scripts/prepare_recovery_roles.mjs', 'roles.restore.sql',
+  'SOURCE_ROLES_SHA256', 'RESTORE_ROLES_SHA256',
+  'MANAGED_PARAMETER_ACL_COMPATIBILITY=PASS',
   'This does not authorize migrations 0029–0034 or runtime.',
 ]) assert.ok(runbook.includes(required), `runbook missing ${required}`);
 
@@ -24,6 +27,11 @@ assert.match(runbook, /Capture also runs the managed-schema guard before any dum
 assert.match(runbook, /The guard fails closed, so capture exits non-zero and `STOP` applies/);
 assert.match(runbook, /Do not reproduce, migrate, or\s+waive Supabase-managed internal objects/);
 assert.match(runbook, /Storage API objects, Edge Functions/);
+assert.match(runbook, /does not authorize another production access or dump/i);
+assert.match(runbook, /target already has exactly the platform-managed privilege/i);
+assert.match(runbook, /exactly one occurrence of the reviewed/i);
+assert.match(runbook, /Never replace the original `roles\.sql`/i);
+assert.doesNotMatch(runbook, /--file "\$RECOVERY_WORKDIR\/roles\.sql"/);
 assert.ok(!/postgres(?:ql)?:\/\/[^\s<]*:[^\s@<]+@/.test(runbook), 'credential-like URL in runbook');
 
 for (const guard of [
