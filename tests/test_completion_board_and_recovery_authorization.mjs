@@ -34,10 +34,10 @@ const scriptHash = createHash('sha256').update(script).digest('hex');
 const rolesNormalizerHash = createHash('sha256').update(rolesNormalizer).digest('hex');
 const plaintextVerifierHash = createHash('sha256').update(plaintextVerifier).digest('hex');
 const runbookHash = createHash('sha256').update(runbook).digest('hex');
-assert.equal(scriptHash, 'fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31');
+assert.equal(scriptHash, '61032d5af589ab71fdcf9aa8b778c52ae15f2e8c18f8844c628f84573def6f23');
 assert.equal(rolesNormalizerHash, '623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd');
 assert.equal(plaintextVerifierHash, 'c0624627a8c877f1f8e541f0891045b3b8348f450d524c3cf1294e35f5cd5e7f');
-assert.equal(runbookHash, '05007a87f0a4164c22f49a659ae6493a8c81ba8b76d53a40f4bdce2e35e99880');
+assert.equal(runbookHash, '67fb77014ab0ad529323c72f30dc531e0e73568ae9dc8e25473b9a3b00cda9f2');
 for (const value of [
   scriptHash, rolesNormalizerHash, plaintextVerifierHash, runbookHash, 'REC-1 V3 READY FOR FRESH HUMAN DECISION — NOT AUTHORIZED',
   'REC1_EXECUTION_MODE=FULL|RESUME_VERIFIED_BACKUP',
@@ -55,6 +55,8 @@ for (const value of [
 
 assert.match(packet, /production ref can never be a target/i);
 assert.match(packet, /Every earlier REC-1 execution approval is stale and void/i);
+assert.match(packet, /visible-column ordinal comparison/i);
+assert.match(packet, /canonicalizes \*\*only\*\*/i);
 assert.match(packet, /Generic language such as “continue”/);
 assert.match(packet, /hard-coding it in this document would make the packet invalidate itself/i);
 assert.match(packet, /verify that `FINAL_MAIN_SHA` equals\s+the remote `main` head/i);
