@@ -324,9 +324,21 @@ major version and exact equality of:
 - complete Supabase migration history;
 - exact row counts for every base/partitioned table in `public` and
   `supabase_migrations`;
-- public relations, columns/defaults, functions and body hashes, constraints,
-  indexes, policies, triggers, view hashes, enums, and installed extension
-  names.
+- public relations, visible columns/defaults/types/order, functions and body
+  hashes, constraints, indexes, policies, triggers, view hashes, enums, and
+  installed extension names.
+
+One narrow canonicalization is permitted before the catalog comparison:
+`catalog.columns[].position` is converted from the raw PostgreSQL `attnum`
+to a 1-based visible-column ordinal within each table. PostgreSQL keeps
+`attnum` holes for dropped columns, while a logical dump/restore recreates
+only visible columns and may therefore compact those physical numbers. The
+comparator validates positive strictly increasing physical positions, unique
+visible column names, and contiguous table blocks before canonicalizing.
+Column identity, visible order, type, nullability, defaults, identity/generated
+flags, and every non-column catalog field remain exact and are never
+canonicalized. Any malformed column sequence or any mismatch outside those raw
+`attnum` gaps means `STOP`.
 
 The target guard refuses the production project ref. The report contains no
 row contents or credentials.
