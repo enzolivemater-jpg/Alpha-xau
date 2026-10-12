@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const board = read('docs/XAU_V2_COMPLETION_BOARD.md');
 const packet = read('docs/XAU_V2_RECOVERY_EXECUTION_AUTHORIZATION_PACKET.md');
+const v3 = read('docs/XAU_V2_RECOVERY_V3_AMENDMENT.md');
 const script = read('scripts/recovery_manifest.mjs');
 const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
@@ -31,9 +32,9 @@ console.log('PASS completion board uses evidence levels, gates, blockers, action
 const scriptHash = createHash('sha256').update(script).digest('hex');
 const runbookHash = createHash('sha256').update(runbook).digest('hex');
 assert.equal(scriptHash, 'fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31');
-assert.equal(runbookHash, 'be23335099ce6e0c6d8a061bd430cd484806d5f4b648c4b5ccf2c074deca7012');
+assert.equal(runbookHash, '3e72e17ac4230affcde2de1ed61eb00f83546f4e24f5ce7bda2c648c906cb121');
 for (const value of [
-  scriptHash, runbookHash, 'READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED',
+  scriptHash, 'READY FOR ONE-RESPONSE HUMAN DECISION — NOT AUTHORIZED',
   'CHANGE_REFERENCE=<ticket/change id>',
   'TARGET_MODE=NEW_DEDICATED_PROJECT|RESET_EF12_STAGING',
   'TARGET_RESET_AUTHORIZED=YES|NO',
@@ -42,6 +43,11 @@ for (const value of [
   'MIGRATIONS_0029_0034_AUTHORIZED=NO', 'RUNTIME_AUTHORIZED=NO',
   'FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>',
 ]) assert.ok(packet.includes(value), `authorization packet missing ${value}`);
+
+for (const value of [
+  scriptHash, runbookHash, 'READY FOR FRESH HUMAN DECISION — NOT AUTHORIZED',
+  'roles-restore.sql', 'perform no new production capture/dump',
+]) assert.ok(v3.includes(value), `V3 amendment missing ${value}`);
 
 assert.match(packet, /production ref can never be a target/i);
 assert.match(packet, /Every previous REC-1 execution approval is\s+stale and void/);
