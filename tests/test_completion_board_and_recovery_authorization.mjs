@@ -7,6 +7,7 @@ const board = read('docs/XAU_V2_COMPLETION_BOARD.md');
 const packet = read('docs/XAU_V2_RECOVERY_EXECUTION_AUTHORIZATION_PACKET.md');
 const script = read('scripts/recovery_manifest.mjs');
 const rolesNormalizer = read('scripts/prepare_recovery_roles.mjs');
+const plaintextVerifier = read('scripts/verify_recovery_plaintext.mjs');
 const runbook = read('docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md');
 
 for (const value of [
@@ -31,16 +32,19 @@ console.log('PASS completion board uses evidence levels, gates, blockers, action
 
 const scriptHash = createHash('sha256').update(script).digest('hex');
 const rolesNormalizerHash = createHash('sha256').update(rolesNormalizer).digest('hex');
+const plaintextVerifierHash = createHash('sha256').update(plaintextVerifier).digest('hex');
 const runbookHash = createHash('sha256').update(runbook).digest('hex');
 assert.equal(scriptHash, 'fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31');
 assert.equal(rolesNormalizerHash, '623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd');
-assert.equal(runbookHash, '1e2815a7545d745fcfb80d10e9199186a5b78a8595e3f54778d022e45068daf4');
+assert.equal(plaintextVerifierHash, 'c0624627a8c877f1f8e541f0891045b3b8348f450d524c3cf1294e35f5cd5e7f');
+assert.equal(runbookHash, '05007a87f0a4164c22f49a659ae6493a8c81ba8b76d53a40f4bdce2e35e99880');
 for (const value of [
-  scriptHash, rolesNormalizerHash, runbookHash, 'REC-1 V3 READY FOR FRESH HUMAN DECISION — NOT AUTHORIZED',
+  scriptHash, rolesNormalizerHash, plaintextVerifierHash, runbookHash, 'REC-1 V3 READY FOR FRESH HUMAN DECISION — NOT AUTHORIZED',
   'REC1_EXECUTION_MODE=FULL|RESUME_VERIFIED_BACKUP',
   'CHANGE_REFERENCE=<ticket/change id>',
   'TARGET_MODE=NEW_DEDICATED_PROJECT|RESET_EF12_STAGING',
   'TARGET_RESET_AUTHORIZED=YES|NO',
+  'REC1_PLAINTEXT_VERIFIER_SHA256=c0624627a8c877f1f8e541f0891045b3b8348f450d524c3cf1294e35f5cd5e7f',
   'RESUME_SOURCE_ARTIFACT_SHA256=<64 hex or N/A for FULL>',
   'PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES|NO',
   'SOURCE_RECAPTURE_AUTHORIZED=YES|NO',

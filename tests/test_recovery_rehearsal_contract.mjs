@@ -13,6 +13,7 @@ for (const required of [
   'psql --single-transaction --variable ON_ERROR_STOP=1',
   'xau-recovery.tar.age', 'COMPARISON_STATUS=PASS',
   'scripts/prepare_recovery_roles.mjs', 'roles.restore.sql',
+  'scripts/verify_recovery_plaintext.mjs', 'plaintext-verification.json',
   'SOURCE_ROLES_SHA256', 'RESTORE_ROLES_SHA256',
   'MANAGED_PARAMETER_ACL_COMPATIBILITY=PASS',
   'This does not authorize migrations 0029–0034 or runtime.',
@@ -31,6 +32,8 @@ assert.match(runbook, /perform no new\s+production capture or dump/i);
 assert.match(runbook, /target already has exactly the platform-managed privilege/i);
 assert.match(runbook, /exactly one occurrence of the reviewed/i);
 assert.match(runbook, /Never replace the original `roles\.sql`/i);
+assert.match(runbook, /never follows the old absolute ledger paths/i);
+assert.doesNotMatch(runbook, /sha256sum -c "\$RECOVERY_WORKDIR\/plaintext-sha256\.txt"/);
 assert.doesNotMatch(runbook, /--file "\$RECOVERY_WORKDIR\/roles\.sql"/);
 assert.ok(!/postgres(?:ql)?:\/\/[^\s<]*:[^\s@<]+@/.test(runbook), 'credential-like URL in runbook');
 
