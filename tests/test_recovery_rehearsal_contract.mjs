@@ -33,6 +33,8 @@ assert.match(runbook, /target already has exactly the platform-managed privilege
 assert.match(runbook, /exactly one occurrence of the reviewed/i);
 assert.match(runbook, /Never replace the original `roles\.sql`/i);
 assert.match(runbook, /never follows the old absolute ledger paths/i);
+assert.match(runbook, /visible-column ordinal/i);
+assert.match(runbook, /raw PostgreSQL `attnum` gaps/i);
 assert.doesNotMatch(runbook, /sha256sum -c "\$RECOVERY_WORKDIR\/plaintext-sha256\.txt"/);
 assert.doesNotMatch(runbook, /--file "\$RECOVERY_WORKDIR\/roles\.sql"/);
 assert.ok(!/postgres(?:ql)?:\/\/[^\s<]*:[^\s@<]+@/.test(runbook), 'credential-like URL in runbook');
@@ -42,7 +44,8 @@ for (const guard of [
   "RECOVERY_ALLOW_PRODUCTION_READ_ONLY",
   "RECOVERY_REHEARSAL",
   "production can never be a recovery rehearsal target",
-  "assert.deepEqual(target[key], source[key])",
+  "canonicalizeVisibleColumnPositions",
+  "assert.deepEqual(targetCatalog, sourceCatalog)",
   "const managedSchemas = managedSchemaGuard();",
   "FROM pg_catalog.pg_policies WHERE schemaname IN ('auth','storage')",
   "FROM pg_catalog.pg_publication_tables WHERE schemaname IN ('auth','storage')",
