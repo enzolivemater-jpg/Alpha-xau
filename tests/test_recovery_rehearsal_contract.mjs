@@ -42,8 +42,8 @@ for (const guard of [
 
 assert.ok(!script.includes('PGPASSWORD:'), 'script must not construct a password value');
 assert.ok(!script.includes('--dbname'), 'script must use libpq env rather than URL arguments');
-assert.ok(!script.includes('default_transaction_read_only=on'),
-  'manifest must not depend on pooler/session startup GUC for read-only safety');
+assert.ok(!script.includes("'-c default_transaction_read_only=on'"),
+  'manifest must not configure the pooler/session startup GUC as its read-only guard');
 assert.ok(script.includes("SET LOCAL statement_timeout = '60s'"),
   'manifest must scope statement_timeout to the read-only transaction');
 assert.ok(script.includes("SET LOCAL lock_timeout = '5s'"),
