@@ -1,6 +1,6 @@
 # XAU V2 — verified logical backup and recovery rehearsal
 
-Status: `REC-1 OPERATOR KIT V2 READY — RE-EXECUTION NOT AUTHORIZED`
+Status: `REC-1 V3 OPERATOR KIT READY — RESUME/RE-EXECUTION NOT AUTHORIZED`
 
 Production project: `ejvwmjgfvhsslqiydwpz` (`ALPHA-XAU-TERMINAL`)  
 Required target: a dedicated, disposable, non-production Supabase project  
@@ -22,6 +22,35 @@ the guarded transaction and fails closed otherwise. No production action,
 migration, runtime activation, or prior REC-1 authorization is carried forward
 by this re-freeze; a fresh execution authorization and maintenance window are
 required.
+
+## 0a. REC-1 V3 managed parameter privilege note
+
+The second authorized REC-1 attempt completed the source manifest, logical
+backup, encryption, decryption verification, and encrypted off-site copy. The
+isolated target restore then stopped fail-closed on the generated role-dump
+statement:
+
+```sql
+GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";
+```
+
+Read-only reconciliation after the stop proved that production and the fresh
+target already expose the same platform-managed privilege:
+`supabase_realtime_admin` has `SET` on `log_min_messages`, granted by
+`supabase_admin`. The application schema/data and migration history were not
+restored by the failed transaction.
+
+V3 preserves the original `roles.sql` and its checksum. A separate
+`roles.restore.sql` may omit only the exact statement above after all
+fail-closed checks in Step 6.1 pass. Any missing, duplicated, variant, or
+additional managed-parameter statement, checksum drift, target ACL mismatch,
+or restore error means `STOP`.
+
+A V3 resume may reuse the already verified encrypted backup and perform no new
+production capture or dump. Resume still requires a fresh authorization bound
+to the current frozen payload and approved isolated target. Production access,
+migrations 0029–0034, runtime, deployment, provider, broker, and trading
+authority remain outside this scope.
 
 This runbook implements recovery Option A from the Event Facts production
 authorization packet. It does not authorize an operator, production access,
@@ -185,11 +214,63 @@ functions, schedules, and application secrets. Supabase warns that new-project
 default privileges can grant excess table privileges, so revoke those defaults
 before restoring the schema.
 
+### 6.1 V3 verified-backup resume and managed-parameter compatibility
+
+For an authorized V3 resume, decrypt the previously verified encrypted artifact
+into a new private work directory. Do not reuse or edit plaintext from a failed
+restore directory. Verify the embedded plaintext ledger before doing anything
+with the SQL files:
+
+```bash
+sha256sum -c "$RECOVERY_WORKDIR/plaintext-sha256.txt"
+```
+
+The original `roles.sql` must remain immutable. First prove that the isolated
+target already has exactly the platform-managed privilege that caused the prior
+restore to stop:
+
+```bash
+TARGET_MANAGED_PARAMETER_ACL_COUNT="$(
+  psql --dbname "$TARGET_DB_URL" -X -Atqc "
+    SELECT count(*)
+    FROM pg_catalog.pg_parameter_acl p
+    CROSS JOIN LATERAL pg_catalog.aclexplode(p.paracl) a
+    WHERE p.parname='log_min_messages'
+      AND pg_catalog.pg_get_userbyid(a.grantee)='supabase_realtime_admin'
+      AND a.privilege_type='SET'
+      AND pg_catalog.pg_get_userbyid(a.grantor)='supabase_admin';
+  "
+)"
+test "$TARGET_MANAGED_PARAMETER_ACL_COUNT" = "1"
+```
+
+Then create a separate checksum-bound restore copy:
+
+```bash
+node scripts/prepare_recovery_roles.mjs \
+  "$RECOVERY_WORKDIR/roles.sql" \
+  "$RECOVERY_WORKDIR/plaintext-sha256.txt" \
+  "$RECOVERY_WORKDIR/roles.restore.sql" \
+  > "$RECOVERY_WORKDIR/roles-normalization.json"
+```
+
+The normalizer requires the checksum recorded for the original `roles.sql`,
+exactly one occurrence of the reviewed
+`GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";`
+statement, a distinct output path, and a non-existing output file. It removes
+nothing else. Missing, duplicated, altered, checksum-drifted, or broadened input
+fails closed. Never replace the original `roles.sql`.
+
+For a fresh full run, the same compatibility checks and derived
+`roles.restore.sql` are required before restore.
+
+Restore with `ON_ERROR_STOP=1` unchanged:
+
 ```bash
 psql --variable ON_ERROR_STOP=1 --dbname "$TARGET_DB_URL" \
   --command 'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;'
 psql --single-transaction --variable ON_ERROR_STOP=1 \
-  --file "$RECOVERY_WORKDIR/roles.sql" \
+  --file "$RECOVERY_WORKDIR/roles.restore.sql" \
   --file "$RECOVERY_WORKDIR/schema.sql" \
   --command 'SET session_replication_role = replica' \
   --file "$RECOVERY_WORKDIR/data.sql" \
@@ -255,6 +336,11 @@ PSQL_VERSION=<version>
 ENCRYPTED_ARTIFACT_LOCATION=<restricted off-site reference>
 ENCRYPTED_ARTIFACT_SHA256=<64 hex>
 SOURCE_MANIFEST_SHA256=<64 hex>
+SOURCE_ROLES_SHA256=<64 hex>
+RESTORE_ROLES_SHA256=<64 hex>
+ROLES_NORMALIZATION_RESULT_SHA256=<64 hex>
+MANAGED_PARAMETER_ACL_COMPATIBILITY=PASS
+RESUME_SOURCE_ARTIFACT_SHA256=<64 hex or N/A for full run>
 RESTORE_STARTED_AT=<ISO-8601 UTC>
 RESTORE_FINISHED_AT=<ISO-8601 UTC>
 COMPARISON_STATUS=PASS
