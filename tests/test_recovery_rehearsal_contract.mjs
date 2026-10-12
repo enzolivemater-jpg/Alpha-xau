@@ -27,7 +27,7 @@ assert.match(runbook, /Capture also runs the managed-schema guard before any dum
 assert.match(runbook, /The guard fails closed, so capture exits non-zero and `STOP` applies/);
 assert.match(runbook, /Do not reproduce, migrate, or\s+waive Supabase-managed internal objects/);
 assert.match(runbook, /Storage API objects, Edge Functions/);
-assert.match(runbook, /does not authorize another production access or dump/i);
+assert.match(runbook, /perform no new\s+production capture or dump/i);
 assert.match(runbook, /target already has exactly the platform-managed privilege/i);
 assert.match(runbook, /exactly one occurrence of the reviewed/i);
 assert.match(runbook, /Never replace the original `roles\.sql`/i);
