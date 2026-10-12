@@ -1,10 +1,27 @@
 # XAU V2 — verified logical backup and recovery rehearsal
 
-Status: `REC-1 OPERATOR KIT READY — NOT EXECUTED`
+Status: `REC-1 OPERATOR KIT V2 READY — RE-EXECUTION NOT AUTHORIZED`
 
 Production project: `ejvwmjgfvhsslqiydwpz` (`ALPHA-XAU-TERMINAL`)  
 Required target: a dedicated, disposable, non-production Supabase project  
 Scope: database roles, application schema/data, and migration history
+
+## 0. REC-1 V2 re-freeze note
+
+The first authorized REC-1 attempt stopped before any logical dump or target
+restore because the source manifest observed `transaction_read_only=off` when
+the previous implementation relied on the startup/session GUC
+`default_transaction_read_only=on` through the Supabase Session pooler. The
+target remained empty.
+
+V2 removes that pooler-dependent assumption. Every manifest catalog/count query
+is now executed inside an explicit PostgreSQL `BEGIN TRANSACTION READ ONLY`
+transaction, with `statement_timeout` and `lock_timeout` applied using
+`SET LOCAL`. The manifest still verifies `transaction_read_only=on` from inside
+the guarded transaction and fails closed otherwise. No production action,
+migration, runtime activation, or prior REC-1 authorization is carried forward
+by this re-freeze; a fresh execution authorization and maintenance window are
+required.
 
 This runbook implements recovery Option A from the Event Facts production
 authorization packet. It does not authorize an operator, production access,
@@ -69,7 +86,9 @@ pooler. Validate both visually without printing either URL.
 ## 3. Capture the source evidence manifest
 
 Export the source connection as standard libpq variables without logging it.
-The manifest command accepts no URL argument, forces read-only sessions, and
+The manifest command accepts no URL argument. Every catalog/count query runs
+inside an explicit `BEGIN TRANSACTION READ ONLY` transaction, with transaction-
+local timeouts, and the first query verifies `transaction_read_only=on`. It
 emits catalog metadata and exact row counts only—never row contents.
 
 ```bash
