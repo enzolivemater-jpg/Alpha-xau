@@ -277,6 +277,54 @@ function readManifest(path) {
   }
 }
 
+function canonicalizeVisibleColumnPositions(catalog, label) {
+  assert.ok(catalog && typeof catalog === 'object' && !Array.isArray(catalog),
+    `${label} catalog must be an object`);
+  assert.ok(Array.isArray(catalog.columns), `${label} catalog.columns must be an array`);
+
+  const stateByTable = new Map();
+  const closedTables = new Set();
+  let activeTable = null;
+
+  const columns = catalog.columns.map((column, index) => {
+    assert.ok(column && typeof column === 'object' && !Array.isArray(column),
+      `${label} catalog.columns[${index}] must be an object`);
+    for (const key of ['schema', 'table', 'name']) {
+      assert.equal(typeof column[key], 'string',
+        `${label} catalog.columns[${index}].${key} must be a string`);
+    }
+    assert.ok(Number.isSafeInteger(column.position) && column.position > 0,
+      `${label} catalog.columns[${index}].position must be a positive integer`);
+
+    const tableKey = `${column.schema}\u0000${column.table}`;
+    if (activeTable !== null && tableKey !== activeTable) {
+      closedTables.add(activeTable);
+      assert.ok(!closedTables.has(tableKey),
+        `${label} catalog.columns table block repeated for ${column.schema}.${column.table}`);
+    }
+    activeTable = tableKey;
+
+    const state = stateByTable.get(tableKey) ?? {
+      lastPhysicalPosition: 0,
+      visibleOrdinal: 0,
+      names: new Set(),
+    };
+    assert.ok(column.position > state.lastPhysicalPosition,
+      `${label} catalog.columns positions must increase within ${column.schema}.${column.table}`);
+    assert.ok(!state.names.has(column.name),
+      `${label} catalog.columns duplicate visible column ${column.schema}.${column.table}.${column.name}`);
+
+    state.lastPhysicalPosition = column.position;
+    state.visibleOrdinal += 1;
+    state.names.add(column.name);
+    stateByTable.set(tableKey, state);
+
+    return { ...column, position: state.visibleOrdinal };
+  });
+
+  return { ...catalog, columns };
+}
+
 function compare(sourcePath, targetPath) {
   const source = readManifest(sourcePath);
   const target = readManifest(targetPath);
@@ -292,13 +340,27 @@ function compare(sourcePath, targetPath) {
     'PostgreSQL major versions differ',
   );
 
-  const checks = ['migrationHistory', 'rowCounts', 'catalog'];
-  for (const key of checks) {
+  for (const key of ['migrationHistory', 'rowCounts']) {
     try {
       assert.deepEqual(target[key], source[key]);
     } catch (error) {
       fail(`${key} mismatch: ${error.message}`);
     }
+  }
+
+  let sourceCatalog;
+  let targetCatalog;
+  try {
+    sourceCatalog = canonicalizeVisibleColumnPositions(source.catalog, 'source');
+    targetCatalog = canonicalizeVisibleColumnPositions(target.catalog, 'target');
+  } catch (error) {
+    fail(`catalog normalization failed: ${error.message}`);
+  }
+
+  try {
+    assert.deepEqual(targetCatalog, sourceCatalog);
+  } catch (error) {
+    fail(`catalog mismatch: ${error.message}`);
   }
   console.log(JSON.stringify({
     status: 'PASS',

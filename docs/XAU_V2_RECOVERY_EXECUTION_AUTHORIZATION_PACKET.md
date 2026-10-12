@@ -30,10 +30,10 @@ Frozen implementation hashes:
 
 | Item | SHA-256 |
 | --- | --- |
-| `scripts/recovery_manifest.mjs` | `fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31` |
+| `scripts/recovery_manifest.mjs` | `61032d5af589ab71fdcf9aa8b778c52ae15f2e8c18f8844c628f84573def6f23` |
 | `scripts/prepare_recovery_roles.mjs` | `623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd` |
 | `scripts/verify_recovery_plaintext.mjs` | `c0624627a8c877f1f8e541f0891045b3b8348f450d524c3cf1294e35f5cd5e7f` |
-| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `05007a87f0a4164c22f49a659ae6493a8c81ba8b76d53a40f4bdce2e35e99880` |
+| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `67fb77014ab0ad529323c72f30dc531e0e73568ae9dc8e25473b9a3b00cda9f2` |
 
 The four implementation hashes above are the frozen REC-1 V3 payload. A change to
 any file invalidates this packet and requires a new review. The current
@@ -140,6 +140,29 @@ are never followed during resume verification.
 correction. A fresh authorization must carry all four current implementation
 hashes. This correction adds no production access, restore, migration, runtime,
 deployment, provider, broker, or trading authority.
+
+
+### Payload revision — 2026-10-12 (visible-column ordinal comparison)
+
+A verified isolated restore exposed one catalog-only mismatch caused by
+PostgreSQL physical column numbering: source tables can retain holes in
+`pg_attribute.attnum` after columns are dropped, while a logical
+dump/restore recreates only visible columns and compacts those physical
+positions.
+
+The comparator now canonicalizes **only**
+`catalog.columns[].position` into a 1-based visible-column ordinal within each
+table before comparing catalogs. It first validates positive strictly
+increasing physical positions, unique visible column names, and contiguous
+table blocks. Visible column identity/order/type/default/nullability,
+identity/generated flags, every other catalog field, migration history, and row
+counts remain exact and fail closed on any mismatch.
+
+**Every earlier REC-1 execution approval is stale and void** for this re-freeze.
+A fresh approval must quote the new recovery-manifest and runbook hashes above.
+No production access, restore, migration, runtime, route, schedule, provider,
+broker, or trading authority is added.
+
 
 ## 2. Why it is needed
 
@@ -292,10 +315,10 @@ TARGET_RESET_AUTHORIZED=YES|NO
 ENCRYPTED_OFFSITE_LOCATION=<restricted destination reference>
 ENCRYPTION_RECIPIENT_CONFIRMED=YES
 FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
-REC1_SCRIPT_SHA256=fd95a49fbd7eca3938d4044e47d16b6fab7f86317362e173d8482096b06bac31
+REC1_SCRIPT_SHA256=61032d5af589ab71fdcf9aa8b778c52ae15f2e8c18f8844c628f84573def6f23
 REC1_ROLES_NORMALIZER_SHA256=623f1640422028719556da71c97c8e11391a273de7358d327431559573df91dd
 REC1_PLAINTEXT_VERIFIER_SHA256=c0624627a8c877f1f8e541f0891045b3b8348f450d524c3cf1294e35f5cd5e7f
-REC1_RUNBOOK_SHA256=05007a87f0a4164c22f49a659ae6493a8c81ba8b76d53a40f4bdce2e35e99880
+REC1_RUNBOOK_SHA256=67fb77014ab0ad529323c72f30dc531e0e73568ae9dc8e25473b9a3b00cda9f2
 RESUME_SOURCE_ARTIFACT_SHA256=<64 hex or N/A for FULL>
 PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES|NO
 SOURCE_RECAPTURE_AUTHORIZED=YES|NO

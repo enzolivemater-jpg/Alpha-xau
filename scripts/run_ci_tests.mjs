@@ -106,6 +106,7 @@ const TEST_FILES = [
   'tests/test_prepare_recovery_roles.mjs',
   'tests/test_verify_recovery_plaintext.mjs',
   'tests/test_release_identity_lookup.mjs',
+  'tests/test_recovery_manifest_compare.mjs',
   'tests/test_recovery_rehearsal_contract.mjs',
   'tests/test_regime_contract.mjs',
   'tests/test_security_baseline_hardening_contract.mjs',
