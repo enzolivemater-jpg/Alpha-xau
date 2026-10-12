@@ -1,0 +1,11 @@
+{
+  "sourceUrl": "https://www.bea.gov/news/2026/personal-income-and-outlays-july-2026",
+  "retrievedAt": "2026-10-09",
+  "mediaType": "text/html",
+  "contentEncoding": "gzip",
+  "compressedArtifactFile": "bea_pce_2026_07.archive.html.gz",
+  "compressedBytes": 10926,
+  "compressedSha256": "56b12a6599905151d07e3764ec206284207a5785698db2bafda156449aa30398",
+  "rawHtmlBytes": 53457,
+  "rawHtmlSha256": "6dbc1950e4a7b06691c4cf7206623cd0231fd94d565fc6a0eaf954ddedec65ec"
+}

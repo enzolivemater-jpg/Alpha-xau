@@ -60,6 +60,19 @@ Material changes, both from the current official Supabase guidance:
 
 No other REC-1 guarantee changed.
 
+### Local tooling preflight — PASS (2026-10-12)
+
+The owner reported `REC1_LOCAL_TOOLING_PREFLIGHT=PASS`. This closes only the
+local tool-availability check. It does not authorize production reads, a dump,
+target reset, restore, off-site transfer, migration, deployment, or any other
+production action. REC-1 remains incomplete until the authorization fields in
+section 9 are supplied, the isolated rehearsal is executed, and exact recovery
+evidence is reviewed.
+
+An owner-directed production freeze also keeps remote `main` at
+`a4bdd6d43d048f98dc7e506537a82d4f7488d119`. Architecture and PR preparation
+may continue, but no PR may merge until REC-1 is explicitly declared complete.
+
 ## 2. Why it is needed
 
 Production is on Supabase Free and no verified restorable recovery point is

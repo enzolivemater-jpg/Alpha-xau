@@ -36,6 +36,7 @@ const TEST_FILES = [
   'tests/test_alert_contract.mjs',
   'tests/test_ai_committee_v2_contract.mjs',
   'tests/test_bea_pce_adapter.mjs',
+  'tests/test_bea_pce_html_parser.mjs',
   'tests/test_bls_cpi_event_facts_adapter.mjs',
   'tests/test_bls_employment_situation_adapter.mjs',
   'tests/test_bls_employment_situation_ahe_artifact.mjs',
