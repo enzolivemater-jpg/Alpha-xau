@@ -12,7 +12,7 @@ for (const required of [
   '--role-only', '--data-only', '--use-copy', '--schema supabase_migrations',
   'psql --single-transaction --variable ON_ERROR_STOP=1',
   'xau-recovery.tar.age', 'COMPARISON_STATUS=PASS',
-  'This does not authorize migrations 0029–0033 or runtime.',
+  'This does not authorize migrations 0029–0034 or runtime.',
 ]) assert.ok(runbook.includes(required), `runbook missing ${required}`);
 
 assert.match(runbook, /generic instruction such as “continue” is insufficient/i);

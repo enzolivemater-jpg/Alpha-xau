@@ -31,7 +31,7 @@ Frozen implementation hashes:
 | Item | SHA-256 |
 | --- | --- |
 | `scripts/recovery_manifest.mjs` | `9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70` |
-| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `73072b286c6582c0116314dcbcc7db9513b7d28ad666bce1a1baa2abd397f78e` |
+| `docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md` | `cf431d92e97405c692ebb5189883652923676f12ed7558b609b586ad63c07b8b` |
 
 The two implementation hashes above are the frozen REC-1 payload. A change to
 either file invalidates this packet and requires a new review. The current
@@ -225,7 +225,7 @@ ENCRYPTED_OFFSITE_LOCATION=<restricted destination reference>
 ENCRYPTION_RECIPIENT_CONFIRMED=YES
 FINAL_MAIN_SHA=<current 40-hex main SHA verified immediately before execution>
 REC1_SCRIPT_SHA256=9d0d3ea003a0ad87885e4e3297570e10dc804f301df1b650e20d2834da71ec70
-REC1_RUNBOOK_SHA256=73072b286c6582c0116314dcbcc7db9513b7d28ad666bce1a1baa2abd397f78e
+REC1_RUNBOOK_SHA256=cf431d92e97405c692ebb5189883652923676f12ed7558b609b586ad63c07b8b
 PRODUCTION_READ_ONLY_CAPTURE_AND_DUMP_AUTHORIZED=YES
 PRODUCTION_RESTORE_AUTHORIZED=NO
 MIGRATIONS_0029_0034_AUTHORIZED=NO

@@ -263,7 +263,7 @@ audit is recorded only as `AUTOMATED_SECONDARY_AUDIT`; it is never represented
 as a human reviewer or as reviewer sign-off. Any mismatch or audit `FAIL`
 means `STOP`, and the gate stays open.
 
-This does not authorize migrations 0029–0033 or runtime.
+This does not authorize migrations 0029–0034 or runtime.
 
 ## 9. Official references frozen for this procedure
 
