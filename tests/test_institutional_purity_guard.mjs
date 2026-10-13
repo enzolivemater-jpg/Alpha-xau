@@ -112,7 +112,7 @@ const cases = [
   ['Date.now();', 'FORBIDDEN_CALL:Date.now'],
   ['new Date();', 'IMPLICIT_CLOCK'],
   ['Math.random();', 'FORBIDDEN_CALL:Math.random'],
-  ["import { runJob } from '../worker.js';", 'FORBIDDEN_IMPORT:backend/worker.ts'],
+  ["import { runJob } from '../worker.js';", 'FORBIDDEN_IMPORT:../worker.js'],
   ["import('remote');", 'DYNAMIC_IMPORT'],
   ['process.env.API_SECRET;', 'ENVIRONMENT_ACCESS'],
   ['new WebSocket("wss://example.invalid");', 'FORBIDDEN_CONSTRUCTOR:WebSocket'],
