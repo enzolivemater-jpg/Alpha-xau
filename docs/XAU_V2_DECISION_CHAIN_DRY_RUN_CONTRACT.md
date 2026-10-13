@@ -65,9 +65,11 @@ from a log, and reports `integrity=VIOLATED` with stage-scoped codes when:
 - a stage reports a state no unapproved method can reach
   (`STAGE_STATE_FORBIDDEN`);
 - a field reserved for an approved positive method is populated —
-  regime, scenario probability/target, provider request/response, PM input,
-  allocation, size, stop, verdict, order, trade ticket, recipient, channel,
-  payload or acceptance run (`POSITIVE_OUTPUT_FORBIDDEN`);
+  positioning signal, regime, anything other than the exact ordered H1–H5
+  abstention set, scenario probability/target, provider request/response,
+  evidence acceptance, PM input, a cleared advisory-only flag, allocation,
+  size, stop, verdict, order, trade ticket, live observability, recipient,
+  channel, payload or acceptance run (`POSITIVE_OUTPUT_FORBIDDEN`);
 - the trace does not match the stage envelopes (`TRACE_STAGE_MISMATCH`);
 - the Command Center lineage or propagated action reasons differ
   (`LINEAGE_MISMATCH`, `ACTION_REASONS_NOT_PROPAGATED`);

@@ -177,6 +177,13 @@ assert.deepEqual(tamper((r) => { r.stages.action.order = { side: 'BUY' }; }), ['
 assert.deepEqual(tamper((r) => { r.stages.commandCenter.tradeTicket = {}; }), ['COMMAND_CENTER:POSITIVE_OUTPUT_FORBIDDEN']);
 assert.deepEqual(tamper((r) => { r.stages.committee.providerInvocation = 'COMPLETED'; }), ['AI_COMMITTEE:POSITIVE_OUTPUT_FORBIDDEN']);
 assert.deepEqual(tamper((r) => { r.stages.horizonSynthesis.scenarios[2].probability = 0.6; }), ['HORIZON_SYNTHESIS:POSITIVE_OUTPUT_FORBIDDEN']);
+assert.deepEqual(tamper((r) => { r.stages.horizonSynthesis.scenarios = []; }), ['HORIZON_SYNTHESIS:POSITIVE_OUTPUT_FORBIDDEN']);
+assert.deepEqual(tamper((r) => { r.stages.horizonSynthesis.scenarios.reverse(); }), ['HORIZON_SYNTHESIS:POSITIVE_OUTPUT_FORBIDDEN']);
+assert.deepEqual(tamper((r) => { r.stages.positioning.positioningState = 'CROWDED_LONG'; }), ['POSITIONING:POSITIVE_OUTPUT_FORBIDDEN']);
+assert.deepEqual(tamper((r) => { r.stages.prePm.evidenceAcceptance = 'ACCEPTED'; }), ['PRE_PM:POSITIVE_OUTPUT_FORBIDDEN']);
+assert.deepEqual(tamper((r) => { r.stages.portfolioManager.advisoryOnly = false; }), ['PORTFOLIO_MANAGER:POSITIVE_OUTPUT_FORBIDDEN']);
+assert.deepEqual(tamper((r) => { r.stages.action.advisoryOnly = false; }), ['ACTION:POSITIVE_OUTPUT_FORBIDDEN']);
+assert.deepEqual(tamper((r) => { r.stages.commandCenter.observability.state = 'LIVE'; }), ['COMMAND_CENTER:POSITIVE_OUTPUT_FORBIDDEN']);
 assert.deepEqual(tamper((r) => { r.stages.finalActionRisk.positionSize = 1; }), ['FINAL_ACTION_RISK:POSITIVE_OUTPUT_FORBIDDEN']);
 assert.deepEqual(tamper((r) => { r.stages.alert.recipient = 'desk'; }), ['ALERT:POSITIVE_OUTPUT_FORBIDDEN']);
 assert.deepEqual(tamper((r) => { r.stages.portfolioManager.state = 'READY'; }), [

@@ -41,6 +41,7 @@ import {
 import {
   HORIZON_ALGORITHM_VERSION,
   HORIZON_SCHEMA_VERSION,
+  HORIZONS,
   buildHorizonSynthesisContract,
   type HorizonContractInput,
   type HorizonSynthesisEnvelope,
@@ -273,23 +274,30 @@ function buildTrace(stages: DecisionChainStages): DecisionChainStageTrace[] {
 /** Fields that only an approved positive method could populate. */
 function positiveOutputs(stages: DecisionChainStages): ReadonlyArray<readonly [DecisionChainStage, boolean]> {
   const s = stages;
+  const scenarios = s.horizonSynthesis.scenarios;
   return [
+    ['POSITIONING', s.positioning.positioningState !== 'UNAVAILABLE'],
     ['REGIME', s.regime.regime !== 'UNAVAILABLE' || s.regime.confidence !== null],
-    ['HORIZON_SYNTHESIS', s.horizonSynthesis.scenarios.some((scenario) => scenario.status !== 'ABSTAIN'
+    ['HORIZON_SYNTHESIS', scenarios.length !== HORIZONS.length
+      || scenarios.some((scenario, index) => scenario.horizon !== HORIZONS[index])
+      || scenarios.some((scenario) => scenario.status !== 'ABSTAIN'
       || scenario.direction !== 'UNAVAILABLE' || scenario.probability !== null
       || scenario.target !== null || scenario.invalidation !== null || scenario.confidence !== null)],
     ['AI_COMMITTEE', s.committee.providerInvocation !== 'FORBIDDEN' || s.committee.request !== null
       || s.committee.response !== null || s.committee.legacyCommitteeOutputAccepted !== false],
-    ['PRE_PM', s.prePm.portfolioManagerEligibility !== 'BLOCKED' || s.prePm.riskVerdict !== null
+    ['PRE_PM', s.prePm.portfolioManagerEligibility !== 'BLOCKED' || s.prePm.evidenceAcceptance !== 'UNAVAILABLE'
+      || s.prePm.riskVerdict !== null
       || s.prePm.confidence !== null || s.prePm.portfolioManagerInput !== null],
-    ['PORTFOLIO_MANAGER', s.portfolioManager.recommendation !== null || s.portfolioManager.targetAllocation !== null
+    ['PORTFOLIO_MANAGER', s.portfolioManager.advisoryOnly !== true || s.portfolioManager.recommendation !== null || s.portfolioManager.targetAllocation !== null
       || s.portfolioManager.sizing !== null || s.portfolioManager.confidence !== null],
     ['FINAL_ACTION_RISK', s.finalActionRisk.actionEligibility !== 'BLOCKED' || s.finalActionRisk.maximumLoss !== null
       || s.finalActionRisk.positionSize !== null || s.finalActionRisk.stopLoss !== null
       || s.finalActionRisk.riskVerdict !== null],
-    ['ACTION', s.action.execution !== 'FORBIDDEN' || s.action.recommendation !== null || s.action.order !== null],
+    ['ACTION', s.action.execution !== 'FORBIDDEN' || s.action.advisoryOnly !== true
+      || s.action.recommendation !== null || s.action.order !== null],
     ['COMMAND_CENTER', s.commandCenter.execution !== 'FORBIDDEN' || s.commandCenter.decision !== 'ABSTAIN'
-      || s.commandCenter.tradeTicket !== null || s.commandCenter.scenarioTreeStatus !== 'UNAVAILABLE'],
+      || s.commandCenter.tradeTicket !== null || s.commandCenter.scenarioTreeStatus !== 'UNAVAILABLE'
+      || s.commandCenter.mode !== 'READ_ONLY' || s.commandCenter.observability.state !== 'CONTRACT_ONLY'],
     ['ALERT', s.alert.delivery !== 'FORBIDDEN' || s.alert.escalation !== 'FORBIDDEN' || s.alert.recipient !== null
       || s.alert.channel !== null || s.alert.payload !== null || s.alert.expiresAt !== null],
     ['ACCEPTANCE', s.acceptance.productionReadiness !== 'HOLD' || s.acceptance.acceptanceRun !== null
@@ -311,6 +319,11 @@ export function verifyDecisionChainIntegrity(result: VerifiableDecisionChain): D
   }
   if (STAGE_KEYS.some((key) => result.stages[key] === null || typeof result.stages[key] !== 'object')) {
     return [{ stage: 'CHAIN', code: 'STAGE_SET_MISMATCH' }];
+  }
+  if (STAGE_KEYS.some((key) => !Array.isArray(result.stages[key].reasonCodes))
+      || !Array.isArray(result.stages.horizonSynthesis.scenarios)
+      || !Array.isArray(result.stages.commandCenter.actionReasonCodes)) {
+    return [{ stage: 'CHAIN', code: 'MALFORMED_RESULT' }];
   }
   try {
     return collectViolations(result);
