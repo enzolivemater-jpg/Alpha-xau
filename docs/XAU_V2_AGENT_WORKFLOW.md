@@ -103,11 +103,15 @@ each verified by inspection before activation:
 - **Sandbox dependencies:** `bubblewrap` and `socat` installed; the proposal
   sets `sandbox.failIfUnavailable=true` so Claude Code refuses to start
   unsandboxed.
-- **Claude Code settings:** the proposal file copied to the agent clone's
-  `.claude/settings.json` only after approval. In the agent user's
+- **Claude Code settings:** after approval, copy the proposal file to the
+  agent clone's `.claude/settings.local.json` (personal scope, never
+  committed, so it cannot change the owner's sessions). In the agent user's
   `~/.claude/settings.json`, add `sandbox.credentials.envVars` deny entries
   (they are honored only from user or managed scope) and keep Auto mode and
   `bypassPermissions` disabled.
+- **`acceptEdits` scope:** the proposal's `defaultMode: acceptEdits` is
+  intended only for this isolated distribution. It must never be applied to
+  the owner's environment, where production credentials are readable.
 
 ## 6. Minimal GitHub identity
 
@@ -143,8 +147,13 @@ Proposal:
    `market-partition-rls-postgres`, `gold-transmission-postgres`,
    `gold-transmission-rpc-postgres`.
 2. Enable `enforce_admins` so the admin token cannot bypass review or checks.
-3. Dismiss stale approvals when new commits are pushed.
+3. Dismiss stale approvals when new commits are pushed, and require approval
+   of the most recent push (`require_last_push_approval`), so a Write
+   identity cannot add commits after the human approval and then merge.
 4. Keep force-push and deletion blocked.
+5. Optional: a `CODEOWNERS` entry for `.github/`, `scripts/`, `tests/` and
+   `database/` with code-owner review required, so changes to the code that
+   CI itself runs always get an explicit owner review.
 
 Adding a CI job later requires updating this list in the same PR.
 
@@ -155,8 +164,69 @@ Each step needs explicit human approval; none is authorized by this document.
 1. Provision and verify the agent WSL distribution (§ 5).
 2. Create the minimal GitHub identity (§ 6).
 3. Apply the `main` protection (§ 7).
-4. Copy the settings proposal into the agent clone's `.claude/settings.json`
-   and verify it with `/permissions` and `/sandbox`.
+4. Copy the settings proposal into the agent clone's
+   `.claude/settings.local.json` and verify it with `/permissions` and
+   `/sandbox` (no Dependencies tab; strict sandbox mode shown).
 5. Run one low-risk pilot mission end to end and review its report.
 
 Auto mode and `bypassPermissions` stay disabled throughout.
+
+## 9. Push and draft-PR autonomy — restrictions and independent controls
+
+In the isolated distribution the proposal pre-approves exactly two outward
+actions: `git push origin <type>/<branch>` for the six branch prefixes, and
+`gh pr create --draft …`. Everything else that leaves the machine prompts or
+is denied.
+
+These rules are pattern matches on command text. They reduce accidental
+actions; they are **not** a security guarantee. Known limits: a refspec
+spelling not anticipated by the deny list, flag combinations such as a later
+`--draft=false`, or a script that calls `git` internally are not reliably
+caught. Each outward action therefore has an independent control that holds
+even if a pattern is bypassed:
+
+| Action | Pattern restriction (convenience) | Independent control (enforced) |
+| --- | --- | --- |
+| Push | Only `origin feat|fix|docs|chore|test|refactor/*`; deny `main`, `refs/*`, `gh-pages`, force, delete, mirror, all, tags | `main` protection with `enforce_admins` (§ 7) rejects direct pushes; the token has no `Workflows` permission, so `.github/workflows/**` cannot be pushed; Pages deploys only from `main` (environment branch policy) |
+| Draft PR | Only `gh pr create --draft`; deny `gh pr ready`, `merge`, `review`, `close` | Required human approval of the latest push, 10 required checks; the agent identity cannot approve its own PR |
+| Merge | Denied | Same branch protection; human approver only |
+| Production | Supabase/Wrangler/deploy denied; credential paths denied | No production credential exists in the agent distribution (§ 5) |
+| Migrations | `Edit(/database/migrations/**)` denied | Human review; migration hashes recorded in authorization packets |
+
+Residual risk accepted by design: a Write identity can merge a PR once a
+human has approved its latest push and every required check is green. The
+merge then contains only what the human approved.
+
+## 10. GitHub Actions exposure to agent branches and PRs
+
+Read-only inventory (2026-10-13):
+
+- `Quality Gate` runs on `pull_request` to `main` and on push to `main`; a
+  push to an agent branch alone triggers nothing. Its jobs use
+  `permissions: contents: read` and no secrets.
+- No workflow uses `pull_request_target`, `workflow_run`, or `secrets.*`.
+  Repository default `GITHUB_TOKEN` permission is `read`, and Actions cannot
+  approve pull requests.
+- `pages.yml` runs only on push to `main` or manual dispatch; the
+  `github-pages` environment accepts deployments from `main` only. It reads
+  two public repository variables.
+- Actions allow-list is `all` and SHA pinning is not required; workflows pin
+  official `actions/*` by major tag.
+
+Risks and mitigations:
+
+1. **CI executes agent-controlled code.** A PR's tests and
+   `scripts/run_ci_tests.mjs` come from the agent branch, so a green check
+   cannot prove that tests were not weakened. Mitigation: human review of
+   any diff under `tests/`, `scripts/` or `.github/`; the optional
+   `CODEOWNERS` rule in § 7; the proposal makes edits to
+   `scripts/run_ci_tests.mjs` and `.github/**` prompt.
+2. **No secret exposure through PR CI.** Jobs receive no secrets and a
+   read-only token; keep it that way. Any future workflow that needs a
+   secret must not run on `pull_request` from agent branches.
+3. **Workflow injection.** The agent token lacks `Workflows` permission, so
+   it cannot add or modify workflows; such changes are pushed by the human.
+4. **Supply chain.** Recommended (human decision): restrict allowed actions
+   to GitHub-owned actions and pin them by commit SHA.
+5. **Resource use.** Each agent push to an open PR re-runs ten jobs; keep
+   PRs in draft and push in batches.

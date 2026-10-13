@@ -21,7 +21,8 @@ mission scope.
   state with the human approver before relying on it.
 - `database/migrations/` — ordered, transactional SQL. A migration whose
   hash is recorded in an authorization packet is immutable; changes go in a
-  new forward-fix migration.
+  new forward-fix migration, written only with the approver's explicit
+  consent (the agent settings deny edits under this directory).
 - `backend/` — TypeScript run with `node --experimental-strip-types`; no
   build step. `frontend/` — plain HTML/CSS/JS, no bundler.
 
@@ -29,6 +30,9 @@ mission scope.
 
 - Branch: `<type>/<mission-id>-<slug>` from `origin/main`, never tracking
   `origin/main`. Never commit on `main`.
+- Push and PR only in these forms: `git push origin <branch>` and
+  `gh pr create --draft --base main --head <branch> …`. Never mark a PR
+  ready, merge, or review it.
 - Commits: `type(scope): summary` (for example `feat(event-facts): …`,
   `fix(recovery): …`, `docs(ops): …`).
 - Match surrounding code style and comment density; no unrelated edits.
