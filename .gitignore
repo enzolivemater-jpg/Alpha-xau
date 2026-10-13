@@ -14,6 +14,10 @@
 *.pem
 *.key
 
+# --- Claude Code — personal, never shared -----------------------------------
+.claude/settings.local.json
+CLAUDE.local.md
+
 # --- Cloudflare / Wrangler --------------------------------------------------
 .wrangler/
 wrangler.toml.bak
