@@ -34,58 +34,22 @@ try {
   rmSync(temp, { recursive: true, force: true });
 }
 
-const cutoff = '2026-10-01T14:15:00.000Z';
+const golden = JSON.parse(readFileSync(
+  path.join(ROOT, 'tests', 'fixtures', 'decision_chain_dry_run_baseline.json'), 'utf8'));
+const cutoff = golden.knowledgeCutoff;
 const live = (value, observedAt, source) => ({ value, status: 'LIVE', observedAt, ageSeconds: 60, source });
-const unavailable = { value: null, status: 'UNAVAILABLE', observedAt: null, ageSeconds: null, source: null };
 const evidenceKeys = [
   'restorableRecoveryPoint', 'productionMigrationsApplied', 'officialBundleLiveProven',
   'runtimeDeploymentProven', 'providerPoliciesApproved', 'semanticMethodsApproved',
   'portfolioRiskPoliciesApproved', 'alertDeliveryPolicyApproved', 'goldenPathReplayProven',
   'incidentRecoveryProven', 'executionAuthorityApproved',
 ];
-
 /** Current honest state: nothing authorized, no runtime identity, no policy. */
-const baseline = {
-  marketSnapshot: {
-    available: true,
-    reason: null,
-    spot: live(3900, '2026-10-01T14:14:00.000Z', 'twelve_data'),
-    bid: live(3899.8, '2026-10-01T14:14:00.000Z', 'twelve_data'),
-    ask: live(3900.2, '2026-10-01T14:14:00.000Z', 'twelve_data'),
-    dxy: unavailable,
-    us10y: live(4.1, '2026-10-01T00:00:00.000Z', 'fred'),
-    realYield: live(1.7, '2026-10-01T00:00:00.000Z', 'fred'),
-    vix: live(17.2, '2026-10-01T00:00:00.000Z', 'fred'),
-    wti: live(66.4, '2026-10-01T00:00:00.000Z', 'fred'),
-    capturedAt: '2026-10-01T14:14:00.000Z',
-  },
-  positioningEvidence: [{
-    sourceAuthority: 'authority_test', datasetCode: 'weekly_positions', instrumentCode: 'GC',
-    metricCode: 'managed_money_net', value: 12345, unit: 'CONTRACTS', periodEnd: '2026-09-29',
-    publishedAt: '2026-09-30T19:30:00.000Z', observedAt: '2026-09-30T19:31:00.000Z',
-    artifactId: 'sha256:test-artifact', revision: null,
-  }],
-  eventImpact: {
-    algorithmVersion: 'event-impact-deterministic-processor-v5',
-    status: 'INSUFFICIENT_EVIDENCE', knowledgeCutoff: cutoff,
-  },
-  goldTransmission: {
-    algorithmVersion: 'gold-transmission-deterministic-processor-v5',
-    status: 'INSUFFICIENT_EVIDENCE', knowledgeCutoff: cutoff,
-  },
-  evidenceGraph: { schemaVersion: null, complete: false, nodeCount: 0 },
-  authorizations: {
-    provider: 'UNAUTHORIZED', cost: 'UNAUTHORIZED', portfolioPolicy: 'UNAUTHORIZED',
-    riskPolicy: 'UNAUTHORIZED', execution: 'UNAUTHORIZED', alertPolicy: 'UNAUTHORIZED',
-    delivery: 'UNAUTHORIZED',
-  },
-  portfolioState: 'UNAVAILABLE',
-  brokerConstraintsVersion: null,
-  brokerConnection: 'ABSENT',
-  recipientPolicyVersion: null,
-  runtimeEvidence: { correlationId: null, deploymentId: null },
-  acceptanceEvidence: Object.fromEntries(evidenceKeys.map((key) => [key, false])),
-};
+const baseline = golden.input;
+assert.deepEqual(Object.values(baseline.authorizations).sort(), Array(7).fill('UNAUTHORIZED'));
+assert.deepEqual(baseline.runtimeEvidence, { correlationId: null, deploymentId: null });
+assert.deepEqual(Object.keys(baseline.acceptanceEvidence), evidenceKeys);
+assert.ok(Object.values(baseline.acceptanceEvidence).every((flag) => flag === false));
 
 const STAGES = [
   'MARKET_PRICING', 'POSITIONING', 'REGIME', 'HORIZON_SYNTHESIS', 'AI_COMMITTEE', 'PRE_PM',
@@ -139,10 +103,12 @@ for (const item of result.trace) {
     `${item.stage}: ${item.reasonCodes.join(',')}`);
 }
 
-// --- 2. Determinism and replay digest.
+// --- 2. Determinism and golden replay: any unreviewed gate drift changes the digest.
 assert.deepEqual(mod.runDecisionChainDryRun(structuredClone(baseline), cutoff), result);
+assert.deepEqual(result.trace, golden.expected.trace);
 const digest = await mod.computeDecisionChainDigest(result);
 assert.match(digest, /^sha256:[0-9a-f]{64}$/);
+assert.equal(digest, golden.expected.digest);
 assert.equal(await mod.computeDecisionChainDigest(mod.runDecisionChainDryRun(structuredClone(baseline), cutoff)), digest);
 const later = '2026-10-01T14:16:00.000Z';
 const laterInput = structuredClone(baseline);

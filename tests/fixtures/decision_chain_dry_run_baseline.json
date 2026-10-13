@@ -1,0 +1,284 @@
+{
+  "description": "CHAIN-0 golden dry run: current honest state, nothing authorized. Regenerate only with a reviewed gate version change.",
+  "knowledgeCutoff": "2026-10-01T14:15:00.000Z",
+  "input": {
+    "marketSnapshot": {
+      "available": true,
+      "reason": null,
+      "spot": {
+        "value": 3900,
+        "status": "LIVE",
+        "observedAt": "2026-10-01T14:14:00.000Z",
+        "ageSeconds": 60,
+        "source": "twelve_data"
+      },
+      "bid": {
+        "value": 3899.8,
+        "status": "LIVE",
+        "observedAt": "2026-10-01T14:14:00.000Z",
+        "ageSeconds": 60,
+        "source": "twelve_data"
+      },
+      "ask": {
+        "value": 3900.2,
+        "status": "LIVE",
+        "observedAt": "2026-10-01T14:14:00.000Z",
+        "ageSeconds": 60,
+        "source": "twelve_data"
+      },
+      "dxy": {
+        "value": null,
+        "status": "UNAVAILABLE",
+        "observedAt": null,
+        "ageSeconds": null,
+        "source": null
+      },
+      "us10y": {
+        "value": 4.1,
+        "status": "LIVE",
+        "observedAt": "2026-10-01T00:00:00.000Z",
+        "ageSeconds": 60,
+        "source": "fred"
+      },
+      "realYield": {
+        "value": 1.7,
+        "status": "LIVE",
+        "observedAt": "2026-10-01T00:00:00.000Z",
+        "ageSeconds": 60,
+        "source": "fred"
+      },
+      "vix": {
+        "value": 17.2,
+        "status": "LIVE",
+        "observedAt": "2026-10-01T00:00:00.000Z",
+        "ageSeconds": 60,
+        "source": "fred"
+      },
+      "wti": {
+        "value": 66.4,
+        "status": "LIVE",
+        "observedAt": "2026-10-01T00:00:00.000Z",
+        "ageSeconds": 60,
+        "source": "fred"
+      },
+      "capturedAt": "2026-10-01T14:14:00.000Z"
+    },
+    "positioningEvidence": [
+      {
+        "sourceAuthority": "authority_test",
+        "datasetCode": "weekly_positions",
+        "instrumentCode": "GC",
+        "metricCode": "managed_money_net",
+        "value": 12345,
+        "unit": "CONTRACTS",
+        "periodEnd": "2026-09-29",
+        "publishedAt": "2026-09-30T19:30:00.000Z",
+        "observedAt": "2026-09-30T19:31:00.000Z",
+        "artifactId": "sha256:test-artifact",
+        "revision": null
+      }
+    ],
+    "eventImpact": {
+      "algorithmVersion": "event-impact-deterministic-processor-v5",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+    },
+    "goldTransmission": {
+      "algorithmVersion": "gold-transmission-deterministic-processor-v5",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+    },
+    "evidenceGraph": {
+      "schemaVersion": null,
+      "complete": false,
+      "nodeCount": 0
+    },
+    "authorizations": {
+      "provider": "UNAUTHORIZED",
+      "cost": "UNAUTHORIZED",
+      "portfolioPolicy": "UNAUTHORIZED",
+      "riskPolicy": "UNAUTHORIZED",
+      "execution": "UNAUTHORIZED",
+      "alertPolicy": "UNAUTHORIZED",
+      "delivery": "UNAUTHORIZED"
+    },
+    "portfolioState": "UNAVAILABLE",
+    "brokerConstraintsVersion": null,
+    "brokerConnection": "ABSENT",
+    "recipientPolicyVersion": null,
+    "runtimeEvidence": {
+      "correlationId": null,
+      "deploymentId": null
+    },
+    "acceptanceEvidence": {
+      "restorableRecoveryPoint": false,
+      "productionMigrationsApplied": false,
+      "officialBundleLiveProven": false,
+      "runtimeDeploymentProven": false,
+      "providerPoliciesApproved": false,
+      "semanticMethodsApproved": false,
+      "portfolioRiskPoliciesApproved": false,
+      "alertDeliveryPolicyApproved": false,
+      "goldenPathReplayProven": false,
+      "incidentRecoveryProven": false,
+      "executionAuthorityApproved": false
+    }
+  },
+  "expected": {
+    "digest": "sha256:271ac8bc566aa6a4d3e5a821338dc3ec22406108055fc090a2e6c61b14800f99",
+    "trace": [
+      {
+        "stage": "MARKET_PRICING",
+        "schemaVersion": "xau.market-pricing-snapshot.v1",
+        "algorithmVersion": "market-pricing-envelope-1.0.0",
+        "state": "DEGRADED",
+        "reasonCodes": [
+          "OPTIONAL_FIELD_UNAVAILABLE",
+          "HISTORICAL_REPLAY_UNAVAILABLE"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "POSITIONING",
+        "schemaVersion": "xau.positioning-evidence.v1",
+        "algorithmVersion": "positioning-evidence-normalizer-1.0.0",
+        "state": "EVIDENCE_READY",
+        "reasonCodes": [
+          "METHODOLOGY_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "REGIME",
+        "schemaVersion": "xau.regime-assessment.v1",
+        "algorithmVersion": "regime-dependency-gate-1.0.0",
+        "state": "DEGRADED",
+        "reasonCodes": [
+          "MARKET_PRICING_DEGRADED",
+          "POSITIONING_SIGNAL_UNAVAILABLE",
+          "REGIME_METHODOLOGY_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "HORIZON_SYNTHESIS",
+        "schemaVersion": "xau.horizon-synthesis.v1",
+        "algorithmVersion": "horizon-dependency-gate-1.0.0",
+        "state": "ABSTAIN",
+        "reasonCodes": [
+          "EVENT_IMPACT_INSUFFICIENT",
+          "GOLD_TRANSMISSION_INSUFFICIENT",
+          "MARKET_PRICING_NOT_AVAILABLE",
+          "POSITIONING_SIGNAL_UNAVAILABLE",
+          "REGIME_UNAVAILABLE",
+          "HORIZON_METHODOLOGY_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "AI_COMMITTEE",
+        "schemaVersion": "xau.ai-committee-gate.v1",
+        "algorithmVersion": "ai-committee-dependency-gate-1.0.0",
+        "state": "ABSTAIN",
+        "reasonCodes": [
+          "HORIZON_NOT_READY",
+          "PROVIDER_NOT_AUTHORIZED",
+          "COST_NOT_AUTHORIZED",
+          "COMMITTEE_V2_METHOD_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "PRE_PM",
+        "schemaVersion": "xau.pre-pm-evidence-risk.v1",
+        "algorithmVersion": "pre-pm-dependency-gate-1.0.0",
+        "state": "ABSTAIN",
+        "reasonCodes": [
+          "COMMITTEE_NOT_READY",
+          "COMMITTEE_PROVIDER_NOT_COMPLETED",
+          "EVIDENCE_GRAPH_UNAVAILABLE",
+          "PRE_PM_METHOD_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "PORTFOLIO_MANAGER",
+        "schemaVersion": "xau.portfolio-manager-gate.v1",
+        "algorithmVersion": "portfolio-manager-dependency-gate-1.0.0",
+        "state": "ABSTAIN",
+        "reasonCodes": [
+          "PRE_PM_NOT_READY",
+          "PORTFOLIO_POLICY_NOT_APPROVED",
+          "PORTFOLIO_STATE_UNAVAILABLE",
+          "PORTFOLIO_METHOD_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "FINAL_ACTION_RISK",
+        "schemaVersion": "xau.final-action-risk-gate.v1",
+        "algorithmVersion": "final-action-risk-dependency-gate-1.0.0",
+        "state": "ABSTAIN",
+        "reasonCodes": [
+          "PORTFOLIO_NOT_READY",
+          "RISK_POLICY_NOT_APPROVED",
+          "BROKER_CONSTRAINTS_UNAVAILABLE",
+          "FINAL_RISK_METHOD_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "ACTION",
+        "schemaVersion": "xau.action-abstention.v1",
+        "algorithmVersion": "action-abstention-gate-1.0.0",
+        "state": "ABSTAIN",
+        "reasonCodes": [
+          "FINAL_RISK_NOT_READY",
+          "EXECUTION_NOT_AUTHORIZED",
+          "BROKER_NOT_CONNECTED",
+          "ACTION_METHOD_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "COMMAND_CENTER",
+        "schemaVersion": "xau.command-center-projection.v1",
+        "algorithmVersion": "command-center-read-only-projection-1.0.0",
+        "state": "HOLD",
+        "reasonCodes": [
+          "RUNTIME_CORRELATION_UNAVAILABLE",
+          "DEPLOYMENT_NOT_PROVEN",
+          "COMMAND_CENTER_RUNTIME_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "ALERT",
+        "schemaVersion": "xau.alert-suppression.v1",
+        "algorithmVersion": "alert-suppression-gate-1.0.0",
+        "state": "SUPPRESSED",
+        "reasonCodes": [
+          "COMMAND_CENTER_NOT_ACTIONABLE",
+          "ALERT_POLICY_NOT_APPROVED",
+          "DELIVERY_NOT_AUTHORIZED",
+          "RECIPIENT_POLICY_UNAVAILABLE",
+          "ALERT_HORIZON_NOT_APPROVED",
+          "ALERT_METHOD_NOT_APPROVED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      },
+      {
+        "stage": "ACCEPTANCE",
+        "schemaVersion": "xau.institutional-acceptance.v1",
+        "algorithmVersion": "institutional-acceptance-gate-1.0.0",
+        "state": "NOT_ACCEPTED",
+        "reasonCodes": [
+          "ALERT_NOT_DELIVERABLE",
+          "REQUIRED_EVIDENCE_MISSING",
+          "E2E_ACCEPTANCE_RUN_NOT_AUTHORIZED"
+        ],
+        "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
+      }
+    ]
+  }
+}

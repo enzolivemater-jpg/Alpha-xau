@@ -83,3 +83,10 @@ CHAIN-0 is a pure function. It reads no clock, network, database, provider,
 broker or random source. It authorizes no persistence, migration, runtime
 wiring, deployment, provider call, alert delivery, broker connection, order
 construction or trading.
+
+## Golden replay
+
+`tests/fixtures/decision_chain_dry_run_baseline.json` freezes the current
+honest input (nothing authorized, no runtime identity), the expected trace
+and the expected digest. Any change to any gate's output, ordering or
+identity fails CI until the fixture is regenerated in a reviewed change.
