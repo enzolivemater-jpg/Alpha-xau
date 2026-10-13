@@ -12,10 +12,6 @@
  *       -> require a live local PostgreSQL instance (psql/su postgres).
  *   - test_anthropic_error_path.mjs, probe_external_endpoints.mjs
  *       -> make real outbound calls to external APIs.
- *   - test_frontend_degraded_modes.mjs, test_committee_validation.mjs
- *       -> hardcoded /home/claude/alpha-xau/... absolute paths from a
- *          different environment (pre-existing gap, tracked separately;
- *          not fixed by this task).
  *   - test_anthropic_error_path.mjs, test_event_routing.mjs,
  *     test_provider_failure_modes.mjs
  *       -> import sibling files (tests/ai_engine/*.mjs, tests/providers.mjs,
@@ -49,6 +45,7 @@ const TEST_FILES = [
   'tests/test_bls_cpi_production_orchestrator.mjs',
   'tests/test_committee_event_retry_idempotency.mjs',
   'tests/test_committee_internal_transport.mjs',
+  'tests/test_committee_validation.mjs',
   'tests/test_command_center_contract.mjs',
   'tests/test_completion_board_and_recovery_authorization.mjs',
   'tests/test_decision_chain_contract.mjs',
@@ -79,6 +76,7 @@ const TEST_FILES = [
   'tests/test_event_shadow_orchestrator.mjs',
   'tests/test_event_shadow_runtime.mjs',
   'tests/test_event_version_rpc_contract.mjs',
+  'tests/test_frontend_degraded_modes.mjs',
   'tests/test_future_data_api_grant_contract.mjs',
   'tests/test_federal_reserve_collector.mjs',
   'tests/test_federal_reserve_raw_integration.mjs',
