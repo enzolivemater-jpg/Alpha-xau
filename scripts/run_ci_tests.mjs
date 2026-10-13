@@ -15,8 +15,11 @@
  *   - test_anthropic_error_path.mjs, test_event_routing.mjs,
  *     test_provider_failure_modes.mjs
  *       -> import sibling files (tests/ai_engine/*.mjs, tests/providers.mjs,
- *          etc.) that do not exist in this checkout layout (pre-existing
- *          gap, not fixed by this task).
+ *          etc.) that do not exist in this checkout layout. Loading them
+ *          through scripts/lib/backend_module_loader.mjs is not enough:
+ *          test_event_routing.mjs still expects the pre-H5 scopes
+ *          (H1_H2 -> [H1,H2]) and test_provider_failure_modes.mjs the removed
+ *          Stooq provider, so their expectations need an owner decision.
  *
  * Adding a new deterministic test: add its path to TEST_FILES below.
  */
