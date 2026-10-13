@@ -50,6 +50,16 @@ before it reaches a gate and recorded in `inputFindings` as
 restrictive. Fixing the gates themselves requires new gate versions and is a
 separate, reviewed change.
 
+Market freshness is re-derived at the knowledge cutoff, not trusted from the
+caller. For each market value, CHAIN-0 computes its age at the cutoff and
+classifies it with the existing `SYMBOL_RULES` / `classifyFreshness` policy
+(no new threshold). A field declared fresher than that classification is
+downgraded to `STALE` (`MARKET_FIELD_STALE_AT_CUTOFF`) or to `UNAVAILABLE`
+with its value removed (`MARKET_FIELD_EXPIRED_AT_CUTOFF`). A value without an
+approved rule (DXY) is made `UNAVAILABLE`
+(`MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE`). Freshness is never upgraded, and
+look-ahead observations are left to MP-0, which abstains on them.
+
 ## Consistency controls
 
 `verifyDecisionChainIntegrity` re-checks a result, including one reloaded

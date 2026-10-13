@@ -52,7 +52,8 @@ import {
   buildInstitutionalMarketPricingSnapshot,
   type InstitutionalMarketPricingSnapshot,
 } from '../market_engine/institutional_snapshot.js';
-import type { MarketSnapshot } from '../market_engine/types.js';
+import type { Freshness, MarketField, MarketSnapshot, MarketSymbol } from '../market_engine/types.js';
+import { SYMBOL_RULES, classifyFreshness } from '../market_engine/validate.js';
 import {
   PORTFOLIO_MANAGER_ALGORITHM_VERSION,
   PORTFOLIO_MANAGER_SCHEMA_VERSION,
@@ -85,6 +86,7 @@ import {
   type PrePmContractInput,
   type PrePmEnvelope,
 } from '../risk_engine/pre_pm_contract.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const DECISION_CHAIN_SCHEMA_VERSION = 'xau.decision-chain-dry-run.v1' as const;
 export const DECISION_CHAIN_ALGORITHM_VERSION = 'decision-chain-dry-run-1.0.0' as const;
@@ -153,14 +155,36 @@ export const DECISION_CHAIN_IDENTIFIER_FIELDS = [
 
 export type DecisionChainIdentifierField = typeof DECISION_CHAIN_IDENTIFIER_FIELDS[number];
 
+export const DECISION_CHAIN_MARKET_FIELDS = [
+  'spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti',
+] as const;
+export type DecisionChainMarketField = typeof DECISION_CHAIN_MARKET_FIELDS[number];
+
+/** Approved freshness rule per snapshot field; DXY has none. */
+const MARKET_FIELD_SYMBOL: Readonly<Record<DecisionChainMarketField, MarketSymbol | null>> = {
+  spot: 'XAUUSD', bid: 'XAUUSD', ask: 'XAUUSD', dxy: null,
+  us10y: 'US10Y', realYield: 'US10YR', vix: 'VIX', wti: 'WTI',
+};
+
+export type DecisionChainInputFindingCode =
+  | 'INVALID_IDENTIFIER_NULLIFIED'
+  | 'MARKET_FIELD_STALE_AT_CUTOFF'
+  | 'MARKET_FIELD_EXPIRED_AT_CUTOFF'
+  | 'MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE';
+
 /**
- * An identifier that fails the shape check is replaced by null before it
- * reaches a gate, so the gate reports it as unavailable. The replacement is
- * recorded; it can only make the chain more restrictive.
+ * Input that the frozen gates would accept too optimistically is made more
+ * restrictive before it reaches them, and every such change is recorded:
+ * - an identifier failing the shape check is replaced by null;
+ * - a market field whose declared freshness is better than its age at the
+ *   knowledge cutoff allows (under the existing `SYMBOL_RULES`) is downgraded
+ *   to STALE, or to UNAVAILABLE with its value removed;
+ * - a market value with no approved freshness rule is made UNAVAILABLE.
+ * A finding can only make the chain more restrictive.
  */
 export interface DecisionChainInputFinding {
-  readonly field: DecisionChainIdentifierField;
-  readonly code: 'INVALID_IDENTIFIER_NULLIFIED';
+  readonly field: DecisionChainIdentifierField | `marketSnapshot.${DecisionChainMarketField}`;
+  readonly code: DecisionChainInputFindingCode;
 }
 
 export interface DecisionChainStageTrace {
@@ -399,6 +423,46 @@ function identifierOrNull(
   return null;
 }
 
+const FRESHNESS_RANK: Readonly<Record<Freshness, number>> = { LIVE: 0, STALE: 1, UNAVAILABLE: 2 };
+
+function fieldAtCutoff(
+  name: DecisionChainMarketField,
+  field: MarketField,
+  cutoffMs: number | null,
+  findings: DecisionChainInputFinding[],
+): MarketField {
+  if (field.value === null) return field;
+  const symbol = MARKET_FIELD_SYMBOL[name];
+  if (symbol === null) {
+    findings.push({ field: `marketSnapshot.${name}`, code: 'MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE' });
+    return { ...field, value: null, status: 'UNAVAILABLE' };
+  }
+  const observedMs = parseStrictTimestamp(field.observedAt);
+  // Invalid or look-ahead timestamps are rejected by MP-0 itself.
+  if (cutoffMs === null || observedMs === null || observedMs > cutoffMs) return field;
+  const ageSeconds = Math.floor((cutoffMs - observedMs) / 1000);
+  const freshness = classifyFreshness(ageSeconds, SYMBOL_RULES[symbol]);
+  if (FRESHNESS_RANK[freshness] <= FRESHNESS_RANK[field.status]) return field;
+  if (freshness === 'UNAVAILABLE') {
+    findings.push({ field: `marketSnapshot.${name}`, code: 'MARKET_FIELD_EXPIRED_AT_CUTOFF' });
+    return { ...field, value: null, status: 'UNAVAILABLE', ageSeconds };
+  }
+  findings.push({ field: `marketSnapshot.${name}`, code: 'MARKET_FIELD_STALE_AT_CUTOFF' });
+  return { ...field, status: 'STALE', ageSeconds };
+}
+
+function snapshotAtCutoff(
+  snapshot: MarketSnapshot,
+  knowledgeCutoff: string,
+  findings: DecisionChainInputFinding[],
+): MarketSnapshot {
+  const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
+  const fields = Object.fromEntries(DECISION_CHAIN_MARKET_FIELDS.map((name) => [
+    name, fieldAtCutoff(name, snapshot[name], cutoffMs, findings),
+  ])) as Record<DecisionChainMarketField, MarketField>;
+  return { ...snapshot, ...fields };
+}
+
 /** Runs MP-0 through E2E-0 at one explicit cutoff and verifies the result. */
 export function runDecisionChainDryRun(
   rawInput: DecisionChainDryRunInput,
@@ -407,6 +471,7 @@ export function runDecisionChainDryRun(
   const inputFindings: DecisionChainInputFinding[] = [];
   const input: DecisionChainDryRunInput = {
     ...rawInput,
+    marketSnapshot: snapshotAtCutoff(rawInput.marketSnapshot, knowledgeCutoff, inputFindings),
     evidenceGraph: {
       ...rawInput.evidenceGraph,
       schemaVersion: identifierOrNull('evidenceGraph.schemaVersion',

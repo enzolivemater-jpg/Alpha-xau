@@ -141,6 +141,54 @@ assert.deepEqual(blanked.stages.commandCenter.observability,
   { state: 'CONTRACT_ONLY', correlationId: null, deploymentId: null });
 assert.equal(blank.runtimeEvidence.correlationId, '', 'caller input is never mutated');
 
+// --- 3c. Freshness is re-derived at the cutoff with the existing SYMBOL_RULES.
+const aged = (mutate) => {
+  const copy = structuredClone(baseline);
+  mutate(copy.marketSnapshot);
+  const run = mod.runDecisionChainDryRun(copy, cutoff);
+  return { run, findings: run.inputFindings.map((f) => `${f.field}:${f.code}`), t: byStage(run) };
+};
+// Spot declared LIVE but observed 2h before the cutoff (> 360s live window).
+let check = aged((s) => {
+  for (const name of ['spot', 'bid', 'ask']) s[name].observedAt = '2026-10-01T12:15:00.000Z';
+  s.capturedAt = '2026-10-01T12:15:00.000Z';
+});
+assert.deepEqual(check.findings, [
+  'marketSnapshot.spot:MARKET_FIELD_STALE_AT_CUTOFF', 'marketSnapshot.bid:MARKET_FIELD_STALE_AT_CUTOFF',
+  'marketSnapshot.ask:MARKET_FIELD_STALE_AT_CUTOFF',
+]);
+assert.equal(check.run.stages.marketPricing.fields.spot.status, 'STALE');
+assert.equal(check.run.stages.marketPricing.fields.spot.ageSeconds, 7200);
+assert.ok(check.t.MARKET_PRICING.reasonCodes.includes('SPOT_NOT_LIVE'));
+assert.equal(check.run.integrity, 'CONSISTENT');
+// Spot older than the 3-day stale window: value removed, Market Pricing abstains.
+check = aged((s) => {
+  for (const name of ['spot', 'bid', 'ask']) s[name].observedAt = '2026-09-27T14:14:00.000Z';
+  s.capturedAt = '2026-09-27T14:14:00.000Z';
+});
+assert.equal(check.findings[0], 'marketSnapshot.spot:MARKET_FIELD_EXPIRED_AT_CUTOFF');
+assert.equal(check.run.stages.marketPricing.fields.spot.value, null);
+assert.equal(check.t.MARKET_PRICING.state, 'ABSTAIN');
+assert.ok(check.t.MARKET_PRICING.reasonCodes.includes('SOURCE_SNAPSHOT_UNAVAILABLE'));
+assert.equal(check.t.REGIME.state, 'ABSTAIN');
+// A macro driver past its 6-day window becomes unavailable, not silently live.
+check = aged((s) => { s.vix.observedAt = '2026-09-24T00:00:00.000Z'; });
+assert.deepEqual(check.findings, ['marketSnapshot.vix:MARKET_FIELD_EXPIRED_AT_CUTOFF']);
+assert.ok(check.t.MARKET_PRICING.reasonCodes.includes('OPTIONAL_FIELD_UNAVAILABLE'));
+// A value with no approved freshness rule (DXY) is never admitted.
+check = aged((s) => { s.dxy = live(97.4, '2026-10-01T14:00:00.000Z', 'test'); });
+assert.deepEqual(check.findings, ['marketSnapshot.dxy:MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE']);
+assert.equal(check.run.stages.marketPricing.fields.dxy.value, null);
+// Freshness is never upgraded: a field declared STALE stays STALE.
+check = aged((s) => { s.us10y.status = 'STALE'; });
+assert.deepEqual(check.findings, []);
+assert.equal(check.run.stages.marketPricing.fields.us10y.status, 'STALE');
+// Look-ahead observations are left to MP-0, which abstains on them.
+check = aged((s) => { s.wti.observedAt = '2026-10-01T15:00:00.000Z'; });
+assert.deepEqual(check.findings, []);
+assert.ok(check.t.MARKET_PRICING.reasonCodes.includes('OBSERVATION_AFTER_KNOWLEDGE_CUTOFF'));
+assert.equal(baseline.marketSnapshot.spot.status, 'LIVE', 'caller snapshot is never mutated');
+
 // --- 4. Upstream drift and legacy identities fail closed at the right stage.
 const drift = structuredClone(baseline);
 drift.eventImpact.knowledgeCutoff = '2026-10-01T14:14:59.000Z';
