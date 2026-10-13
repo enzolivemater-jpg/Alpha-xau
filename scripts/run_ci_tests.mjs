@@ -87,6 +87,7 @@ const TEST_FILES = [
   'tests/test_gold_transmission_shadow_runtime.mjs',
   'tests/test_horizon_synthesis_contract.mjs',
   'tests/test_institutional_acceptance_contract.mjs',
+  'tests/test_institutional_purity_guard.mjs',
   'tests/test_market_driver_provenance.mjs',
   'tests/test_market_pricing_as_of_contract.mjs',
   'tests/test_market_pricing_institutional_contract.mjs',
