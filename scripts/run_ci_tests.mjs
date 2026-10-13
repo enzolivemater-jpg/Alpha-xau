@@ -93,6 +93,7 @@ const TEST_FILES = [
   'tests/test_market_pricing_institutional_contract.mjs',
   'tests/test_market_pricing_persistence_contract.mjs',
   'tests/test_notification_horizon_provider_circuit.mjs',
+  'tests/test_offline_audit_receipt.mjs',
   'tests/test_official_source_artifacts_contract.mjs',
   'tests/test_ofac_collector.mjs',
   'tests/test_ofac_raw_adapter.mjs',
