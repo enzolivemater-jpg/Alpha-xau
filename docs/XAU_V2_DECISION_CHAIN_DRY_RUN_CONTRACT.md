@@ -1,0 +1,81 @@
+# XAU V2 — decision-chain dry run (CHAIN-0)
+
+Status: `CONTRACT_CI_PROVEN — DRY RUN ONLY`
+
+CHAIN-0 composes the twelve frozen gates into one deterministic run at a
+single explicit knowledge cutoff. Each stage receives the exact envelope
+produced by the previous stage; no hand-written upstream object crosses a
+boundary.
+
+Frozen versions:
+
+- `xau.decision-chain-dry-run.v1`;
+- `decision-chain-dry-run-1.0.0`.
+
+| Order | Stage | Upstream |
+| --- | --- | --- |
+| 1 | Market Pricing MP-0 | market snapshot |
+| 2 | Positioning P-0 | retained evidence |
+| 3 | Regime R-0 | MP-0, P-0 |
+| 4 | H1–H5 S-0 | Event Impact and Gold Transmission summaries, MP-0, P-0, R-0 |
+| 5 | AI Committee C-0 | S-0 |
+| 6 | Pre-PM PMR-0 | C-0, evidence graph |
+| 7 | Portfolio Manager PM-0 | PMR-0 |
+| 8 | Final Action Risk FAR-0 | PM-0 |
+| 9 | Action A-0 | FAR-0 |
+| 10 | Command Center CC-0 | A-0, runtime evidence |
+| 11 | Alerts AL-0 | CC-0 |
+| 12 | Acceptance E2E-0 | AL-0, evidence manifest |
+
+The result is always `chainState=HOLD` and `execution=FORBIDDEN`. It carries
+a per-stage trace (identity, state, reason codes, cutoff) that explains which
+gate blocks progress, and every stage envelope in full.
+
+## Explicit inputs
+
+Every authorization (provider, cost, portfolio policy, risk policy,
+execution, alert policy, delivery), policy version, broker state, runtime
+correlation/deployment identifier and acceptance evidence flag is a required
+input. CHAIN-0 never defaults one. Setting all of them to authorized still
+yields `HOLD`, because every positive method remains unapproved.
+
+## Consistency controls
+
+`verifyDecisionChainIntegrity` re-checks a result, including one reloaded
+from a log, and reports `integrity=VIOLATED` with stage-scoped codes when:
+
+- a stage is missing (`STAGE_SET_MISMATCH`);
+- a stage identity differs from the frozen version (`STAGE_VERSION_MISMATCH`);
+- a stage cutoff differs from the chain cutoff (`STAGE_CUTOFF_MISMATCH`);
+- a stage reports a state no unapproved method can reach
+  (`STAGE_STATE_FORBIDDEN`);
+- a field reserved for an approved positive method is populated —
+  regime, scenario probability/target, provider request/response, PM input,
+  allocation, size, stop, verdict, order, trade ticket, recipient, channel,
+  payload or acceptance run (`POSITIVE_OUTPUT_FORBIDDEN`);
+- the trace does not match the stage envelopes (`TRACE_STAGE_MISMATCH`);
+- the Command Center lineage or propagated action reasons differ
+  (`LINEAGE_MISMATCH`, `ACTION_REASONS_NOT_PROPAGATED`);
+- the alert dedupe key does not match the projection
+  (`ALERT_DEDUPE_KEY_MISMATCH`).
+
+`computeDecisionChainDigest` returns a SHA-256 of the canonical JSON of the
+result (sorted keys; non-finite numbers, `undefined` and non-plain objects
+rejected). Equal inputs and cutoff give the same digest. The digest is a
+replay identity, not a runtime correlation ID; correlation and deployment IDs
+are never derived from it.
+
+## Open design decision
+
+Event Impact and Gold Transmission processors emit one plan per event
+version, each with its own cutoff. CHAIN-0 accepts a chain-level summary
+(`algorithmVersion`, `status`, `knowledgeCutoff`) and lets S-0 reject version
+or cutoff drift. The rule that aggregates per-event plans into that summary
+at a chain cutoff is not defined here and requires review.
+
+## Scope
+
+CHAIN-0 is a pure function. It reads no clock, network, database, provider,
+broker or random source. It authorizes no persistence, migration, runtime
+wiring, deployment, provider call, alert delivery, broker connection, order
+construction or trading.
