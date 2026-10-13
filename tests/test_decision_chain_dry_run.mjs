@@ -179,6 +179,16 @@ assert.ok(check.t.MARKET_PRICING.reasonCodes.includes('OPTIONAL_FIELD_UNAVAILABL
 check = aged((s) => { s.dxy = live(97.4, '2026-10-01T14:00:00.000Z', 'test'); });
 assert.deepEqual(check.findings, ['marketSnapshot.dxy:MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE']);
 assert.equal(check.run.stages.marketPricing.fields.dxy.value, null);
+// Values outside the ingestion plausibility range (SYMBOL_RULES) are never admitted.
+check = aged((s) => { s.spot.value = 39; s.bid.value = 38.9; s.ask.value = 39.1; });
+assert.deepEqual(check.findings, [
+  'marketSnapshot.spot:MARKET_FIELD_OUT_OF_RANGE', 'marketSnapshot.bid:MARKET_FIELD_OUT_OF_RANGE',
+  'marketSnapshot.ask:MARKET_FIELD_OUT_OF_RANGE',
+]);
+assert.equal(check.t.MARKET_PRICING.state, 'ABSTAIN');
+check = aged((s) => { s.vix.value = -1; s.us10y.value = -0.25; });
+assert.deepEqual(check.findings, ['marketSnapshot.vix:MARKET_FIELD_OUT_OF_RANGE']);
+assert.equal(check.run.stages.marketPricing.fields.us10y.value, -0.25);
 // Freshness is never upgraded: a field declared STALE stays STALE.
 check = aged((s) => { s.us10y.status = 'STALE'; });
 assert.deepEqual(check.findings, []);

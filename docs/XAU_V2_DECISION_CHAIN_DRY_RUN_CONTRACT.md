@@ -58,7 +58,9 @@ downgraded to `STALE` (`MARKET_FIELD_STALE_AT_CUTOFF`) or to `UNAVAILABLE`
 with its value removed (`MARKET_FIELD_EXPIRED_AT_CUTOFF`). A value without an
 approved rule (DXY) is made `UNAVAILABLE`
 (`MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE`). Freshness is never upgraded, and
-look-ahead observations are left to MP-0, which abstains on them.
+look-ahead observations are left to MP-0, which abstains on them. A value
+outside the ingestion plausibility range of `SYMBOL_RULES` is made
+`UNAVAILABLE` (`MARKET_FIELD_OUT_OF_RANGE`).
 
 ## Untrusted input
 

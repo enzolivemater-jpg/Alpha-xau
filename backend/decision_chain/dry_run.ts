@@ -171,7 +171,8 @@ export type DecisionChainInputFindingCode =
   | 'INVALID_IDENTIFIER_NULLIFIED'
   | 'MARKET_FIELD_STALE_AT_CUTOFF'
   | 'MARKET_FIELD_EXPIRED_AT_CUTOFF'
-  | 'MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE';
+  | 'MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE'
+  | 'MARKET_FIELD_OUT_OF_RANGE';
 
 /**
  * Input that the frozen gates would accept too optimistically is made more
@@ -180,7 +181,8 @@ export type DecisionChainInputFindingCode =
  * - a market field whose declared freshness is better than its age at the
  *   knowledge cutoff allows (under the existing `SYMBOL_RULES`) is downgraded
  *   to STALE, or to UNAVAILABLE with its value removed;
- * - a market value with no approved freshness rule is made UNAVAILABLE.
+ * - a market value with no approved freshness rule, or outside the
+ *   plausibility range that ingestion enforces, is made UNAVAILABLE.
  * A finding can only make the chain more restrictive.
  */
 export interface DecisionChainInputFinding {
@@ -438,11 +440,17 @@ function fieldAtCutoff(
     findings.push({ field: `marketSnapshot.${name}`, code: 'MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE' });
     return { ...field, value: null, status: 'UNAVAILABLE' };
   }
+  const rule = SYMBOL_RULES[symbol];
+  if (Number.isFinite(field.value) && (field.value < rule.min || field.value > rule.max
+      || (field.value < 0 && !rule.allowNegative))) {
+    findings.push({ field: `marketSnapshot.${name}`, code: 'MARKET_FIELD_OUT_OF_RANGE' });
+    return { ...field, value: null, status: 'UNAVAILABLE' };
+  }
   const observedMs = parseStrictTimestamp(field.observedAt);
   // Invalid or look-ahead timestamps are rejected by MP-0 itself.
   if (cutoffMs === null || observedMs === null || observedMs > cutoffMs) return field;
   const ageSeconds = Math.floor((cutoffMs - observedMs) / 1000);
-  const freshness = classifyFreshness(ageSeconds, SYMBOL_RULES[symbol]);
+  const freshness = classifyFreshness(ageSeconds, rule);
   if (FRESHNESS_RANK[freshness] <= FRESHNESS_RANK[field.status]) return field;
   if (freshness === 'UNAVAILABLE') {
     findings.push({ field: `marketSnapshot.${name}`, code: 'MARKET_FIELD_EXPIRED_AT_CUTOFF' });
