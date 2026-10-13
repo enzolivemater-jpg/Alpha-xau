@@ -88,6 +88,13 @@ function compareEvidence(a: PositioningEvidenceInput, b: PositioningEvidenceInpu
     || a.artifactId.localeCompare(b.artifactId);
 }
 
+/** Same invariant as the persistence schema: evidence is retained after publication. */
+function publishedNotAfterObserved(value: PositioningEvidenceInput): boolean {
+  const published = timestampMs(value.publishedAt);
+  const observed = timestampMs(value.observedAt);
+  return published !== null && observed !== null && published <= observed;
+}
+
 function validShape(value: PositioningEvidenceInput): boolean {
   return exactInputShape(value)
     && CODE.test(value.sourceAuthority)
@@ -96,8 +103,7 @@ function validShape(value: PositioningEvidenceInput): boolean {
     && CODE.test(value.metricCode)
     && UNITS.has(value.unit)
     && isCivilDate(value.periodEnd)
-    && timestampMs(value.publishedAt) !== null
-    && timestampMs(value.observedAt) !== null
+    && publishedNotAfterObserved(value)
     && typeof value.artifactId === 'string'
     && value.artifactId.length > 0
     && value.artifactId.length <= 256

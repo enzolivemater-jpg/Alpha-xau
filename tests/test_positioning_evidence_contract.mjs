@@ -46,6 +46,14 @@ assert.ok(mod.buildPositioningEvidenceEnvelope([{ ...base, value: Number.NaN }],
 assert.ok(mod.buildPositioningEvidenceEnvelope([{ ...base, periodEnd: '2026-02-30' }], cutoff).reasonCodes.includes('INVALID_EVIDENCE_SHAPE'));
 assert.ok(mod.buildPositioningEvidenceEnvelope([{ ...base, observedAt: '2026-10-02T00:00:00.000Z' }], cutoff).reasonCodes.includes('EVIDENCE_AFTER_KNOWLEDGE_CUTOFF'));
 assert.ok(mod.buildPositioningEvidenceEnvelope([{ ...base, extra: true }], cutoff).reasonCodes.includes('INVALID_EVIDENCE_SHAPE'));
+// Mirrors CHECK (published_at <= observed_at) of the persistence schema.
+const retainedBeforePublication = mod.buildPositioningEvidenceEnvelope(
+  [{ ...base, publishedAt: base.observedAt, observedAt: base.publishedAt }], cutoff);
+assert.equal(retainedBeforePublication.evidenceState, 'ABSTAIN');
+assert.ok(retainedBeforePublication.reasonCodes.includes('INVALID_EVIDENCE_SHAPE'));
+assert.deepEqual(retainedBeforePublication.evidence, []);
+assert.equal(mod.buildPositioningEvidenceEnvelope(
+  [{ ...base, observedAt: base.publishedAt }], cutoff).evidenceState, 'EVIDENCE_READY');
 assert.doesNotThrow(() => mod.buildPositioningEvidenceEnvelope([{}], cutoff));
 assert.deepEqual(mod.buildPositioningEvidenceEnvelope([{}], cutoff).evidence, []);
 
