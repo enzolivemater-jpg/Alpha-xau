@@ -1,26 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
+import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const file = path.join(ROOT, 'backend', 'positioning_engine', 'evidence_contract.ts');
 const source = readFileSync(file, 'utf8');
 const docs = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_POSITIONING_EVIDENCE_CONTRACT.md'), 'utf8');
-const output = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText;
-const temp = mkdtempSync(path.join(tmpdir(), 'positioning-contract-'));
-let mod;
-try {
-  mkdirSync(temp, { recursive: true });
-  writeFileSync(path.join(temp, 'contract.mjs'), output, 'utf8');
-  mod = await import(pathToFileURL(path.join(temp, 'contract.mjs')).href);
-} finally {
-  rmSync(temp, { recursive: true, force: true });
-}
+const mod = await loadBackendModule('positioning_engine/evidence_contract.ts');
 
 const cutoff = '2026-10-01T12:00:00.000Z';
 const base = {

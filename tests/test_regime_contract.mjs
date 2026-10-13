@@ -1,34 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
+import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const files = {
-  'market_engine/types.ts': 'market_engine/types.mjs',
-  'market_engine/institutional_snapshot.ts': 'market_engine/institutional_snapshot.mjs',
-  'positioning_engine/evidence_contract.ts': 'positioning_engine/evidence_contract.mjs',
-  'regime_engine/contract.ts': 'regime_engine/contract.mjs',
-};
-const temp = mkdtempSync(path.join(tmpdir(), 'regime-contract-'));
-let mod;
-try {
-  for (const [sourcePath, outputPath] of Object.entries(files)) {
-    const input = readFileSync(path.join(ROOT, 'backend', sourcePath), 'utf8');
-    const output = ts.transpileModule(input, {
-      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    }).outputText.replaceAll(/(['"])\.\.\/([a-z_]+)\/([a-z_]+)\.js\1/g, '$1../$2/$3.mjs$1')
-      .replaceAll(/(['"])\.\/([a-z_]+)\.js\1/g, '$1./$2.mjs$1');
-    const destination = path.join(temp, outputPath);
-    mkdirSync(path.dirname(destination), { recursive: true });
-    writeFileSync(destination, output, 'utf8');
-  }
-  mod = await import(pathToFileURL(path.join(temp, 'regime_engine', 'contract.mjs')).href);
-} finally {
-  rmSync(temp, { recursive: true, force: true });
-}
+const mod = await loadBackendModule('regime_engine/contract.ts');
 
 const cutoff = '2026-10-01T12:00:00.000Z';
 const input = {
