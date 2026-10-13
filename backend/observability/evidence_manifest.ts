@@ -107,7 +107,9 @@ function compareClaim(a: EvidenceClaim, b: EvidenceClaim): number {
     v.kind, v.sourceAuthority, v.evidenceId, v.revision, v.artifactSha256,
     v.effectiveAt, v.publishedAt, v.firstIngestedAt, v.producerVersion,
   ].join('\u001f');
-  return key(a).localeCompare(key(b), 'en');
+  const left = key(a);
+  const right = key(b);
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 /**
