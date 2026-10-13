@@ -17,6 +17,31 @@ import ts from 'typescript';
 const BACKEND = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'backend');
 const RELATIVE_SPECIFIER = /(\bfrom\s+|\bimport\s*\(\s*|\bimport\s+)(['"])(\.\.?\/[^'"]+)\.js\2/g;
 
+function transpileRewritten(relative, onImport) {
+  const source = readFileSync(path.join(BACKEND, relative), 'utf8');
+  const output = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  return output.replaceAll(RELATIVE_SPECIFIER, (_match, prefix, quote, specifier) => {
+    onImport(path.posix.normalize(path.posix.join(path.posix.dirname(relative), `${specifier}.ts`)));
+    return `${prefix}${quote}${specifier}.mjs${quote}`;
+  });
+}
+
+/** Sorted runtime import closure of `entry` (paths relative to `backend/`). */
+export function listBackendImportClosure(entry) {
+  const pending = [path.posix.normalize(entry)];
+  const seen = new Set();
+  while (pending.length > 0) {
+    const relative = pending.pop();
+    if (seen.has(relative)) continue;
+    if (relative.startsWith('..')) throw new Error(`import escapes backend/: ${relative}`);
+    seen.add(relative);
+    transpileRewritten(relative, (dependency) => pending.push(dependency));
+  }
+  return [...seen].sort();
+}
+
 /** @param {string} entry path relative to `backend/`, e.g. `regime_engine/contract.ts` */
 export async function loadBackendModule(entry) {
   const temp = mkdtempSync(path.join(tmpdir(), 'backend-module-'));
@@ -28,14 +53,7 @@ export async function loadBackendModule(entry) {
       if (seen.has(relative)) continue;
       if (relative.startsWith('..')) throw new Error(`import escapes backend/: ${relative}`);
       seen.add(relative);
-      const source = readFileSync(path.join(BACKEND, relative), 'utf8');
-      const output = ts.transpileModule(source, {
-        compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-      }).outputText;
-      const rewritten = output.replaceAll(RELATIVE_SPECIFIER, (_match, prefix, quote, specifier) => {
-        pending.push(path.posix.normalize(path.posix.join(path.posix.dirname(relative), `${specifier}.ts`)));
-        return `${prefix}${quote}${specifier}.mjs${quote}`;
-      });
+      const rewritten = transpileRewritten(relative, (dependency) => pending.push(dependency));
       const destination = path.join(temp, relative.replace(/\.ts$/, '.mjs'));
       mkdirSync(path.dirname(destination), { recursive: true });
       writeFileSync(destination, rewritten, 'utf8');

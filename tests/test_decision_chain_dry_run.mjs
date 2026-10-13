@@ -363,7 +363,30 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 }
 
-// --- 10. Static guards on source and documentation.
+// --- 10. Containment: the chain depends only on pure contracts and nothing
+// in the runtime imports it, so a dry run can never reach live data or I/O.
+const { listBackendImportClosure } = await import('../scripts/lib/backend_module_loader.mjs');
+const closure = listBackendImportClosure('decision_chain/dry_run.ts');
+assert.deepEqual(closure, [
+  'acceptance_engine/contract.ts', 'action_engine/contract.ts', 'ai_engine/v2_committee_contract.ts',
+  'alert_engine/contract.ts', 'command_center/contract.ts', 'decision_chain/dry_run.ts',
+  'event_impact/deterministic_processor.ts', 'gold_transmission/deterministic_processor.ts',
+  'horizon_engine/contract.ts', 'market_engine/institutional_snapshot.ts', 'market_engine/validate.ts',
+  'portfolio_engine/contract.ts', 'positioning_engine/evidence_contract.ts', 'regime_engine/contract.ts',
+  'risk_engine/final_action_contract.ts', 'risk_engine/pre_pm_contract.ts', 'shared/strict_timestamp.ts',
+]);
+for (const file of closure) {
+  const text = readFileSync(path.join(ROOT, 'backend', file), 'utf8');
+  assert.doesNotMatch(text, /\bfetch\(|process\.env|Math\.random\(|SUPABASE_|ANTHROPIC_|OPENAI_|\benv\.[A-Z]/, file);
+}
+const backendFiles = spawnSync('git', ['ls-files', 'backend'], { cwd: ROOT, encoding: 'utf8' })
+  .stdout.split('\n').filter((file) => file.endsWith('.ts') && !file.startsWith('backend/decision_chain/'));
+assert.ok(backendFiles.length > 40);
+for (const file of backendFiles) {
+  assert.doesNotMatch(readFileSync(path.join(ROOT, file), 'utf8'), /decision_chain\//, `${file} imports CHAIN-0`);
+}
+
+// --- 11. Static guards on source and documentation.
 const source = readFileSync(path.join(ROOT, 'backend', 'decision_chain', 'dry_run.ts'), 'utf8');
 const docs = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_DECISION_CHAIN_DRY_RUN_CONTRACT.md'), 'utf8');
 assert.doesNotMatch(source, /fetch\(|SUPABASE_|ANTHROPIC_|OPENAI_|process\.env|Math\.random\(|Date\.now\(|new Date\(/);
