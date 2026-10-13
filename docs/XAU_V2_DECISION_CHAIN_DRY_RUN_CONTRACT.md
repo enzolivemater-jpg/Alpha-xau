@@ -101,3 +101,15 @@ construction or trading.
 honest input (nothing authorized, no runtime identity), the expected trace
 and the expected digest. Any change to any gate's output, ordering or
 identity fails CI until the fixture is regenerated in a reviewed change.
+
+## Local simulation
+
+```sh
+node scripts/run_decision_chain_dry_run.mjs [input.json]
+```
+
+Runs the chain on `{ knowledgeCutoff, input }` (the golden fixture by
+default) and prints the trace, integrity verdict, input findings and digest.
+Exit code `0` consistent, `2` integrity violated, `1` usage or input error.
+It reads only the given file and writes only a temporary transpilation
+directory that it removes.

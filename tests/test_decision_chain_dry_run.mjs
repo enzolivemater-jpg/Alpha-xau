@@ -1,38 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
+import { loadDecisionChainModule } from '../scripts/run_decision_chain_dry_run.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const sourceFiles = [
-  'event_impact/deterministic_processor.ts', 'gold_transmission/deterministic_processor.ts',
-  'market_engine/types.ts', 'market_engine/institutional_snapshot.ts',
-  'positioning_engine/evidence_contract.ts', 'regime_engine/contract.ts',
-  'horizon_engine/contract.ts', 'ai_engine/v2_committee_contract.ts',
-  'risk_engine/pre_pm_contract.ts', 'portfolio_engine/contract.ts',
-  'risk_engine/final_action_contract.ts', 'action_engine/contract.ts',
-  'command_center/contract.ts', 'alert_engine/contract.ts',
-  'acceptance_engine/contract.ts', 'decision_chain/dry_run.ts',
-];
-const temp = mkdtempSync(path.join(tmpdir(), 'decision-chain-dry-run-'));
-let mod;
-try {
-  for (const sourcePath of sourceFiles) {
-    const input = readFileSync(path.join(ROOT, 'backend', sourcePath), 'utf8');
-    const output = ts.transpileModule(input, {
-      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    }).outputText.replaceAll(/(['"])(\.\.?\/[a-z0-9_]+\/[a-z0-9_]+)\.js\1/g, '$1$2.mjs$1')
-      .replaceAll(/(['"])(\.\/[a-z0-9_]+)\.js\1/g, '$1$2.mjs$1');
-    const destination = path.join(temp, sourcePath.replace(/\.ts$/, '.mjs'));
-    mkdirSync(path.dirname(destination), { recursive: true });
-    writeFileSync(destination, output, 'utf8');
-  }
-  mod = await import(pathToFileURL(path.join(temp, 'decision_chain', 'dry_run.mjs')).href);
-} finally {
-  rmSync(temp, { recursive: true, force: true });
-}
+const mod = await loadDecisionChainModule();
 
 const golden = JSON.parse(readFileSync(
   path.join(ROOT, 'tests', 'fixtures', 'decision_chain_dry_run_baseline.json'), 'utf8'));
@@ -243,7 +218,35 @@ assert.throws(() => mod.canonicalJson({ a: undefined }), TypeError);
 assert.throws(() => mod.canonicalJson({ a: new Date(0) }), TypeError);
 assert.throws(() => mod.canonicalJson(1n), TypeError);
 
-// --- 9. Static guards on source and documentation.
+// --- 9. The local simulation CLI reports the same verdict and digest.
+const cli = path.join(ROOT, 'scripts', 'run_decision_chain_dry_run.mjs');
+const run = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
+const goldenRun = run();
+assert.equal(goldenRun.status, 0, goldenRun.stderr);
+const summary = JSON.parse(goldenRun.stdout);
+assert.equal(summary.integrity, 'CONSISTENT');
+assert.equal(summary.chainState, 'HOLD');
+assert.equal(summary.execution, 'FORBIDDEN');
+assert.equal(summary.digest, golden.expected.digest);
+assert.deepEqual(summary.trace.map((item) => item.stage), STAGES);
+const scratch = mkdtempSync(path.join(tmpdir(), 'decision-chain-cli-'));
+try {
+  const blankFile = path.join(scratch, 'blank.json');
+  writeFileSync(blankFile, JSON.stringify({ knowledgeCutoff: cutoff, input: blank }));
+  const blankRun = run(blankFile);
+  assert.equal(blankRun.status, 0, blankRun.stderr);
+  assert.equal(JSON.parse(blankRun.stdout).inputFindings.length, 5);
+  const badFile = path.join(scratch, 'bad.json');
+  writeFileSync(badFile, JSON.stringify({ input: baseline }));
+  assert.equal(run(badFile).status, 1);
+  writeFileSync(badFile, '{not json');
+  assert.equal(run(badFile).status, 1);
+  assert.equal(run(badFile, 'extra').status, 1);
+} finally {
+  rmSync(scratch, { recursive: true, force: true });
+}
+
+// --- 10. Static guards on source and documentation.
 const source = readFileSync(path.join(ROOT, 'backend', 'decision_chain', 'dry_run.ts'), 'utf8');
 const docs = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_DECISION_CHAIN_DRY_RUN_CONTRACT.md'), 'utf8');
 assert.doesNotMatch(source, /fetch\(|SUPABASE_|ANTHROPIC_|OPENAI_|process\.env|Math\.random\(|Date\.now\(|new Date\(/);
