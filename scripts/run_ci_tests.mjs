@@ -49,6 +49,7 @@ const TEST_FILES = [
   'tests/test_bls_cpi_production_orchestrator.mjs',
   'tests/test_committee_event_retry_idempotency.mjs',
   'tests/test_committee_internal_transport.mjs',
+  'tests/test_chain_0_adversarial_corpus.mjs',
   'tests/test_command_center_contract.mjs',
   'tests/test_completion_board_and_recovery_authorization.mjs',
   'tests/test_decision_chain_contract.mjs',
