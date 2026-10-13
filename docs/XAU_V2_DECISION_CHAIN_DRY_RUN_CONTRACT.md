@@ -51,7 +51,8 @@ restrictive. Fixing the gates themselves requires new gate versions and is a
 separate, reviewed change.
 
 Market freshness is re-derived at the knowledge cutoff, not trusted from the
-caller. For each market value, CHAIN-0 computes its age at the cutoff and
+caller. For each market value, CHAIN-0 computes its age at the cutoff (the
+`ageSeconds` passed to MP-0 is always that age) and
 classifies it with the existing `SYMBOL_RULES` / `classifyFreshness` policy
 (no new threshold). A field declared fresher than that classification is
 downgraded to `STALE` (`MARKET_FIELD_STALE_AT_CUTOFF`) or to `UNAVAILABLE`

@@ -178,9 +178,10 @@ export type DecisionChainInputFindingCode =
  * Input that the frozen gates would accept too optimistically is made more
  * restrictive before it reaches them, and every such change is recorded:
  * - an identifier failing the shape check is replaced by null;
- * - a market field whose declared freshness is better than its age at the
- *   knowledge cutoff allows (under the existing `SYMBOL_RULES`) is downgraded
- *   to STALE, or to UNAVAILABLE with its value removed;
+ * - a market field's age is recomputed at the knowledge cutoff, and a field
+ *   whose declared freshness is better than that age allows (under the
+ *   existing `SYMBOL_RULES`) is downgraded to STALE, or to UNAVAILABLE with
+ *   its value removed;
  * - a market value with no approved freshness rule, or outside the
  *   plausibility range that ingestion enforces, is made UNAVAILABLE.
  * A finding can only make the chain more restrictive.
@@ -451,7 +452,8 @@ function fieldAtCutoff(
   if (cutoffMs === null || observedMs === null || observedMs > cutoffMs) return field;
   const ageSeconds = Math.floor((cutoffMs - observedMs) / 1000);
   const freshness = classifyFreshness(ageSeconds, rule);
-  if (FRESHNESS_RANK[freshness] <= FRESHNESS_RANK[field.status]) return field;
+  // The age reported downstream is always the age at the cutoff.
+  if (FRESHNESS_RANK[freshness] <= FRESHNESS_RANK[field.status]) return { ...field, ageSeconds };
   if (freshness === 'UNAVAILABLE') {
     findings.push({ field: `marketSnapshot.${name}`, code: 'MARKET_FIELD_EXPIRED_AT_CUTOFF' });
     return { ...field, value: null, status: 'UNAVAILABLE', ageSeconds };
