@@ -10,6 +10,7 @@ import {
   POSITIONING_SCHEMA_VERSION,
   type PositioningEvidenceEnvelope,
 } from '../positioning_engine/evidence_contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const REGIME_SCHEMA_VERSION = 'xau.regime-assessment.v1' as const;
 export const REGIME_ALGORITHM_VERSION = 'regime-dependency-gate-1.0.0' as const;
@@ -49,12 +50,6 @@ export interface RegimeAssessmentEnvelope {
   };
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
-function validTimestamp(value: string): boolean {
-  return TIMESTAMP.test(value) && Number.isFinite(Date.parse(value));
-}
-
 /**
  * Validates the two upstream institutional envelopes but performs no regime
  * inference. R-0 exists to prevent legacy prose/LLM labels from crossing the
@@ -65,7 +60,7 @@ export function buildRegimeAssessmentContract(
   knowledgeCutoff: string,
 ): RegimeAssessmentEnvelope {
   const reasons = new Set<RegimeReasonCode>();
-  if (!validTimestamp(knowledgeCutoff)) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
+  if (!isStrictTimestamp(knowledgeCutoff)) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   if (input.marketPricing.knowledgeCutoff !== knowledgeCutoff
       || input.positioning.knowledgeCutoff !== knowledgeCutoff) {
     reasons.add('UPSTREAM_CUTOFF_MISMATCH');

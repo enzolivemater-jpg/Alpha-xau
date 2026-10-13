@@ -1,5 +1,7 @@
 /** Provider-independent Positioning P-0 evidence contract. No signal inference. */
 
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
+
 export const POSITIONING_SCHEMA_VERSION = 'xau.positioning-evidence.v1' as const;
 export const POSITIONING_ALGORITHM_VERSION = 'positioning-evidence-normalizer-1.0.0' as const;
 
@@ -49,12 +51,9 @@ const UNITS = new Set<PositioningUnit>(['CONTRACTS', 'PERCENT', 'RATIO', 'INDEX'
 const CODE = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 const INSTRUMENT = /^[A-Z0-9][A-Z0-9_.:/-]{0,31}$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function timestampMs(value: string): number | null {
-  if (!TIMESTAMP.test(value)) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseStrictTimestamp(value);
 }
 
 function isCivilDate(value: string): boolean {

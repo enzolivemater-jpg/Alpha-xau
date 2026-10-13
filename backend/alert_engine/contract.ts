@@ -4,6 +4,7 @@ import {
   COMMAND_CENTER_ALGORITHM_VERSION,
   COMMAND_CENTER_SCHEMA_VERSION,
 } from '../command_center/contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const ALERT_SCHEMA_VERSION = 'xau.alert-suppression.v1' as const;
 export const ALERT_ALGORITHM_VERSION = 'alert-suppression-gate-1.0.0' as const;
@@ -50,8 +51,6 @@ export interface AlertSuppressionEnvelope {
   readonly knowledgeCutoff: string;
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 function buildDedupeKey(input: AlertGateInput, cutoff: string): string {
   const upstreamReasons = [...new Set(input.commandCenter.reasonCodes)].sort().join(',');
   return [
@@ -72,7 +71,7 @@ export function buildAlertSuppressionGate(
   knowledgeCutoff: string,
 ): AlertSuppressionEnvelope {
   const reasons = new Set<AlertReasonCode>();
-  if (!TIMESTAMP.test(knowledgeCutoff) || !Number.isFinite(Date.parse(knowledgeCutoff))) {
+  if (!isStrictTimestamp(knowledgeCutoff)) {
     reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   }
   if (input.commandCenter.schemaVersion !== COMMAND_CENTER_SCHEMA_VERSION

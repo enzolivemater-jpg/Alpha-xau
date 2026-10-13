@@ -9,6 +9,7 @@ import { POSITIONING_ALGORITHM_VERSION, POSITIONING_SCHEMA_VERSION } from '../po
 import { REGIME_ALGORITHM_VERSION, REGIME_SCHEMA_VERSION } from '../regime_engine/contract.js';
 import { FINAL_ACTION_RISK_ALGORITHM_VERSION, FINAL_ACTION_RISK_SCHEMA_VERSION } from '../risk_engine/final_action_contract.js';
 import { PRE_PM_ALGORITHM_VERSION, PRE_PM_SCHEMA_VERSION } from '../risk_engine/pre_pm_contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const COMMAND_CENTER_SCHEMA_VERSION = 'xau.command-center-projection.v1' as const;
 export const COMMAND_CENTER_ALGORITHM_VERSION = 'command-center-read-only-projection-1.0.0' as const;
@@ -70,15 +71,13 @@ export interface CommandCenterProjection {
   };
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 /** CC-0 projects only the safe HOLD state and never constructs a trade ticket. */
 export function buildCommandCenterProjection(
   input: CommandCenterInput,
   knowledgeCutoff: string,
 ): CommandCenterProjection {
   const reasons = new Set<CommandCenterReasonCode>();
-  if (!TIMESTAMP.test(knowledgeCutoff) || !Number.isFinite(Date.parse(knowledgeCutoff))) {
+  if (!isStrictTimestamp(knowledgeCutoff)) {
     reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   }
   if (input.action.schemaVersion !== ACTION_SCHEMA_VERSION

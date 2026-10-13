@@ -7,6 +7,7 @@
  */
 
 import type { MarketField, MarketSnapshot } from './types.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const MARKET_PRICING_SCHEMA_VERSION = 'xau.market-pricing-snapshot.v1' as const;
 export const MARKET_PRICING_ALGORITHM_VERSION = 'market-pricing-envelope-1.0.0' as const;
@@ -58,12 +59,8 @@ export interface InstitutionalMarketPricingSnapshot {
 
 const FIELD_ORDER = ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti'] as const;
 
-const ISO_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 function parseExplicitTimestamp(value: string | null): number | null {
-  if (value === null || !ISO_WITH_ZONE.test(value)) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseStrictTimestamp(value);
 }
 
 function fieldIsCoherent(field: MarketField): boolean {
