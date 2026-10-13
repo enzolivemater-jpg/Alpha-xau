@@ -138,6 +138,34 @@ assert.deepEqual(u.COMMAND_CENTER.reasonCodes, ['COMMAND_CENTER_RUNTIME_NOT_APPR
 assert.deepEqual(u.ACCEPTANCE.reasonCodes, ['ALERT_NOT_DELIVERABLE', 'E2E_ACCEPTANCE_RUN_NOT_AUTHORIZED']);
 assert.equal(unlocked.stages.commandCenter.observability.correlationId, 'corr-test-1');
 
+assert.deepEqual(unlocked.inputFindings, []);
+assert.deepEqual(result.inputFindings, []);
+
+// --- 3b. Blank or malformed identifiers never count as present evidence.
+const blank = structuredClone(authorized);
+Object.assign(blank, {
+  evidenceGraph: { schemaVersion: ' ', complete: true, nodeCount: 3 },
+  brokerConstraintsVersion: '', recipientPolicyVersion: 'policy\nv1',
+  runtimeEvidence: { correlationId: '', deploymentId: 'x'.repeat(129) },
+});
+const blanked = mod.runDecisionChainDryRun(blank, cutoff);
+assert.equal(blanked.integrity, 'CONSISTENT');
+assert.deepEqual(blanked.inputFindings.map((finding) => finding.field), [
+  'evidenceGraph.schemaVersion', 'brokerConstraintsVersion', 'recipientPolicyVersion',
+  'runtimeEvidence.correlationId', 'runtimeEvidence.deploymentId',
+]);
+assert.ok(blanked.inputFindings.every((finding) => finding.code === 'INVALID_IDENTIFIER_NULLIFIED'));
+const b = byStage(blanked);
+assert.ok(b.PRE_PM.reasonCodes.includes('EVIDENCE_GRAPH_UNAVAILABLE'));
+assert.ok(b.FINAL_ACTION_RISK.reasonCodes.includes('BROKER_CONSTRAINTS_UNAVAILABLE'));
+assert.ok(b.ALERT.reasonCodes.includes('RECIPIENT_POLICY_UNAVAILABLE'));
+assert.deepEqual(b.COMMAND_CENTER.reasonCodes, [
+  'RUNTIME_CORRELATION_UNAVAILABLE', 'DEPLOYMENT_NOT_PROVEN', 'COMMAND_CENTER_RUNTIME_NOT_APPROVED',
+]);
+assert.deepEqual(blanked.stages.commandCenter.observability,
+  { state: 'CONTRACT_ONLY', correlationId: null, deploymentId: null });
+assert.equal(blank.runtimeEvidence.correlationId, '', 'caller input is never mutated');
+
 // --- 4. Upstream drift and legacy identities fail closed at the right stage.
 const drift = structuredClone(baseline);
 drift.eventImpact.knowledgeCutoff = '2026-10-01T14:14:59.000Z';

@@ -39,6 +39,17 @@ correlation/deployment identifier and acceptance evidence flag is a required
 input. CHAIN-0 never defaults one. Setting all of them to authorized still
 yields `HOLD`, because every positive method remains unapproved.
 
+The frozen gates treat any non-null string as a present identifier, so an
+empty correlation ID would silently clear `RUNTIME_CORRELATION_UNAVAILABLE`.
+CHAIN-0 closes this at its boundary: `evidenceGraph.schemaVersion`,
+`brokerConstraintsVersion`, `recipientPolicyVersion`,
+`runtimeEvidence.correlationId` and `runtimeEvidence.deploymentId` must match
+`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`; any other value is replaced by `null`
+before it reaches a gate and recorded in `inputFindings` as
+`INVALID_IDENTIFIER_NULLIFIED`. The replacement can only make the chain more
+restrictive. Fixing the gates themselves requires new gate versions and is a
+separate, reviewed change.
+
 ## Consistency controls
 
 `verifyDecisionChainIntegrity` re-checks a result, including one reloaded

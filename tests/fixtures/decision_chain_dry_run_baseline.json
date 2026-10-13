@@ -125,7 +125,7 @@
     }
   },
   "expected": {
-    "digest": "sha256:271ac8bc566aa6a4d3e5a821338dc3ec22406108055fc090a2e6c61b14800f99",
+    "digest": "sha256:5802686d3c7fef574a88cb38dd2173915fdfc6f265457414c50843f7f4b68b46",
     "trace": [
       {
         "stage": "MARKET_PRICING",

@@ -141,6 +141,27 @@ export interface DecisionChainDryRunInput {
   readonly acceptanceEvidence: Readonly<Record<AcceptanceEvidenceKey, boolean>>;
 }
 
+/** Optional identifiers a gate would otherwise treat as present when blank. */
+export const DECISION_CHAIN_IDENTIFIER_FIELDS = [
+  'evidenceGraph.schemaVersion',
+  'brokerConstraintsVersion',
+  'recipientPolicyVersion',
+  'runtimeEvidence.correlationId',
+  'runtimeEvidence.deploymentId',
+] as const;
+
+export type DecisionChainIdentifierField = typeof DECISION_CHAIN_IDENTIFIER_FIELDS[number];
+
+/**
+ * An identifier that fails the shape check is replaced by null before it
+ * reaches a gate, so the gate reports it as unavailable. The replacement is
+ * recorded; it can only make the chain more restrictive.
+ */
+export interface DecisionChainInputFinding {
+  readonly field: DecisionChainIdentifierField;
+  readonly code: 'INVALID_IDENTIFIER_NULLIFIED';
+}
+
 export interface DecisionChainStageTrace {
   readonly stage: DecisionChainStage;
   readonly schemaVersion: string;
@@ -192,6 +213,7 @@ export interface DecisionChainDryRunResult {
   readonly integrity: 'CONSISTENT' | 'VIOLATED';
   readonly violations: readonly DecisionChainViolation[];
   readonly knowledgeCutoff: string;
+  readonly inputFindings: readonly DecisionChainInputFinding[];
   readonly trace: readonly DecisionChainStageTrace[];
   readonly stages: DecisionChainStages;
 }
@@ -275,7 +297,7 @@ function positiveOutputs(stages: DecisionChainStages): ReadonlyArray<readonly [D
   ];
 }
 
-type VerifiableDecisionChain = Omit<DecisionChainDryRunResult, 'integrity' | 'violations'>;
+type VerifiableDecisionChain = Omit<DecisionChainDryRunResult, 'integrity' | 'violations' | 'inputFindings'>;
 
 /**
  * Re-checks a chain result, including one reloaded from storage or a log.
@@ -351,11 +373,43 @@ function collectViolations(result: VerifiableDecisionChain): DecisionChainViolat
   return violations;
 }
 
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
+
+function identifierOrNull(
+  field: DecisionChainIdentifierField,
+  value: string | null,
+  findings: DecisionChainInputFinding[],
+): string | null {
+  if (value === null) return null;
+  if (typeof value === 'string' && IDENTIFIER.test(value)) return value;
+  findings.push({ field, code: 'INVALID_IDENTIFIER_NULLIFIED' });
+  return null;
+}
+
 /** Runs MP-0 through E2E-0 at one explicit cutoff and verifies the result. */
 export function runDecisionChainDryRun(
-  input: DecisionChainDryRunInput,
+  rawInput: DecisionChainDryRunInput,
   knowledgeCutoff: string,
 ): DecisionChainDryRunResult {
+  const inputFindings: DecisionChainInputFinding[] = [];
+  const input: DecisionChainDryRunInput = {
+    ...rawInput,
+    evidenceGraph: {
+      ...rawInput.evidenceGraph,
+      schemaVersion: identifierOrNull('evidenceGraph.schemaVersion',
+        rawInput.evidenceGraph.schemaVersion, inputFindings),
+    },
+    brokerConstraintsVersion: identifierOrNull('brokerConstraintsVersion',
+      rawInput.brokerConstraintsVersion, inputFindings),
+    recipientPolicyVersion: identifierOrNull('recipientPolicyVersion',
+      rawInput.recipientPolicyVersion, inputFindings),
+    runtimeEvidence: {
+      correlationId: identifierOrNull('runtimeEvidence.correlationId',
+        rawInput.runtimeEvidence.correlationId, inputFindings),
+      deploymentId: identifierOrNull('runtimeEvidence.deploymentId',
+        rawInput.runtimeEvidence.deploymentId, inputFindings),
+    },
+  };
   const marketPricing = buildInstitutionalMarketPricingSnapshot(input.marketSnapshot, knowledgeCutoff);
   const positioning = buildPositioningEvidenceEnvelope(input.positioningEvidence, knowledgeCutoff);
   const regime = buildRegimeAssessmentContract({ marketPricing, positioning }, knowledgeCutoff);
@@ -422,6 +476,7 @@ export function runDecisionChainDryRun(
   const violations = verifyDecisionChainIntegrity(chain);
   return {
     ...chain,
+    inputFindings,
     integrity: violations.length === 0 ? 'CONSISTENT' : 'VIOLATED',
     violations,
   };
