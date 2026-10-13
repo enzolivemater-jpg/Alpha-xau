@@ -58,6 +58,7 @@
  */
 
 import type { MarketSymbol, RawDataPoint, SourceCode } from './types.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export interface ProviderEnv {
   readonly FRED_API_KEY?: string;
@@ -187,12 +188,16 @@ export function toNumberOrNull(raw: unknown): number | null {
  */
 export function toUtcIso(date: string, time?: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return null;
-  const timePart = time && /^\d{2}:\d{2}(:\d{2})?$/.test(time.trim())
-    ? (time.trim().length === 5 ? `${time.trim()}:00` : time.trim())
-    : '00:00:00';
-  const iso = `${date.trim()}T${timePart}Z`;
-  const parsed = Date.parse(iso);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+  // Sans heure, la date seule vaut minuit UTC. Une heure fournie mais
+  // malformée rend l'instant inexploitable : jamais un repli sur minuit.
+  let timePart = '00:00:00';
+  if (time !== undefined && time.trim() !== '') {
+    if (!/^\d{2}:\d{2}(:\d{2})?$/.test(time.trim())) return null;
+    timePart = time.trim().length === 5 ? `${time.trim()}:00` : time.trim();
+  }
+  // Contrôle calendaire strict : Date.parse lirait 2026-02-30 comme le 2 mars.
+  const parsed = parseStrictTimestamp(`${date.trim()}T${timePart}Z`);
+  return parsed === null ? null : new Date(parsed).toISOString();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -316,8 +321,8 @@ export function parseTwelveData(body: string, symbol: MarketSymbol): RawDataPoin
   } else if (typeof quote.timestamp === 'number' && Number.isFinite(quote.timestamp)) {
     observedAt = new Date(quote.timestamp * 1000).toISOString();
   } else if (typeof quote.datetime === 'string') {
-    const parsed = Date.parse(`${quote.datetime.replace(' ', 'T')}Z`);
-    if (Number.isFinite(parsed)) observedAt = new Date(parsed).toISOString();
+    const [datePart, timePart, ...rest] = quote.datetime.trim().split(/[ T]/);
+    if (rest.length === 0) observedAt = toUtcIso(datePart ?? '', timePart);
   }
   if (observedAt === null) {
     return { symbol, source, value: null, observedAt: null, unavailableReason: 'Horodatage source absent' };

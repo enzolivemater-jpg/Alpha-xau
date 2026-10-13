@@ -74,4 +74,28 @@ assert.ok(asOf.selectMarketPricingAsOf([candidate], '2026-10-01T24:00:00Z').reas
 assert.ok(asOf.selectMarketPricingAsOf([{ ...candidate, ingestedAt: '2026-02-30T09:56:00Z' }],
   '2026-10-01T10:00:00Z').reasonCodes.includes('INVALID_CANDIDATE_HISTORY'));
 
+// Ingestion: provider dates are never shifted and malformed times are not midnight.
+const providers = await loadBackendModule('market_engine/providers.ts');
+assert.equal(providers.toUtcIso('2026-09-30'), '2026-09-30T00:00:00.000Z');
+assert.equal(providers.toUtcIso('2026-09-30', '14:05'), '2026-09-30T14:05:00.000Z');
+assert.equal(providers.toUtcIso('2026-09-30', '14:05:07'), '2026-09-30T14:05:07.000Z');
+assert.equal(providers.toUtcIso('2024-02-29'), '2024-02-29T00:00:00.000Z');
+assert.equal(providers.toUtcIso('2026-02-30'), null);
+assert.equal(providers.toUtcIso('2026-09-31'), null);
+assert.equal(providers.toUtcIso('2026-09-30', '24:00'), null);
+assert.equal(providers.toUtcIso('2026-09-30', '25:99'), null);
+assert.equal(providers.toUtcIso('2026-09-30', 'noon'), null);
+assert.equal(providers.toUtcIso('.'), null);
+
+const validate = await loadBackendModule('market_engine/validate.ts');
+const point = (observedAt) => ({
+  symbol: 'VIX', source: 'fred', value: 17.2, observedAt,
+  open: null, high: null, low: null, bid: null, ask: null, volume: null,
+});
+const now = new Date('2026-10-01T12:00:00.000Z');
+assert.equal(validate.validatePoint(point('2026-10-01T00:00:00.000Z'), now).ok, true);
+const shiftedPoint = validate.validatePoint(point('2026-09-31T00:00:00.000Z'), now);
+assert.equal(shiftedPoint.ok, false);
+assert.equal(shiftedPoint.rejection.reason, 'Horodatage source invalide');
+
 console.log('PASS strict timestamps reject impossible civil times at every V2 boundary');
