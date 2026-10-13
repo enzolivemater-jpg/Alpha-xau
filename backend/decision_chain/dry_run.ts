@@ -314,10 +314,10 @@ function positiveOutputs(stages: DecisionChainStages): ReadonlyArray<readonly [D
     ['AI_COMMITTEE', s.committee.providerInvocation !== 'FORBIDDEN' || s.committee.request !== null
       || s.committee.response !== null || s.committee.legacyCommitteeOutputAccepted !== false],
     ['PRE_PM', s.prePm.portfolioManagerEligibility !== 'BLOCKED' || s.prePm.evidenceAcceptance !== 'UNAVAILABLE'
-      || s.prePm.riskVerdict !== null
-      || s.prePm.confidence !== null || s.prePm.portfolioManagerInput !== null],
-    ['PORTFOLIO_MANAGER', s.portfolioManager.advisoryOnly !== true || s.portfolioManager.recommendation !== null || s.portfolioManager.targetAllocation !== null
-      || s.portfolioManager.sizing !== null || s.portfolioManager.confidence !== null],
+      || s.prePm.riskVerdict !== null || s.prePm.confidence !== null || s.prePm.portfolioManagerInput !== null],
+    ['PORTFOLIO_MANAGER', s.portfolioManager.advisoryOnly !== true || s.portfolioManager.recommendation !== null
+      || s.portfolioManager.targetAllocation !== null || s.portfolioManager.sizing !== null
+      || s.portfolioManager.confidence !== null],
     ['FINAL_ACTION_RISK', s.finalActionRisk.actionEligibility !== 'BLOCKED' || s.finalActionRisk.maximumLoss !== null
       || s.finalActionRisk.positionSize !== null || s.finalActionRisk.stopLoss !== null
       || s.finalActionRisk.riskVerdict !== null],
