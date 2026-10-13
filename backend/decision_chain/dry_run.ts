@@ -9,6 +9,7 @@
 
 import {
   ACCEPTANCE_ALGORITHM_VERSION,
+  ACCEPTANCE_EVIDENCE_KEYS,
   ACCEPTANCE_SCHEMA_VERSION,
   buildInstitutionalAcceptanceGate,
   type AcceptanceEvidenceKey,
@@ -463,13 +464,36 @@ function snapshotAtCutoff(
   return { ...snapshot, ...fields };
 }
 
-/** Runs MP-0 through E2E-0 at one explicit cutoff and verifies the result. */
+/** An exception raised while building one stage, tagged with that stage. */
+export class DecisionChainStageError extends Error {
+  readonly stage: DecisionChainStage | 'INPUT';
+
+  constructor(stage: DecisionChainStage | 'INPUT', cause: unknown) {
+    super(`${stage}: ${cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)}`);
+    this.name = 'DecisionChainStageError';
+    this.stage = stage;
+  }
+}
+
+function runStage<T>(stage: DecisionChainStage | 'INPUT', build: () => T): T {
+  try {
+    return build();
+  } catch (error) {
+    throw new DecisionChainStageError(stage, error);
+  }
+}
+
+/**
+ * Runs MP-0 through E2E-0 at one explicit cutoff and verifies the result.
+ * Expects a well-formed input; a stage failure throws DecisionChainStageError.
+ * Use `evaluateDecisionChain` for untrusted input.
+ */
 export function runDecisionChainDryRun(
   rawInput: DecisionChainDryRunInput,
   knowledgeCutoff: string,
 ): DecisionChainDryRunResult {
   const inputFindings: DecisionChainInputFinding[] = [];
-  const input: DecisionChainDryRunInput = {
+  const input: DecisionChainDryRunInput = runStage('INPUT', () => ({
     ...rawInput,
     marketSnapshot: snapshotAtCutoff(rawInput.marketSnapshot, knowledgeCutoff, inputFindings),
     evidenceGraph: {
@@ -487,55 +511,58 @@ export function runDecisionChainDryRun(
       deploymentId: identifierOrNull('runtimeEvidence.deploymentId',
         rawInput.runtimeEvidence.deploymentId, inputFindings),
     },
-  };
-  const marketPricing = buildInstitutionalMarketPricingSnapshot(input.marketSnapshot, knowledgeCutoff);
-  const positioning = buildPositioningEvidenceEnvelope(input.positioningEvidence, knowledgeCutoff);
-  const regime = buildRegimeAssessmentContract({ marketPricing, positioning }, knowledgeCutoff);
-  const horizonSynthesis = buildHorizonSynthesisContract({
+  }));
+  const marketPricing = runStage('MARKET_PRICING',
+    () => buildInstitutionalMarketPricingSnapshot(input.marketSnapshot, knowledgeCutoff));
+  const positioning = runStage('POSITIONING',
+    () => buildPositioningEvidenceEnvelope(input.positioningEvidence, knowledgeCutoff));
+  const regime = runStage('REGIME',
+    () => buildRegimeAssessmentContract({ marketPricing, positioning }, knowledgeCutoff));
+  const horizonSynthesis = runStage('HORIZON_SYNTHESIS', () => buildHorizonSynthesisContract({
     eventImpact: input.eventImpact,
     goldTransmission: input.goldTransmission,
     marketPricing,
     positioning,
     regime,
-  }, knowledgeCutoff);
-  const committee = buildCommitteeV2Gate({
+  }, knowledgeCutoff));
+  const committee = runStage('AI_COMMITTEE', () => buildCommitteeV2Gate({
     horizonSynthesis,
     providerAuthorization: input.authorizations.provider,
     costAuthorization: input.authorizations.cost,
-  }, knowledgeCutoff);
-  const prePm = buildPrePmEvidenceRiskGate({
+  }, knowledgeCutoff));
+  const prePm = runStage('PRE_PM', () => buildPrePmEvidenceRiskGate({
     committee,
     evidenceGraph: input.evidenceGraph,
-  }, knowledgeCutoff);
-  const portfolioManager = buildPortfolioManagerGate({
+  }, knowledgeCutoff));
+  const portfolioManager = runStage('PORTFOLIO_MANAGER', () => buildPortfolioManagerGate({
     prePm,
     portfolioPolicyAuthorization: input.authorizations.portfolioPolicy,
     portfolioState: input.portfolioState,
-  }, knowledgeCutoff);
-  const finalActionRisk = buildFinalActionRiskGate({
+  }, knowledgeCutoff));
+  const finalActionRisk = runStage('FINAL_ACTION_RISK', () => buildFinalActionRiskGate({
     portfolioManager,
     riskPolicyAuthorization: input.authorizations.riskPolicy,
     brokerConstraintsVersion: input.brokerConstraintsVersion,
-  }, knowledgeCutoff);
-  const action = buildActionAbstentionGate({
+  }, knowledgeCutoff));
+  const action = runStage('ACTION', () => buildActionAbstentionGate({
     finalRisk: finalActionRisk,
     executionAuthorization: input.authorizations.execution,
     brokerConnection: input.brokerConnection,
-  }, knowledgeCutoff);
-  const commandCenter = buildCommandCenterProjection({
+  }, knowledgeCutoff));
+  const commandCenter = runStage('COMMAND_CENTER', () => buildCommandCenterProjection({
     action,
     runtimeEvidence: input.runtimeEvidence,
-  }, knowledgeCutoff);
-  const alert = buildAlertSuppressionGate({
+  }, knowledgeCutoff));
+  const alert = runStage('ALERT', () => buildAlertSuppressionGate({
     commandCenter,
     alertPolicyAuthorization: input.authorizations.alertPolicy,
     deliveryAuthorization: input.authorizations.delivery,
     recipientPolicyVersion: input.recipientPolicyVersion,
-  }, knowledgeCutoff);
-  const acceptance = buildInstitutionalAcceptanceGate({
+  }, knowledgeCutoff));
+  const acceptance = runStage('ACCEPTANCE', () => buildInstitutionalAcceptanceGate({
     alert,
     evidence: input.acceptanceEvidence,
-  }, knowledgeCutoff);
+  }, knowledgeCutoff));
 
   const stages: DecisionChainStages = {
     marketPricing, positioning, regime, horizonSynthesis, committee, prePm,
@@ -596,4 +623,146 @@ export async function computeDecisionChainDigest(result: DecisionChainDryRunResu
   const bytes = new TextEncoder().encode(canonicalJson(result));
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   return `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export type DecisionChainInputErrorCode = 'MISSING' | 'UNKNOWN_KEY' | 'INVALID_TYPE' | 'INVALID_VALUE';
+
+export interface DecisionChainInputError {
+  readonly path: string;
+  readonly code: DecisionChainInputErrorCode;
+}
+
+type Check = (value: unknown, path: string, errors: DecisionChainInputError[]) => void;
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+  && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+
+const typed = (predicate: (value: unknown) => boolean): Check => (value, path, errors) => {
+  if (!predicate(value)) errors.push({ path, code: 'INVALID_TYPE' });
+};
+const oneOf = (...allowed: readonly string[]): Check => (value, path, errors) => {
+  if (typeof value !== 'string') errors.push({ path, code: 'INVALID_TYPE' });
+  else if (!allowed.includes(value)) errors.push({ path, code: 'INVALID_VALUE' });
+};
+const BOOLEAN = typed((value) => typeof value === 'boolean');
+const STRING = typed((value) => typeof value === 'string');
+const STRING_OR_NULL = typed((value) => value === null || typeof value === 'string');
+const NUMBER = typed((value) => typeof value === 'number');
+const NUMBER_OR_NULL = typed((value) => value === null || typeof value === 'number');
+const ARRAY = typed(Array.isArray);
+const AUTHORIZATION = oneOf('AUTHORIZED', 'UNAUTHORIZED');
+
+/** Exact-key object: missing and unknown keys are both errors. */
+const exact = (shape: Readonly<Record<string, Check>>): Check => (value, path, errors) => {
+  if (!isPlainObject(value)) {
+    errors.push({ path, code: 'INVALID_TYPE' });
+    return;
+  }
+  for (const key of Object.keys(shape)) {
+    const child = path === '' ? key : `${path}.${key}`;
+    if (!Object.prototype.hasOwnProperty.call(value, key)) errors.push({ path: child, code: 'MISSING' });
+    else shape[key](value[key], child, errors);
+  }
+  for (const key of Object.keys(value).sort()) {
+    if (!Object.prototype.hasOwnProperty.call(shape, key)) {
+      errors.push({ path: path === '' ? key : `${path}.${key}`, code: 'UNKNOWN_KEY' });
+    }
+  }
+};
+
+const MARKET_FIELD = exact({
+  value: NUMBER_OR_NULL,
+  status: oneOf('LIVE', 'STALE', 'UNAVAILABLE'),
+  observedAt: STRING_OR_NULL,
+  ageSeconds: NUMBER_OR_NULL,
+  source: STRING_OR_NULL,
+});
+const UPSTREAM_SUMMARY = exact({
+  algorithmVersion: STRING,
+  status: oneOf('ASSESSED', 'INSUFFICIENT_EVIDENCE', 'UNAVAILABLE'),
+  knowledgeCutoff: STRING,
+});
+
+const INPUT_SHAPE = exact({
+  marketSnapshot: exact({
+    available: BOOLEAN,
+    reason: STRING_OR_NULL,
+    ...Object.fromEntries(DECISION_CHAIN_MARKET_FIELDS.map((name) => [name, MARKET_FIELD])),
+    capturedAt: STRING_OR_NULL,
+  }),
+  // Entry shapes are validated by P-0 itself and reported as INVALID_EVIDENCE_SHAPE.
+  positioningEvidence: ARRAY,
+  eventImpact: UPSTREAM_SUMMARY,
+  goldTransmission: UPSTREAM_SUMMARY,
+  evidenceGraph: exact({ schemaVersion: STRING_OR_NULL, complete: BOOLEAN, nodeCount: NUMBER }),
+  authorizations: exact({
+    provider: AUTHORIZATION, cost: AUTHORIZATION, portfolioPolicy: AUTHORIZATION,
+    riskPolicy: AUTHORIZATION, execution: AUTHORIZATION, alertPolicy: AUTHORIZATION,
+    delivery: AUTHORIZATION,
+  }),
+  portfolioState: oneOf('AVAILABLE', 'UNAVAILABLE'),
+  brokerConstraintsVersion: STRING_OR_NULL,
+  brokerConnection: oneOf('CONNECTED', 'ABSENT'),
+  recipientPolicyVersion: STRING_OR_NULL,
+  runtimeEvidence: exact({ correlationId: STRING_OR_NULL, deploymentId: STRING_OR_NULL }),
+  acceptanceEvidence: exact(Object.fromEntries(ACCEPTANCE_EVIDENCE_KEYS.map((key) => [key, BOOLEAN]))),
+});
+
+/**
+ * Structural check of an untrusted chain input. A misspelled key, an
+ * unknown authorization value or a missing field is reported rather than
+ * silently read as absent. Semantic validity stays with the gates.
+ */
+export function validateDecisionChainInput(input: unknown): DecisionChainInputError[] {
+  const errors: DecisionChainInputError[] = [];
+  INPUT_SHAPE(input, '', errors);
+  return errors;
+}
+
+export type DecisionChainOutcome =
+  | { readonly kind: 'COMPLETED'; readonly result: DecisionChainDryRunResult }
+  | {
+    readonly kind: 'REJECTED';
+    readonly schemaVersion: typeof DECISION_CHAIN_SCHEMA_VERSION;
+    readonly algorithmVersion: typeof DECISION_CHAIN_ALGORITHM_VERSION;
+    readonly mode: 'DRY_RUN';
+    readonly chainState: 'HOLD';
+    readonly execution: 'FORBIDDEN';
+    readonly failedAt: 'INPUT' | DecisionChainStage;
+    readonly inputErrors: readonly DecisionChainInputError[];
+    readonly stageError: string | null;
+  };
+
+function rejected(
+  failedAt: 'INPUT' | DecisionChainStage,
+  inputErrors: readonly DecisionChainInputError[],
+  stageError: string | null,
+): DecisionChainOutcome {
+  return {
+    kind: 'REJECTED',
+    schemaVersion: DECISION_CHAIN_SCHEMA_VERSION,
+    algorithmVersion: DECISION_CHAIN_ALGORITHM_VERSION,
+    mode: 'DRY_RUN', chainState: 'HOLD', execution: 'FORBIDDEN',
+    failedAt, inputErrors, stageError,
+  };
+}
+
+/**
+ * Never throws. Malformed input or a stage failure yields an explicit
+ * REJECTED outcome that is still HOLD with execution forbidden.
+ */
+export function evaluateDecisionChain(input: unknown, knowledgeCutoff: unknown): DecisionChainOutcome {
+  const errors = validateDecisionChainInput(input);
+  if (typeof knowledgeCutoff !== 'string') errors.push({ path: '<knowledgeCutoff>', code: 'INVALID_TYPE' });
+  if (errors.length > 0) return rejected('INPUT', errors, null);
+  try {
+    return {
+      kind: 'COMPLETED',
+      result: runDecisionChainDryRun(input as DecisionChainDryRunInput, knowledgeCutoff as string),
+    };
+  } catch (error) {
+    if (error instanceof DecisionChainStageError) return rejected(error.stage, [], error.message);
+    return rejected('INPUT', [], error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+  }
 }

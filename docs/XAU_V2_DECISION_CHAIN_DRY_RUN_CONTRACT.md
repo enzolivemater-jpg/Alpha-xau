@@ -60,6 +60,18 @@ approved rule (DXY) is made `UNAVAILABLE`
 (`MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE`). Freshness is never upgraded, and
 look-ahead observations are left to MP-0, which abstains on them.
 
+## Untrusted input
+
+`evaluateDecisionChain(input, knowledgeCutoff)` never throws. It first checks
+the input structure with exact keys: a missing or misspelled key, a wrong
+type or an unknown enum value (for example `execution: "yes"`) is reported as
+`MISSING`, `UNKNOWN_KEY`, `INVALID_TYPE` or `INVALID_VALUE` with its path,
+instead of being read as absent. A stage that throws on structurally valid
+input is reported with its stage name. Both cases return
+`kind=REJECTED`, `chainState=HOLD`, `execution=FORBIDDEN`.
+`runDecisionChainDryRun` keeps its typed contract and throws
+`DecisionChainStageError` (tagged with the stage) on failure.
+
 ## Consistency controls
 
 `verifyDecisionChainIntegrity` re-checks a result, including one reloaded

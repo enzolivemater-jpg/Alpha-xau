@@ -9,7 +9,8 @@
  * without an argument the golden fixture is used. Nothing is persisted and
  * no network, provider or broker is reached.
  *
- * Exit codes: 0 consistent, 2 integrity violated, 1 usage or input error.
+ * Exit codes: 0 consistent, 2 integrity violated, 1 usage or input error
+ * (a rejected input or stage failure is printed as a HOLD outcome).
  */
 
 import { readFileSync } from 'node:fs';
@@ -44,13 +45,12 @@ async function main(argv) {
   }
 
   const chain = await loadDecisionChainModule();
-  let result;
-  try {
-    result = chain.runDecisionChainDryRun(document.input, document.knowledgeCutoff);
-  } catch (error) {
-    process.stderr.write(`input error: ${error.message}\n`);
+  const outcome = chain.evaluateDecisionChain(document.input, document.knowledgeCutoff);
+  if (outcome.kind === 'REJECTED') {
+    process.stdout.write(`${JSON.stringify(outcome, null, 2)}\n`);
     return 1;
   }
+  const { result } = outcome;
   const summary = {
     schemaVersion: result.schemaVersion,
     algorithmVersion: result.algorithmVersion,

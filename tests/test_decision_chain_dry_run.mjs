@@ -189,6 +189,51 @@ assert.deepEqual(check.findings, []);
 assert.ok(check.t.MARKET_PRICING.reasonCodes.includes('OBSERVATION_AFTER_KNOWLEDGE_CUTOFF'));
 assert.equal(baseline.marketSnapshot.spot.status, 'LIVE', 'caller snapshot is never mutated');
 
+// --- 3d. Untrusted input: explicit, traceable rejection; never a throw, always HOLD.
+const evaluate = (mutate, at = cutoff) => {
+  const copy = structuredClone(baseline);
+  mutate(copy);
+  return mod.evaluateDecisionChain(copy, at);
+};
+const completed = mod.evaluateDecisionChain(structuredClone(baseline), cutoff);
+assert.equal(completed.kind, 'COMPLETED');
+assert.deepEqual(completed.result, result);
+const rejectedPaths = (outcome) => outcome.inputErrors.map((e) => `${e.path}:${e.code}`);
+for (const [mutate, expected] of [
+  [(i) => { i.positioningEvidence = null; }, ['positioningEvidence:INVALID_TYPE']],
+  [(i) => { delete i.marketSnapshot.spot; }, ['marketSnapshot.spot:MISSING']],
+  [(i) => { delete i.runtimeEvidence; }, ['runtimeEvidence:MISSING']],
+  [(i) => { i.authorizations.execution = 'yes'; }, ['authorizations.execution:INVALID_VALUE']],
+  [(i) => { i.authorisations = i.authorizations; }, ['authorisations:UNKNOWN_KEY']],
+  [(i) => { i.marketSnapshot.vix.value = '17.2'; }, ['marketSnapshot.vix.value:INVALID_TYPE']],
+  [(i) => { i.acceptanceEvidence.executionAuthorityApproved = 'true'; },
+    ['acceptanceEvidence.executionAuthorityApproved:INVALID_TYPE']],
+  [(i) => { i.eventImpact.status = 'BULLISH'; }, ['eventImpact.status:INVALID_VALUE']],
+  [(i) => { i.brokerConnection = undefined; }, ['brokerConnection:INVALID_TYPE']],
+]) {
+  const outcome = evaluate(mutate);
+  assert.equal(outcome.kind, 'REJECTED');
+  assert.equal(outcome.chainState, 'HOLD');
+  assert.equal(outcome.execution, 'FORBIDDEN');
+  assert.equal(outcome.failedAt, 'INPUT');
+  assert.deepEqual(rejectedPaths(outcome), expected);
+}
+for (const bad of [null, [], 'input', 42]) {
+  assert.deepEqual(rejectedPaths(mod.evaluateDecisionChain(bad, cutoff)), [':INVALID_TYPE']);
+}
+assert.deepEqual(rejectedPaths(evaluate(() => {}, 1727791200000)), ['<knowledgeCutoff>:INVALID_TYPE']);
+// A stage failure on structurally valid input names the stage.
+const hostile = structuredClone(baseline);
+hostile.positioningEvidence = [new Proxy({}, { ownKeys() { throw new Error('boom'); } })];
+assert.equal(mod.validateDecisionChainInput(hostile).length, 0);
+const failed = mod.evaluateDecisionChain(hostile, cutoff);
+assert.equal(failed.kind, 'REJECTED');
+assert.equal(failed.failedAt, 'POSITIONING');
+assert.equal(failed.stageError, 'POSITIONING: Error: boom');
+assert.equal(failed.chainState, 'HOLD');
+assert.throws(() => mod.runDecisionChainDryRun(hostile, cutoff),
+  (error) => error instanceof mod.DecisionChainStageError && error.stage === 'POSITIONING');
+
 // --- 4. Upstream drift and legacy identities fail closed at the right stage.
 const drift = structuredClone(baseline);
 drift.eventImpact.knowledgeCutoff = '2026-10-01T14:14:59.000Z';
@@ -294,6 +339,13 @@ try {
   const badFile = path.join(scratch, 'bad.json');
   writeFileSync(badFile, JSON.stringify({ input: baseline }));
   assert.equal(run(badFile).status, 1);
+  writeFileSync(badFile, JSON.stringify({ knowledgeCutoff: cutoff, input: { ...baseline, extra: 1 } }));
+  const rejectedRun = run(badFile);
+  assert.equal(rejectedRun.status, 1);
+  const rejectedOutcome = JSON.parse(rejectedRun.stdout);
+  assert.equal(rejectedOutcome.kind, 'REJECTED');
+  assert.equal(rejectedOutcome.chainState, 'HOLD');
+  assert.deepEqual(rejectedOutcome.inputErrors, [{ path: 'extra', code: 'UNKNOWN_KEY' }]);
   writeFileSync(badFile, '{not json');
   assert.equal(run(badFile).status, 1);
   assert.equal(run(badFile, 'extra').status, 1);
