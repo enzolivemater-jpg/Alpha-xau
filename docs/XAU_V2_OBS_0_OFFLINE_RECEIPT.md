@@ -28,3 +28,15 @@ authorization and a retention/audit policy before any live claim.
 This is a stacked follow-up to CHAIN-0. Do not merge until that PR and
 all REC-1 Human Gates have been reviewed. There is no HTTP, cron,
 database, provider, broker, notification or production integration.
+
+## OBS-0 hardening — full non-action envelope
+
+The receipt rejects not only an illicit order or alert, but also all
+fields that could *misrepresent* approval in an offline audit:
+inconsistent H1–H5 ordering, non-null confidence/target/invalidation,
+LLM request/response, pre-PM verdict, portfolio sizing,
+final-risk maximum loss or verdict, forged runtime correlation IDs,
+alert channels/recipients, and acceptance evidence claimed true or a
+manufactured acceptance run. It hashes only a complete, verified
+non-action envelope. The verification remains structural and offline:
+it is not a cryptographic signature of real upstream data.
