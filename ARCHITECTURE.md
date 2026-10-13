@@ -1,4 +1,4 @@
-# ALPHA-XAU INSTITUTIONAL TERMINAL — Architecture repository
+> **ARCH-1 — état du dépôt au 2026-10-13 :** la structure ci-dessous est un **plan historique/illustratif** et ne correspond plus entièrement aux chemins effectifs. Pour la topologie implémentée, les frontières runtime V1/V2 et les contrôles de sécurité, utiliser [docs/XAU_V2_ARCHITECTURE_BASELINE.md](docs/XAU_V2_ARCHITECTURE_BASELINE.md) comme carte à jour du code. Les contrats spécialisés sous `docs/` restent la source normative de chaque moteur.\n\n# ALPHA-XAU INSTITUTIONAL TERMINAL — Architecture repository
 
 Monorepo. Frontend statique (GitHub Pages) + backend serverless (Workers/Vercel) + PostgreSQL managé (Supabase).
 Règle structurante : **le frontend ne parle jamais à un provider externe**. Toute donnée transite par un moteur backend qui normalise, score et persiste. Le terminal ne lit que la base.
