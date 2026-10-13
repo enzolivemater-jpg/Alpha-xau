@@ -229,6 +229,15 @@ assert.deepEqual(tamper((r) => { r.stages.commandCenter.actionReasonCodes = []; 
 ]);
 assert.deepEqual(tamper((r) => { r.stages.alert.dedupeKey = 'replayed'; }), ['ALERT:ALERT_DEDUPE_KEY_MISMATCH']);
 assert.deepEqual(tamper((r) => { delete r.stages.prePm; }), ['CHAIN:STAGE_SET_MISMATCH']);
+assert.deepEqual(tamper((r) => { r.chainState = 'READY'; }), ['CHAIN:CHAIN_ENVELOPE_MISMATCH']);
+assert.deepEqual(tamper((r) => { r.execution = 'AUTHORIZED'; }), ['CHAIN:CHAIN_ENVELOPE_MISMATCH']);
+assert.deepEqual(tamper((r) => { r.algorithmVersion = 'decision-chain-dry-run-0.9.0'; }), ['CHAIN:CHAIN_ENVELOPE_MISMATCH']);
+// Malformed reloads are reported, never thrown.
+assert.deepEqual(tamper((r) => { r.stages.horizonSynthesis.scenarios = 'none'; }), ['CHAIN:MALFORMED_RESULT']);
+assert.deepEqual(tamper((r) => { r.trace = {}; }), ['CHAIN:MALFORMED_RESULT']);
+assert.deepEqual(tamper((r) => { r.stages.regime.reasonCodes = null; }), ['CHAIN:MALFORMED_RESULT']);
+assert.deepEqual(codes(mod.verifyDecisionChainIntegrity(null)), ['CHAIN:MALFORMED_RESULT']);
+assert.deepEqual(codes(mod.verifyDecisionChainIntegrity(JSON.parse(JSON.stringify(result)))), []);
 assert.deepEqual(tamper((r) => { r.knowledgeCutoff = later; }).filter((code) => code.endsWith('STAGE_CUTOFF_MISMATCH')),
   STAGES.map((stage) => `${stage}:STAGE_CUTOFF_MISMATCH`));
 

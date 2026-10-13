@@ -44,6 +44,10 @@ yields `HOLD`, because every positive method remains unapproved.
 `verifyDecisionChainIntegrity` re-checks a result, including one reloaded
 from a log, and reports `integrity=VIOLATED` with stage-scoped codes when:
 
+- the result is structurally malformed (`MALFORMED_RESULT`; reported, never
+  thrown);
+- the chain envelope is not the frozen `DRY_RUN`/`HOLD`/`FORBIDDEN` identity
+  (`CHAIN_ENVELOPE_MISMATCH`);
 - a stage is missing (`STAGE_SET_MISMATCH`);
 - a stage identity differs from the frozen version (`STAGE_VERSION_MISMATCH`);
 - a stage cutoff differs from the chain cutoff (`STAGE_CUTOFF_MISMATCH`);

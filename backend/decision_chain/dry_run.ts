@@ -151,6 +151,8 @@ export interface DecisionChainStageTrace {
 }
 
 export type DecisionChainViolationCode =
+  | 'MALFORMED_RESULT'
+  | 'CHAIN_ENVELOPE_MISMATCH'
   | 'STAGE_SET_MISMATCH'
   | 'STAGE_VERSION_MISMATCH'
   | 'STAGE_CUTOFF_MISMATCH'
@@ -273,20 +275,38 @@ function positiveOutputs(stages: DecisionChainStages): ReadonlyArray<readonly [D
   ];
 }
 
+type VerifiableDecisionChain = Omit<DecisionChainDryRunResult, 'integrity' | 'violations'>;
+
 /**
  * Re-checks a chain result, including one reloaded from storage or a log.
  * Violations are reported in stage order; a single result never hides one.
+ * A structurally malformed result is reported, never thrown.
  */
-export function verifyDecisionChainIntegrity(
-  result: Pick<DecisionChainDryRunResult, 'knowledgeCutoff' | 'trace' | 'stages'>,
-): DecisionChainViolation[] {
+export function verifyDecisionChainIntegrity(result: VerifiableDecisionChain): DecisionChainViolation[] {
+  if (result === null || typeof result !== 'object' || result.stages === null
+      || typeof result.stages !== 'object' || !Array.isArray(result.trace)) {
+    return [{ stage: 'CHAIN', code: 'MALFORMED_RESULT' }];
+  }
+  if (STAGE_KEYS.some((key) => result.stages[key] === null || typeof result.stages[key] !== 'object')) {
+    return [{ stage: 'CHAIN', code: 'STAGE_SET_MISMATCH' }];
+  }
+  try {
+    return collectViolations(result);
+  } catch {
+    return [{ stage: 'CHAIN', code: 'MALFORMED_RESULT' }];
+  }
+}
+
+function collectViolations(result: VerifiableDecisionChain): DecisionChainViolation[] {
   const violations: DecisionChainViolation[] = [];
   const add = (stage: DecisionChainViolation['stage'], code: DecisionChainViolationCode): void => {
     if (!violations.some((v) => v.stage === stage && v.code === code)) violations.push({ stage, code });
   };
   const { stages } = result;
-  if (STAGE_KEYS.some((key) => stages[key] === null || typeof stages[key] !== 'object')) {
-    return [{ stage: 'CHAIN', code: 'STAGE_SET_MISMATCH' }];
+  if (result.schemaVersion !== DECISION_CHAIN_SCHEMA_VERSION
+      || result.algorithmVersion !== DECISION_CHAIN_ALGORITHM_VERSION
+      || result.mode !== 'DRY_RUN' || result.chainState !== 'HOLD' || result.execution !== 'FORBIDDEN') {
+    add('CHAIN', 'CHAIN_ENVELOPE_MISMATCH');
   }
 
   STAGE_KEYS.forEach((key, index) => {
@@ -389,20 +409,21 @@ export function runDecisionChainDryRun(
     marketPricing, positioning, regime, horizonSynthesis, committee, prePm,
     portfolioManager, finalActionRisk, action, commandCenter, alert, acceptance,
   };
-  const trace = buildTrace(stages);
-  const violations = verifyDecisionChainIntegrity({ knowledgeCutoff, trace, stages });
-
-  return {
+  const chain: VerifiableDecisionChain = {
     schemaVersion: DECISION_CHAIN_SCHEMA_VERSION,
     algorithmVersion: DECISION_CHAIN_ALGORITHM_VERSION,
     mode: 'DRY_RUN',
     chainState: 'HOLD',
     execution: 'FORBIDDEN',
+    knowledgeCutoff,
+    trace: buildTrace(stages),
+    stages,
+  };
+  const violations = verifyDecisionChainIntegrity(chain);
+  return {
+    ...chain,
     integrity: violations.length === 0 ? 'CONSISTENT' : 'VIOLATED',
     violations,
-    knowledgeCutoff,
-    trace,
-    stages,
   };
 }
 
