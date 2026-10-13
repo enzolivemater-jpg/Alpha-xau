@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "chain:offline": "node scripts/run_chain_0_offline.mjs"
   },
   "devDependencies": {
     "ajv": "^8.20.0",
