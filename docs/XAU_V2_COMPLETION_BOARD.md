@@ -9,7 +9,18 @@ Open pull requests at snapshot: **not a current value; check GitHub directly**
 Main Quality Gate at snapshot: run `37907851018` — `success` (10/10 jobs)
 Production Edge Functions at snapshot: none
 
-**WARNING — do not use this snapshot for live operations or authorizations.**\nAs of 2026-10-13, GitHub `main` was observed at\n`ec9cde542d6b51b68391462ee8fa474e650b389f` and multiple draft PRs\nwere open, so the earlier "no open PR" snapshot is no longer current.\nNo Supabase production state, deployed runtime or migration tail was\nre-queried for this documentation-only reconciliation. The authoritative\nREC-1 V3 procedure is the *separately frozen*\n`docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md`; this board cannot grant\nREC-1 execution authority or supersede its frozen implementation hashes.\n\nHistorical statuses below represent only the strongest evidence recorded\nat that snapshot. `COMPLETE` is
+**WARNING — do not use this snapshot for live operations or authorizations.**
+As of 2026-10-13, GitHub `main` was observed at
+`ec9cde542d6b51b68391462ee8fa474e650b389f` and multiple draft PRs
+were open, so the earlier "no open PR" snapshot is no longer current.
+No Supabase production state, deployed runtime or migration tail was
+re-queried for this documentation-only reconciliation. The authoritative
+REC-1 V3 procedure is the *separately frozen*
+`docs/XAU_V2_RECOVERY_REHEARSAL_RUNBOOK.md`; this board cannot grant
+REC-1 execution authority or supersede its frozen implementation hashes.
+
+Historical statuses below represent only the strongest evidence recorded
+at that snapshot. `COMPLETE` is
 reserved for a component that has reached its required production evidence,
 not merely for merged code.
 
@@ -50,7 +61,9 @@ windows for scheduled economic releases.
 
 ## Historical critical path (must be freshly reconciled)
 
-1. Obtain a fresh, exact REC-1 V3 resume authorization for the already\n   verified encrypted backup and named disposable target; do not assume\n   a completed isolated restore rehearsal or permission to recapture source.
+1. Obtain a fresh, exact REC-1 V3 resume authorization for the already
+   verified encrypted backup and named disposable target; do not assume
+   a completed isolated restore rehearsal or permission to recapture source.
 2. Separately authorize Event Facts schema migrations 0029–0032 while runtime
    remains off.
 3. Optionally authorize SB-1/SB-2/SB-3 as three independent payloads; SB-3
@@ -65,8 +78,14 @@ windows for scheduled economic releases.
 
 ## Conservatively retained hard stops (reverify before use)
 
-- No **successful isolated restore rehearsal** or source/target equivalence\n  proof is established. The REC-1 V3 runbook records an encrypted backup,\n  successful decryption/hash verification and an encrypted off-site copy,\n  followed by a fail-closed stop during target role restoration. Backup\n  existence/integrity is not the same as verified restorability.
-- A new, scoped REC-1 V3 authorization must confirm the named operator,\n  exact isolated target, reviewed backup identity, source-recapture prohibition\n  and review mode before any resume. Prior approvals are not reusable.
+- No **successful isolated restore rehearsal** or source/target equivalence
+  proof is established. The REC-1 V3 runbook records an encrypted backup,
+  successful decryption/hash verification and an encrypted off-site copy,
+  followed by a fail-closed stop during target role restoration. Backup
+  existence/integrity is not the same as verified restorability.
+- A new, scoped REC-1 V3 authorization must confirm the named operator,
+  exact isolated target, reviewed backup identity, source-recapture prohibition
+  and review mode before any resume. Prior approvals are not reusable.
 - No authorization to apply migrations 0029–0034 or timestamped SB-3 migration
   `20261008094133`.
 - No Cloudflare deployment proof or runtime authority.
