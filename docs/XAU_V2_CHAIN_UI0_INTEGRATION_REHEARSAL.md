@@ -40,3 +40,7 @@ their pure import checks. This is a rehearsal, not an activated web transport.
 Review UI-0 (#116) before TR-0 (#119); the composite branch remains a
 **NO-MERGE experiment**. No HTTP route, runtime, storage, provider, broker,
 migration, REC-1 action, production service or deploy was introduced.
+
+## ARCH-1B legacy runtime reachability guard
+
+The composite checkout includes the transitive legacy runtime import guard from PR #105. This guards against indirect wiring of CHAIN/OBS/EVIDENCE/UI/TR or any downstream V2 decision gate through existing Worker/ingest/legacy Committee imports. A future live attachment must require an explicit architectural change review rather than bypassing the test. All checks remain static and offline.
