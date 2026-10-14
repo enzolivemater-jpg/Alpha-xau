@@ -8,7 +8,9 @@
 import { parseStrictInstant } from '../shared/temporal_contract.js';
 
 export const EVIDENCE_MANIFEST_SCHEMA_VERSION = 'xau.evidence-manifest.v1' as const;
-export const EVIDENCE_MANIFEST_ALGORITHM_VERSION = 'evidence-structural-cutoff-gate-1.0.0' as const;
+export const EVIDENCE_MANIFEST_ALGORITHM_VERSION = 'evidence-structural-cutoff-gate-1.0.1' as const;
+/** Reject oversized inputs atomically before inspecting any claim. */
+export const EVIDENCE_MANIFEST_MAX_CLAIMS = 256 as const;
 
 export type EvidenceKind = 'OFFICIAL_RELEASE' | 'MARKET_PRICE' | 'POSITIONING';
 export type EvidenceManifestReason =
@@ -73,11 +75,32 @@ function instant(value: unknown): bigint | null {
   return parseStrictInstant(value, 3)?.epochNanoseconds ?? null;
 }
 
-function exactShape(value: unknown): value is Record<keyof EvidenceClaim, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const keys = Object.keys(value).sort();
-  return keys.length === CLAIM_KEYS.length
-    && keys.every((key, index) => key === CLAIM_KEYS[index]);
+/**
+ * Copy only own enumerable data properties; never evaluate a claim getter.
+ * A TypeScript interface cannot establish trust for runtime JS/JSON input.
+ * A hostile Proxy may execute its own traps in the caller's realm: this is
+ * defensive validation, not an isolation sandbox.
+ */
+function dataOnlyClaim(value: unknown): Record<keyof EvidenceClaim, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    const allowed: readonly string[] = CLAIM_KEYS;
+    if (keys.length !== CLAIM_KEYS.length
+        || !keys.every((key) => typeof key === 'string' && allowed.includes(key))) {
+      return null;
+    }
+    const copy: Record<string, unknown> = Object.create(null);
+    for (const key of CLAIM_KEYS) {
+      const descriptor = descriptors[key];
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      copy[key] = descriptor.value;
+    }
+    return copy as Record<keyof EvidenceClaim, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 function validIdentity(value: Record<keyof EvidenceClaim, unknown>): boolean {
@@ -119,10 +142,18 @@ export function buildEvidenceEligibilityManifest(
   if (cutoff === null) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   if (!Array.isArray(input) || input.length === 0) reasons.add('NO_EVIDENCE');
 
+  // Batch over budget is *fully* rejected; no partial or silently truncated
+  // evidence can leak through as a coherent manifest.
+  if (Array.isArray(input) && input.length > EVIDENCE_MANIFEST_MAX_CLAIMS) {
+    reasons.add('INVALID_CLAIM_SHAPE');
+  }
   const seen = new Map<string, string>();
   const candidates: EvidenceClaim[] = [];
-  for (const claim of Array.isArray(input) ? input : []) {
-    if (!exactShape(claim)) {
+  const bounded = Array.isArray(input) && input.length <= EVIDENCE_MANIFEST_MAX_CLAIMS
+    ? input : [];
+  for (const rawClaim of bounded) {
+    const claim = dataOnlyClaim(rawClaim);
+    if (claim === null) {
       reasons.add('INVALID_CLAIM_SHAPE');
       continue;
     }
