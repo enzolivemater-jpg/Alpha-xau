@@ -29,12 +29,17 @@ const CORE_ALLOWLIST = [
   'backend/gold_transmission/deterministic_processor.ts',
   'backend/market_engine/institutional_snapshot.ts',
   'backend/market_engine/types.ts',
+  // Reviewed deterministic validators used by canonical TV-2 CHAIN-0.
+  'backend/market_engine/validate.ts',
+  'backend/shared/strict_timestamp.ts',
   'backend/positioning_engine/evidence_contract.ts',
 ];
 // Additional independently reviewed pure modules from other *unmerged*
 // branches. Test runs on main today and scans each after it becomes present.
 const OPTIONAL = [
   'backend/decision_chain/dry_run.ts',
+  'backend/decision_chain/terminal_view.ts',
+  'backend/observability/unified_rehearsal.ts',
   'backend/observability/offline_receipt.ts',
   'backend/observability/evidence_manifest.ts',
   'backend/advisory_ui/contract.ts',

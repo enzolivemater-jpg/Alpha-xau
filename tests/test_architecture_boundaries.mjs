@@ -127,6 +127,8 @@ const prohibitedRuntimeReachability = new Set([
   // Optional future contract roots are protected by *path* even when their
   // unmerged branches are not present on main.
   'backend/decision_chain/dry_run.ts',
+  'backend/decision_chain/terminal_view.ts',
+  'backend/observability/unified_rehearsal.ts',
   'backend/observability/offline_receipt.ts',
   'backend/observability/evidence_manifest.ts',
   'backend/advisory_ui/contract.ts',
