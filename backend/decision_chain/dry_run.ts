@@ -53,6 +53,7 @@ import {
   buildInstitutionalMarketPricingSnapshot,
   type InstitutionalMarketPricingSnapshot,
 } from '../market_engine/institutional_snapshot.js';
+import { canonicalJson, sha256Canonical } from '../shared/canonical_json.js';
 import type { Freshness, MarketField, MarketSnapshot, MarketSymbol } from '../market_engine/types.js';
 import { SYMBOL_RULES, classifyFreshness } from '../market_engine/validate.js';
 import {
@@ -598,42 +599,12 @@ export function runDecisionChainDryRun(
   };
 }
 
-/**
- * Canonical JSON: object keys sorted by code unit, arrays in order, no
- * whitespace. Values JSON cannot represent exactly are rejected rather than
- * silently coerced, so two equal digests imply equal chain content.
- */
-export function canonicalJson(value: unknown): string {
-  if (value === null) return 'null';
-  switch (typeof value) {
-    case 'string':
-    case 'boolean':
-      return JSON.stringify(value);
-    case 'number':
-      if (!Number.isFinite(value)) throw new TypeError('canonicalJson: non-finite number');
-      return JSON.stringify(value);
-    case 'object': {
-      if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
-      const prototype = Object.getPrototypeOf(value);
-      if (prototype !== Object.prototype && prototype !== null) {
-        throw new TypeError('canonicalJson: unsupported object');
-      }
-      const record = value as Record<string, unknown>;
-      return `{${Object.keys(record).sort().map((key) => {
-        if (record[key] === undefined) throw new TypeError(`canonicalJson: undefined at ${key}`);
-        return `${JSON.stringify(key)}:${canonicalJson(record[key])}`;
-      }).join(',')}}`;
-    }
-    default:
-      throw new TypeError(`canonicalJson: unsupported ${typeof value}`);
-  }
-}
+/** Re-exported: CHAIN-0 callers and tests read it from here. */
+export { canonicalJson };
 
 /** SHA-256 replay digest of the canonical chain result (Web Crypto only). */
 export async function computeDecisionChainDigest(result: DecisionChainDryRunResult): Promise<string> {
-  const bytes = new TextEncoder().encode(canonicalJson(result));
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+  return sha256Canonical(result);
 }
 
 export type DecisionChainInputErrorCode = 'MISSING' | 'UNKNOWN_KEY' | 'INVALID_TYPE' | 'INVALID_VALUE';

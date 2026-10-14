@@ -389,7 +389,8 @@ assert.deepEqual(closure, [
   'event_impact/deterministic_processor.ts', 'gold_transmission/deterministic_processor.ts',
   'horizon_engine/contract.ts', 'market_engine/institutional_snapshot.ts', 'market_engine/validate.ts',
   'portfolio_engine/contract.ts', 'positioning_engine/evidence_contract.ts', 'regime_engine/contract.ts',
-  'risk_engine/final_action_contract.ts', 'risk_engine/pre_pm_contract.ts', 'shared/strict_timestamp.ts',
+  'risk_engine/final_action_contract.ts', 'risk_engine/pre_pm_contract.ts', 'shared/canonical_json.ts',
+  'shared/strict_timestamp.ts',
 ]);
 for (const file of closure) {
   const text = readFileSync(path.join(ROOT, 'backend', file), 'utf8');
