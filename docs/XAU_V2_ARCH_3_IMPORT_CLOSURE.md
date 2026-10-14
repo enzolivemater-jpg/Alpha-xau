@@ -13,7 +13,7 @@ import graph control**:
   allowlist, and exist at its expected `backend/.../*.ts` path.
 - Reject cycles, dynamic imports, CommonJS `require`, bare imports or
   dependency additions that have not been architecturally reviewed.
-- Include CHAIN-0, OBS-0, EVIDENCE-0 and UI-0 roots automatically **if** their
+- Include CHAIN-0, OBS-0, EVIDENCE-0, UI-0 and TR-0 roots automatically **if** their
   independent PRs become present in a future checkout.
 - Preserve a small positive and negative self-test corpus to prove that
   violations are actually caught.
