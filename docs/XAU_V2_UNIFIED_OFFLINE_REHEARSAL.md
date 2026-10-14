@@ -47,7 +47,7 @@ belongs to only one module and does not imply runtime approval.
 | OBS-0 v2 | `xau.offline-audit-receipt.v2` | `canonical-chain-hold-receipt-2.0.0` |
 | UI-0 | `xau.institutional-advisory-ui.v1` | `institutional-offline-hold-projection-1.0.0` |
 | TR-0 | `xau.offline-advisory-transport.v1` | `offline-canonical-readonly-transport-1.0.0` |
-| Combined harness | `xau.unified-offline-rehearsal.v1` | `unified-readonly-cross-contract-1.2.0` |
+| Combined harness | `xau.unified-offline-rehearsal.v2` | `unified-readonly-cross-contract-1.2.0` |
 
 The old CHAIN-0 `runDecisionChainDryRun(input)` ten-stage shape and OBS-0
 `xau.offline-audit-receipt.v1` are not accepted by these v2 adapters.
@@ -88,3 +88,23 @@ approval to trade. Algorithm version advances to `1.2.0` (schema unchanged).
 `tests/test_unified_receipt_gate.mjs` covers acceptance, tampering,
 receipt rejection, malformed hashes and deterministic integration replay.
 This is a negative-only integrity fix, not a positive trading capability.
+
+## ARCH-6 — versioned integration output boundary (draft breaking contract)
+
+The combined harness now emits both `schemaVersion` and `algorithmVersion`
+in **every** completed or rejected output. Previous drafts exported the
+algorithm constant but omitted it from the serialized result, preventing an
+offline replay consumer from identifying the exact validation algorithm.
+
+This adds a top-level output key, therefore the result schema is explicitly
+**bumped from `xau.unified-offline-rehearsal.v1` to
+`xau.unified-offline-rehearsal.v2`**, rather than silently changing the
+meaning of v1. The algorithm remains
+`unified-readonly-cross-contract-1.2.0`; these are separate identities.
+Existing test fixtures now assert both values and their stability across
+rejected inputs. The underlying CHAIN-0, OBS-0, EVIDENCE-0, UI-0 and TR-0
+contracts are not rewritten or promoted to runtime.
+
+**Human review required before any schema adoption.** This is an unmerged
+offline-only experiment with no live consumer, production endpoint, broker
+connection, DB operation, migration or trading authority.
