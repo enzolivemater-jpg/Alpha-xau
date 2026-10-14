@@ -98,6 +98,7 @@ const TEST_FILES = [
   'tests/test_news_dedup_accounting.mjs',
   'tests/test_market_pricing_institutional_contract.mjs',
   'tests/test_market_pricing_persistence_contract.mjs',
+  'tests/test_market_evidence_replay.mjs',
   'tests/test_notification_horizon_provider_circuit.mjs',
   'tests/test_official_source_artifacts_contract.mjs',
   'tests/test_ofac_collector.mjs',
