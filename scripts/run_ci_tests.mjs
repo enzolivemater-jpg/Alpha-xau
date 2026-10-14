@@ -93,6 +93,7 @@ const TEST_FILES = [
   'tests/test_market_driver_provenance.mjs',
   'tests/test_market_pricing_as_of_contract.mjs',
   'tests/test_market_provider_parsing.mjs',
+  'tests/test_news_source_entity_decoding.mjs',
   'tests/test_market_pricing_institutional_contract.mjs',
   'tests/test_market_pricing_persistence_contract.mjs',
   'tests/test_notification_horizon_provider_circuit.mjs',
