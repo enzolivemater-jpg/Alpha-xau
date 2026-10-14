@@ -29,6 +29,10 @@ after the supplied knowledge cutoff.
 Supported units describe representation only: `CONTRACTS`, `PERCENT`, `RATIO`,
 and `INDEX`. They do not confer semantic comparability between datasets.
 
+Evidence is ordered field by field (identity, then publication, observation
+and artifact strings) in UTF-16 code-unit order, never by locale collation, so
+the envelope is identical whatever the host locale.
+
 ## Deliberate abstention
 
 With valid evidence, `evidenceState` can be `EVIDENCE_READY`, but P-0 always

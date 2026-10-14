@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +39,38 @@ const second = { ...base, metricCode: 'open_interest', value: 450000 };
 const sorted = mod.buildPositioningEvidenceEnvelope([second, base], cutoff);
 assert.deepEqual(sorted.evidence.map((item) => item.metricCode), ['managed_money_net', 'open_interest']);
 assert.deepEqual(sorted.sourceAuthorities, ['authority_test']);
+
+// Order is by code unit, field by field. ICU collation ignores the \u001f key
+// separator, so ('a','bc') and ('ab','c') used to tie and fall back to
+// publishedAt; the earlier publication must not move the second identity first.
+const splitLeft = { ...base, sourceAuthority: 'a', datasetCode: 'bc' };
+const splitRight = { ...base, sourceAuthority: 'ab', datasetCode: 'c', publishedAt: '2026-09-30T19:00:00.000Z' };
+assert.deepEqual(
+  mod.buildPositioningEvidenceEnvelope([splitRight, splitLeft], cutoff).evidence.map((item) => item.sourceAuthority),
+  ['a', 'ab'],
+);
+
+// The same input yields the same envelope whatever the host locale (Danish
+// collation sorts "aa" after "z").
+const localeProbe = `
+  import { loadBackendModule } from ${JSON.stringify(new URL('../scripts/lib/backend_module_loader.mjs', import.meta.url).href)};
+  const mod = await loadBackendModule('positioning_engine/evidence_contract.ts');
+  const base = ${JSON.stringify(base)};
+  const envelope = mod.buildPositioningEvidenceEnvelope(
+    [{ ...base, sourceAuthority: 'cftc' }, { ...base, sourceAuthority: 'aa-bank' }], ${JSON.stringify(cutoff)});
+  process.stdout.write(JSON.stringify(envelope));
+`;
+const envelopes = ['en_US.UTF-8', 'da_DK.UTF-8', 'C'].map((locale) => {
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', localeProbe], {
+    encoding: 'utf8', env: { ...process.env, LC_ALL: locale, LANG: locale },
+  });
+  assert.equal(run.status, 0, run.stderr);
+  return run.stdout;
+});
+assert.deepEqual(JSON.parse(envelopes[0]).evidence.map((item) => item.sourceAuthority), ['aa-bank', 'cftc']);
+assert.equal(envelopes[1], envelopes[0]);
+assert.equal(envelopes[2], envelopes[0]);
+assert.doesNotMatch(source, /\.localeCompare\(|Intl\.Collator/);
 
 assert.equal(mod.buildPositioningEvidenceEnvelope([], cutoff).evidenceState, 'ABSTAIN');
 assert.ok(mod.buildPositioningEvidenceEnvelope([base], '2026-10-01').reasonCodes.includes('INVALID_KNOWLEDGE_CUTOFF'));

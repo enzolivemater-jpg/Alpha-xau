@@ -81,11 +81,20 @@ function evidenceKey(value: PositioningEvidenceInput): string {
   ].join('\u001f');
 }
 
+/**
+ * Code-unit order, independent of the host locale. `localeCompare` follows
+ * ICU collation: it varies with the process locale and ignores the `\u001f`
+ * key separator, so distinct identities could compare equal.
+ */
+function compareCodeUnits(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function compareEvidence(a: PositioningEvidenceInput, b: PositioningEvidenceInput): number {
-  return evidenceKey(a).localeCompare(evidenceKey(b))
-    || a.publishedAt.localeCompare(b.publishedAt)
-    || a.observedAt.localeCompare(b.observedAt)
-    || a.artifactId.localeCompare(b.artifactId);
+  return compareCodeUnits(evidenceKey(a), evidenceKey(b))
+    || compareCodeUnits(a.publishedAt, b.publishedAt)
+    || compareCodeUnits(a.observedAt, b.observedAt)
+    || compareCodeUnits(a.artifactId, b.artifactId);
 }
 
 /** Same invariant as the persistence schema: evidence is retained after publication. */
