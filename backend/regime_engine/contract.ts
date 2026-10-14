@@ -70,14 +70,20 @@ export function buildRegimeAssessmentContract(
       || input.marketPricing.algorithmVersion !== MARKET_PRICING_ALGORITHM_VERSION) {
     reasons.add('MARKET_PRICING_VERSION_MISMATCH');
   }
-  if (input.marketPricing.state === 'ABSTAIN') reasons.add('MARKET_PRICING_ABSTAINED');
+  // Allowlist, not denylist: a state MP-0/P-0 v1 cannot emit fails closed.
+  if (input.marketPricing.state !== 'AVAILABLE' && input.marketPricing.state !== 'DEGRADED') {
+    reasons.add('MARKET_PRICING_ABSTAINED');
+  }
   if (input.marketPricing.state === 'DEGRADED') reasons.add('MARKET_PRICING_DEGRADED');
 
   if (input.positioning.schemaVersion !== POSITIONING_SCHEMA_VERSION
       || input.positioning.algorithmVersion !== POSITIONING_ALGORITHM_VERSION) {
     reasons.add('POSITIONING_VERSION_MISMATCH');
   }
-  if (input.positioning.evidenceState === 'ABSTAIN') reasons.add('POSITIONING_EVIDENCE_ABSTAINED');
+  if (input.positioning.evidenceState !== 'EVIDENCE_READY'
+      || input.positioning.positioningState !== 'UNAVAILABLE') {
+    reasons.add('POSITIONING_EVIDENCE_ABSTAINED');
+  }
   if (input.positioning.positioningState === 'UNAVAILABLE') reasons.add('POSITIONING_SIGNAL_UNAVAILABLE');
 
   reasons.add('REGIME_METHODOLOGY_NOT_APPROVED');

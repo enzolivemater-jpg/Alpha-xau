@@ -63,7 +63,10 @@ function parseExplicitTimestamp(value: string | null): number | null {
   return parseStrictTimestamp(value);
 }
 
+const FIELD_STATUSES: ReadonlySet<string> = new Set(['LIVE', 'STALE', 'UNAVAILABLE']);
+
 function fieldIsCoherent(field: MarketField): boolean {
+  if (!FIELD_STATUSES.has(field.status)) return false;
   if (field.status === 'UNAVAILABLE') return field.value === null;
   return field.value !== null
     && Number.isFinite(field.value)

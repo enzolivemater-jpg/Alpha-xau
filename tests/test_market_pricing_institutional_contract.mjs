@@ -76,6 +76,15 @@ malformed.vix = { value: 0, status: 'UNAVAILABLE', observedAt: null, ageSeconds:
 assert.ok(mod.buildInstitutionalMarketPricingSnapshot(malformed, at).reasonCodes.includes('INVALID_FIELD_CONTRACT'));
 assert.ok(mod.buildInstitutionalMarketPricingSnapshot(snapshot, '2026-10-01').reasonCodes.includes('INVALID_KNOWLEDGE_CUTOFF'));
 
+// A field status outside LIVE/STALE/UNAVAILABLE is not read as live.
+for (const status of ['BOGUS', 'live', undefined]) {
+  const unknownStatus = structuredClone(snapshot);
+  unknownStatus.spot.status = status;
+  const envelope = mod.buildInstitutionalMarketPricingSnapshot(unknownStatus, at);
+  assert.equal(envelope.state, 'ABSTAIN', String(status));
+  assert.ok(envelope.reasonCodes.includes('INVALID_FIELD_CONTRACT'), String(status));
+}
+
 assert.doesNotMatch(source, /Date\.now\(|new Date\(\)|fetch\(|SUPABASE_|ANTHROPIC_|OPENAI_|process\.env/);
 assert.match(docs, /CONTRACT_CI_PROVEN — NOT RUNTIME-ACTIVATED/);
 assert.match(docs, /INGESTION_CUTOFF_NOT_AVAILABLE/);

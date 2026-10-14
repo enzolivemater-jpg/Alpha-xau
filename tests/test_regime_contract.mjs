@@ -53,6 +53,22 @@ upstreamAbstain.positioning.evidenceState = 'ABSTAIN';
 assert.equal(mod.buildRegimeAssessmentContract(upstreamAbstain, cutoff).evidenceState, 'ABSTAIN');
 assert.ok(mod.buildRegimeAssessmentContract(input, '2026-10-01').reasonCodes.includes('INVALID_KNOWLEDGE_CUTOFF'));
 
+// Upstream states outside MP-0/P-0 v1 fail closed instead of reading as READY.
+for (const [label, mutate, reason] of [
+  ['unknown market state', (value) => { value.marketPricing.state = 'BOGUS'; }, 'MARKET_PRICING_ABSTAINED'],
+  ['missing market state', (value) => { delete value.marketPricing.state; }, 'MARKET_PRICING_ABSTAINED'],
+  ['unknown evidence state', (value) => { value.positioning.evidenceState = 'BOGUS'; }, 'POSITIONING_EVIDENCE_ABSTAINED'],
+  ['forged positioning signal', (value) => { value.positioning.positioningState = 'LONG'; }, 'POSITIONING_EVIDENCE_ABSTAINED'],
+]) {
+  const forged = structuredClone(input);
+  forged.marketPricing.state = 'AVAILABLE';
+  mutate(forged);
+  const assessed = mod.buildRegimeAssessmentContract(forged, cutoff);
+  assert.equal(assessed.evidenceState, 'ABSTAIN', label);
+  assert.ok(assessed.reasonCodes.includes(reason), label);
+  assert.equal(assessed.regime, 'UNAVAILABLE', label);
+}
+
 const regimeSource = readFileSync(path.join(ROOT, 'backend', 'regime_engine', 'contract.ts'), 'utf8');
 const docs = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_REGIME_CONTRACT.md'), 'utf8');
 assert.doesNotMatch(regimeSource, /fetch\(|SUPABASE_|ANTHROPIC_|OPENAI_|process\.env|Math\.random\(/);
