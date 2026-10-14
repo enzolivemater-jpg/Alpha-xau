@@ -37,6 +37,7 @@ const OPTIONAL = [
   'backend/decision_chain/dry_run.ts',
   'backend/observability/offline_receipt.ts',
   'backend/observability/evidence_manifest.ts',
+  'backend/advisory_ui/contract.ts',
 ];
 const activeOptional = OPTIONAL.filter((file) => existsSync(path.join(ROOT, file)));
 const ALLOW = new Set([...CORE_ALLOWLIST, ...activeOptional]);
