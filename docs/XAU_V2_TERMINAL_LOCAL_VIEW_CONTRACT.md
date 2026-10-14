@@ -127,6 +127,15 @@ The server:
 It makes no database, provider, broker or network call. The Supabase settings
 stay empty, so the V1 panels run in labelled demo mode.
 
+## Layout check in a browser
+
+CI has no browser. `scripts/check_terminal_layout.mjs` checks the terminal in
+headless Chromium at 320, 390, 1024, 1280 and 1440 px, in both workspaces. It
+reports clipped content, content overflowing the viewport and text below WCAG
+AA. It needs `XAU_PLAYWRIGHT` (path to `playwright-core`) and `XAU_CHROMIUM`,
+neither of which is a project dependency. `tests/test_terminal_contrast.mjs`
+keeps the palette's contrast in CI.
+
 ## Not authorized by TV-0
 
 TV-0 does not authorize:
