@@ -129,6 +129,10 @@ honest input (nothing authorized, no runtime identity), the expected trace
 and the expected digest. Any change to any gate's output, ordering or
 identity fails CI until the fixture is regenerated in a reviewed change.
 
+The digest depends on the input and cutoff only. CI replays a multi-evidence
+input through the CLI under several host time zones and locales and requires
+the same digest; no stage reads the clock, the locale or the time zone.
+
 ## Local simulation
 
 ```sh
