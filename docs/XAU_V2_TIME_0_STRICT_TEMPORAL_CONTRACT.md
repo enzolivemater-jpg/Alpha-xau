@@ -59,3 +59,13 @@ Do not disable this guard to hide disagreements.
 
 No live runtime, source attestation, database migration, deployment,
 broker capability or REC-1 operation is included.
+
+### Fixed integration issue surfaced by the cross-parser test
+
+The first CI run exposed a defect in the *integration adapter*, not a
+false assumption about TIME-0: invalid offsets could be normalized to
+`''` and passed to the canonical chain, yielding `COMPLETED` and a
+fallback digest. The adapter now short-circuits invalid cutoffs to a
+`REJECTED` local result **before** the chain runs. An invalid OBS
+receipt must likewise suppress completion and the checksum.
+This preserves a single canonical evaluator on valid inputs.
