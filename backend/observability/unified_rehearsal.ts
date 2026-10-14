@@ -53,7 +53,7 @@ function safeLocalOrigin(raw: unknown): {
 }
 
 export const UNIFIED_REHEARSAL_SCHEMA_VERSION = 'xau.unified-offline-rehearsal.v1' as const;
-export const UNIFIED_REHEARSAL_ALGORITHM_VERSION = 'unified-readonly-cross-contract-1.0.0' as const;
+export const UNIFIED_REHEARSAL_ALGORITHM_VERSION = 'unified-readonly-cross-contract-1.0.1' as const;
 
 export interface UnifiedOfflineInput {
   readonly chainInput: unknown;
