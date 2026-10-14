@@ -1,0 +1,186 @@
+{
+  "schemaVersion": "xau.methodology-review-matrix.v1",
+  "mode": "DOCUMENTATION_ONLY",
+  "authorization": "NONE",
+  "productionActivation": "FORBIDDEN",
+  "status": "UNAPPROVED",
+  "businessDecisionsApproved": false,
+  "assumptions": {
+    "modelThresholds": null,
+    "weighting": null,
+    "providerSelection": null,
+    "portfolioRiskLimit": null,
+    "executionSemantics": null
+  },
+  "crossCuttingRequiredProof": [
+    "independent_official_source_attestation",
+    "point_in_time_published_ingested_vintage",
+    "historical_replay_and_out_of_sample_holdout",
+    "adversarial_fail_closed_cases",
+    "versioned_reproducible_evidence_and_code",
+    "independent_human_approval",
+    "staging_runtime_and_rec1_recovery_evidence",
+    "explicit_versioned_risk_policy"
+  ],
+  "horizonIdentifiers": [
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5"
+  ],
+  "reviewGates": [
+    {
+      "gate": "REGIME",
+      "sourcePath": "backend/regime_engine/contract.ts",
+      "blockingReason": "REGIME_METHODOLOGY_NOT_APPROVED",
+      "stageStatus": "RESEARCH_UNAPPROVED",
+      "approvedMethodId": null,
+      "approvedMethodVersion": null,
+      "parameterSet": null,
+      "approvalRecord": null,
+      "independentReviewEvidence": null,
+      "humanDecisionRequired": true,
+      "decisionToDefine": "Market state taxonomy, conflict/range handling, no-regime situations and confidence calibration",
+      "requiredTestPlans": [
+        "independent_pit_market_positioning_evidence",
+        "range_and_trend_regime_label_taxonomy",
+        "out_of_sample_regime_stability",
+        "regime_abstention_cases"
+      ]
+    },
+    {
+      "gate": "HORIZON_SYNTHESIS",
+      "sourcePath": "backend/horizon_engine/contract.ts",
+      "blockingReason": "HORIZON_METHODOLOGY_NOT_APPROVED",
+      "stageStatus": "RESEARCH_UNAPPROVED",
+      "approvedMethodId": null,
+      "approvedMethodVersion": null,
+      "parameterSet": null,
+      "approvalRecord": null,
+      "independentReviewEvidence": null,
+      "humanDecisionRequired": true,
+      "decisionToDefine": "H1-H5 forecasts, horizon windows, calibration, invalidations and probability semantics",
+      "requiredTestPlans": [
+        "horizon_window_authority",
+        "point_in_time_scenario_training",
+        "per_horizon_probability_calibration",
+        "missing_input_conflict_abstention"
+      ]
+    },
+    {
+      "gate": "AI_COMMITTEE",
+      "sourcePath": "backend/ai_engine/v2_committee_contract.ts",
+      "blockingReason": "COMMITTEE_V2_METHOD_NOT_APPROVED",
+      "stageStatus": "RESEARCH_UNAPPROVED",
+      "approvedMethodId": null,
+      "approvedMethodVersion": null,
+      "parameterSet": null,
+      "approvalRecord": null,
+      "independentReviewEvidence": null,
+      "humanDecisionRequired": true,
+      "decisionToDefine": "Provider and committee role separation, reproducibility, dissent, evidence provenance and cost caps",
+      "requiredTestPlans": [
+        "provider_policy_and_budget_approval",
+        "adversarial_prompt_injection_and_dissent",
+        "strict_prompt_model_version_audit",
+        "committee_no_trade_override"
+      ]
+    },
+    {
+      "gate": "PRE_PM",
+      "sourcePath": "backend/risk_engine/pre_pm_contract.ts",
+      "blockingReason": "PRE_PM_METHOD_NOT_APPROVED",
+      "stageStatus": "RESEARCH_UNAPPROVED",
+      "approvedMethodId": null,
+      "approvedMethodVersion": null,
+      "parameterSet": null,
+      "approvalRecord": null,
+      "independentReviewEvidence": null,
+      "humanDecisionRequired": true,
+      "decisionToDefine": "Evidence lineage and preliminary risk veto before any portfolio allocation",
+      "requiredTestPlans": [
+        "source_release_replay_graph",
+        "evidence_conflict_and_missing_node_veto",
+        "risk_veto_independent_review",
+        "no_unverified_data_admission"
+      ]
+    },
+    {
+      "gate": "PORTFOLIO_MANAGER",
+      "sourcePath": "backend/portfolio_engine/contract.ts",
+      "blockingReason": "PORTFOLIO_METHOD_NOT_APPROVED",
+      "stageStatus": "RESEARCH_UNAPPROVED",
+      "approvedMethodId": null,
+      "approvedMethodVersion": null,
+      "parameterSet": null,
+      "approvalRecord": null,
+      "independentReviewEvidence": null,
+      "humanDecisionRequired": true,
+      "decisionToDefine": "Exposure concentration, correlated positions, account state and capital allocation policy",
+      "requiredTestPlans": [
+        "verified_account_and_position_snapshot",
+        "portfolio_concentration_limits",
+        "worst_case_correlation_and_loss",
+        "unavailable_portfolio_state_veto"
+      ]
+    },
+    {
+      "gate": "FINAL_ACTION_RISK",
+      "sourcePath": "backend/risk_engine/final_action_contract.ts",
+      "blockingReason": "FINAL_RISK_METHOD_NOT_APPROVED",
+      "stageStatus": "RESEARCH_UNAPPROVED",
+      "approvedMethodId": null,
+      "approvedMethodVersion": null,
+      "parameterSet": null,
+      "approvalRecord": null,
+      "independentReviewEvidence": null,
+      "humanDecisionRequired": true,
+      "decisionToDefine": "Broker constraints, explicit sizing, stop-loss, maximum loss and market-condition invalidation",
+      "requiredTestPlans": [
+        "signed_policy_version_and_broker_constraints",
+        "strict_position_size_slippage_and_max_loss",
+        "mandatory_stop_loss_no_rounding_bypass",
+        "gaps_liquidity_and_volatility_stress"
+      ]
+    },
+    {
+      "gate": "ACTION",
+      "sourcePath": "backend/action_engine/contract.ts",
+      "blockingReason": "ACTION_METHOD_NOT_APPROVED",
+      "stageStatus": "RESEARCH_UNAPPROVED",
+      "approvedMethodId": null,
+      "approvedMethodVersion": null,
+      "parameterSet": null,
+      "approvalRecord": null,
+      "independentReviewEvidence": null,
+      "humanDecisionRequired": true,
+      "decisionToDefine": "Human action authority and separate advisory-only vs execution permissions",
+      "requiredTestPlans": [
+        "positive_decision_human_approval",
+        "broker_authority_isolated_from_advice",
+        "duplicate_execution_and_stale_decision_veto",
+        "revoke_and_hold_on_ambiguous_input"
+      ]
+    },
+    {
+      "gate": "ALERTS",
+      "sourcePath": "backend/alert_engine/contract.ts",
+      "blockingReason": "ALERT_METHOD_NOT_APPROVED",
+      "stageStatus": "RESEARCH_UNAPPROVED",
+      "approvedMethodId": null,
+      "approvedMethodVersion": null,
+      "parameterSet": null,
+      "approvalRecord": null,
+      "independentReviewEvidence": null,
+      "humanDecisionRequired": true,
+      "decisionToDefine": "Notification policy, recipient identity, deduplication, acknowledgments and no implicit execution",
+      "requiredTestPlans": [
+        "recipients_channels_and_delivery_budget",
+        "idempotent_alert_deduplication",
+        "alert_staleness_suppression",
+        "no_alert_to_order_bridge"
+      ]
+    }
+  ]
+}
