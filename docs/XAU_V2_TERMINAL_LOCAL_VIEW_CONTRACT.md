@@ -84,4 +84,6 @@ TV-0 does not authorize:
 - any deployment of the view, or a published `V2_VIEW_URL`;
 - persistence, provider calls, alerts, orders or trading.
 
-Tests: `tests/test_terminal_view.mjs`, `tests/test_terminal_local.mjs`.
+Module: `backend/decision_chain/terminal_view.ts`, inside the CHAIN-0
+containment (no runtime module imports it). Tests:
+`tests/test_terminal_view.mjs`, `tests/test_terminal_local.mjs`.

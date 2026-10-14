@@ -16,7 +16,7 @@ import {
   DECISION_CHAIN_STAGES,
   type DecisionChainOutcome,
   type DecisionChainStage,
-} from '../decision_chain/dry_run.js';
+} from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v1' as const;
 export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-1.0.0' as const;

@@ -1,4 +1,4 @@
-// Local terminal view (backend/command_center/terminal_view.ts): a read-only
+// Local terminal view (backend/decision_chain/terminal_view.ts): a read-only
 // projection of a CHAIN-0 outcome. It must copy every stage state and
 // reason code, classify each reason code, never report a stage that
 // abstains as usable, and stay HOLD with execution forbidden on every path.
@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 
 const chain = await loadBackendModule('decision_chain/dry_run.ts');
-const tv = await loadBackendModule('command_center/terminal_view.ts');
+const tv = await loadBackendModule('decision_chain/terminal_view.ts');
 const golden = JSON.parse(readFileSync(new URL('./fixtures/decision_chain_dry_run_baseline.json', import.meta.url), 'utf8'));
 const ORIGIN = { kind: 'GOLDEN_FIXTURE', label: 'tests/fixtures/decision_chain_dry_run_baseline.json' };
 const AT = '2026-10-14T09:00:00.000Z';

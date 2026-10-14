@@ -59,7 +59,7 @@ export function readChainDocument(file) {
 
 export async function buildLocalView({ inputFile = GOLDEN_FIXTURE, now = () => new Date() } = {}) {
   const chain = await loadBackendModule('decision_chain/dry_run.ts');
-  const view = await loadBackendModule('command_center/terminal_view.ts');
+  const view = await loadBackendModule('decision_chain/terminal_view.ts');
   const origin = inputFile === GOLDEN_FIXTURE
     ? { kind: 'GOLDEN_FIXTURE', label: path.relative(ROOT, GOLDEN_FIXTURE) }
     : { kind: 'LOCAL_INPUT_FILE', label: path.basename(inputFile) };
