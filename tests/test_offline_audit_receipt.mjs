@@ -99,6 +99,41 @@ for (const [change, expected] of [
   assert.ok(rejected.problems.includes(expected), expected);
   assert.equal(rejected.execution, 'FORBIDDEN');
 }
+
+// Regression: Date.parse normalizes nonexistent days. No valid receipt for them.
+for (const bad of [
+  '2026-02-30T15:00:00.000Z',
+  '2026-04-31T15:00:00.000Z',
+  '2027-02-29T15:00:00.000Z',
+  '2026-13-01T15:00:00.000Z',
+  '2026-10-13T24:00:00.000Z',
+  '2026-10-13T15:60:00.000Z',
+  '2026-10-13T15:00:60.000Z',
+  '2026-10-13T15:00:00+23:59',
+  '2026-10-13T15:00:00+14:30',
+  '2026-10-13T15:00:00',
+]) {
+  const mutated = structuredClone(input);
+  mutated.knowledgeCutoff = bad;
+  for (const key of ['eventImpact', 'goldTransmission', 'marketPricing', 'positioning']) {
+    mutated[key].knowledgeCutoff = bad;
+  }
+  const negative = await receipt(run(mutated));
+  assert.equal(negative.verification, 'REJECTED', bad);
+  assert.equal(negative.fingerprint, null, bad);
+  assert.ok(negative.problems.includes('CUTOFF_INVALID'), bad);
+}
+for (const good of ['2028-02-29T12:00:00Z', '2028-02-29T12:00:00+02:00']) {
+  const modified = structuredClone(input);
+  modified.knowledgeCutoff = good;
+  for (const key of ['eventImpact', 'goldTransmission', 'marketPricing', 'positioning']) {
+    modified[key].knowledgeCutoff = good;
+  }
+  const positive = await receipt(run(modified));
+  assert.equal(positive.verification, 'VALID_HOLD', good);
+  assert.match(positive.fingerprint, /^[0-9a-f]{64}$/, good);
+}
+
 const source = readFileSync(path.join(root, 'backend/observability/offline_receipt.ts'), 'utf8');
 assert.doesNotMatch(source, /\bfetch\(|process\.env|Math\.random\(|Date\.now\(|new Date\(|\bWebSocket\b/);
 console.log('PASS OBS-0 deterministic offline checksum and tamper fail-closed');
