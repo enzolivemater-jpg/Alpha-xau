@@ -46,6 +46,7 @@
     ANALYSIS_INTERVAL_MS: 60000, // l'analyse IA change lentement
     STALE_THRESHOLD_S: 60,       // au-delà, la donnée est marquée STALE
     V2_VIEW_URL: '',             // vue CHAIN-0 du serveur local ; vide = sections V2 indisponibles
+    V2_SCENARIOS_URL: '',        // scénarios de simulation du serveur local ; vide = aucun
   };
 </script>
 
@@ -307,7 +308,13 @@
   <section class="panel panel--chain" aria-labelledby="p5-title">
     <div class="panel__head">
       <h2 class="panel__title" id="p5-title">CHAÎNE DÉCISIONNELLE V2</h2>
-      <span class="badge" id="v2-origin" data-state="unknown">—</span>
+      <span class="v2__head-right">
+        <label class="v2__scenario" id="v2-scenario-wrap" hidden>
+          <span class="v2__scenario-key">SCÉNARIO</span>
+          <select id="v2-scenario"></select>
+        </label>
+        <span class="badge" id="v2-origin" data-state="unknown">—</span>
+      </span>
     </div>
 
     <div class="panel__body v2">

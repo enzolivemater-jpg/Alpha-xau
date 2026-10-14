@@ -10,7 +10,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
-import { createTerminalServer, localIndexHtml, VIEW_PATH } from '../scripts/serve_terminal_local.mjs';
+import { createTerminalServer, localIndexHtml, SCENARIOS_PATH, VIEW_PATH } from '../scripts/serve_terminal_local.mjs';
+import { TERMINAL_SCENARIO_IDS } from '../scripts/lib/terminal_scenarios.mjs';
 
 const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
 const js = readFileSync(new URL('../frontend/js/dashboard.js', import.meta.url), 'utf8');
@@ -30,6 +31,8 @@ assert.equal(html.split("V2_VIEW_URL: '',").length, 2, 'index.html carries exact
 assert.ok(localIndexHtml().includes(`V2_VIEW_URL: '${VIEW_PATH}',`));
 assert.ok(!localIndexHtml().includes("V2_VIEW_URL: '',"));
 assert.ok(localIndexHtml().includes("SUPABASE_URL: '',"), 'local page keeps Supabase empty (V1 demo mode)');
+assert.equal(html.split("V2_SCENARIOS_URL: '',").length, 2);
+assert.ok(localIndexHtml().includes(`V2_SCENARIOS_URL: '${SCENARIOS_PATH}',`));
 
 // --- Server.
 const { server, base } = await listen();
@@ -51,6 +54,50 @@ assert.equal(view.chain.integrity, 'CONSISTENT');
 assert.equal(view.chain.digest, 'sha256:b39bad106bee8ccd0cc4269ee0fcd29ee1d5dd4f6f99637718c4dea22ec7a6f7', 'golden digest');
 assert.equal(view.origin.kind, 'GOLDEN_FIXTURE');
 assert.ok(Number.isFinite(Date.parse(view.generatedAt)));
+
+// --- Simulation scenarios: each one holds, for its own reason.
+response = await fetch(`${base}${SCENARIOS_PATH}`);
+const scenarioList = await response.json();
+assert.deepEqual(scenarioList.map((item) => item.id), TERMINAL_SCENARIO_IDS);
+assert.ok(scenarioList.every((item) => typeof item.label === 'string' && item.label.length > 0));
+const scenarioView = async (id) => (await fetch(`${base}${VIEW_PATH}?scenario=${id}`)).json();
+const stageOf = (v, name) => v.stages.find((st) => st.stage === name);
+const reasonsOf = (v, name) => stageOf(v, name).reasons.map((r) => r.code);
+for (const id of TERMINAL_SCENARIO_IDS) {
+  const v = await scenarioView(id);
+  assert.deepEqual(v.origin, { kind: 'LOCAL_SCENARIO', label: id }, id);
+  assert.equal(v.simulated, true, id);
+  assert.equal(v.chain.chainState, 'HOLD', id);
+  assert.equal(v.chain.execution, 'FORBIDDEN', id);
+  if (v.chain.outcome === 'COMPLETED') {
+    assert.equal(v.chain.integrity, 'CONSISTENT', id);
+    assert.equal(stageOf(v, 'ACTION').state, 'ABSTAIN', id);
+  }
+}
+assert.equal((await scenarioView('golden')).chain.digest, view.chain.digest, 'golden scenario = golden fixture');
+const granted = await scenarioView('everything-granted');
+assert.ok(!reasonsOf(granted, 'ACTION').includes('EXECUTION_NOT_AUTHORIZED'));
+assert.ok(reasonsOf(granted, 'ACTION').includes('ACTION_METHOD_NOT_APPROVED'), 'granting everything still holds');
+// Only the authorizations no chain input can grant remain.
+assert.deepEqual(granted.holdRationale.rootCauses.find((c) => c.category === 'AUTHORIZATION').codes,
+  ['COMMAND_CENTER_RUNTIME_NOT_APPROVED', 'E2E_ACCEPTANCE_RUN_NOT_AUTHORIZED']);
+const later = await scenarioView('read-7-days-later');
+assert.ok(later.chain.inputFindings.length > 0);
+assert.equal(stageOf(later, 'MARKET_PRICING').state, 'ABSTAIN');
+assert.equal(later.temporal.classification, 'HISTORICAL');
+const down = await scenarioView('market-unavailable');
+assert.ok(reasonsOf(down, 'MARKET_PRICING').includes('SOURCE_SNAPSHOT_UNAVAILABLE'));
+const ahead = await scenarioView('lookahead');
+assert.ok(reasonsOf(ahead, 'MARKET_PRICING').includes('OBSERVATION_AFTER_KNOWLEDGE_CUTOFF'));
+const invalid = await scenarioView('invalid-input');
+assert.equal(invalid.chain.outcome, 'REJECTED');
+assert.ok(invalid.chain.rejection.inputErrors.includes('unexpectedKey: UNKNOWN_KEY'));
+for (const bad of ['nope', '..%2Fgolden', '', 'GOLDEN']) {
+  response = await fetch(`${base}${VIEW_PATH}?scenario=${bad}`);
+  assert.equal(response.status, bad === '' ? 200 : 404, bad);
+  await response.arrayBuffer();
+}
+console.log(`PASS ${TERMINAL_SCENARIO_IDS.length} simulation scenarios all hold, each for its own reason; unknown ones are refused`);
 
 for (const [pathname, status] of [['/js/dashboard.js', 200], ['/css/style.css', 200], ['/index.html', 200],
   ['/../package.json', 404], ['/%2e%2e/package.json', 404], ['/js/../../scripts/serve_terminal_local.mjs', 404],
@@ -227,6 +274,35 @@ for (const [name, mutate] of mutations) {
 }
 console.log(`PASS ${mutations.length} non-conforming views are refused whole`);
 
+// --- Only the latest requested view is shown, whatever the arrival order.
+{
+  let release;
+  const slow = new Promise((resolve) => { release = resolve; });
+  const rejectedBody = structuredClone(view);
+  Object.assign(rejectedBody.chain, { outcome: 'REJECTED', integrity: null, digest: null, knowledgeCutoff: null,
+    rejection: { failedAt: 'INPUT', inputErrors: ['x: MISSING'], stageError: null } });
+  Object.assign(rejectedBody, { stages: [] });
+  const scenarios = [{ id: 'golden', label: 'g' }, { id: 'invalid-input', label: 'i' }];
+  const order = (url) => {
+    const u = String(url);
+    if (u === '/s.json') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(scenarios) });
+    // The first (default) request answers late with a stale view.
+    if (u === VIEW_PATH) return slow.then(() => ({ ok: true, status: 200, json: () => Promise.resolve(structuredClone(view)) }));
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(structuredClone(rejectedBody)) });
+  };
+  dom = boot({ ...LOCAL, V2_SCENARIOS_URL: '/s.json' }, order);
+  await settle(100);
+  d = dom.window.document;
+  d.getElementById('v2-scenario').value = 'invalid-input';
+  d.getElementById('v2-scenario').dispatchEvent(new dom.window.Event('change'));
+  await settle(100);
+  release();
+  await settle(100);
+  assert.equal(text(d, 'v2-state'), 'HOLD — ENTRÉE REJETÉE', 'late default view did not overwrite the chosen scenario');
+  dom.window.close();
+}
+console.log('PASS a late response never overwrites the scenario chosen after it');
+
 // --- Untrusted strings stay text.
 const hostile = structuredClone(view);
 hostile.stages[0].reasons[0].code = '<img src=x onerror="window.__pwned=1">';
@@ -346,13 +422,28 @@ for (const [name, impl, mode, label] of [
 }
 console.log('PASS market data nature: LIVE only when fresh, PÉRIMÉ beyond the threshold, FLUX ROMPU when down');
 
-// --- End to end: jsdom against the real server.
+// --- End to end: jsdom against the real server, including the scenario selector.
 const live = await listen();
-dom = boot(LOCAL, (url) => fetch(new URL(String(url), live.base)));
+dom = boot({ ...LOCAL, V2_SCENARIOS_URL: SCENARIOS_PATH }, (url) => fetch(new URL(String(url), live.base)));
 await settle(400);
 d = dom.window.document;
 assert.equal(text(d, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
 assert.equal(d.querySelectorAll('#v2-stages .stage').length, 12);
+assert.equal(d.getElementById('v2-scenario-wrap').hidden, false);
+const options = [...d.querySelectorAll('#v2-scenario option')].map((o) => o.value);
+assert.deepEqual(options, ['', ...TERMINAL_SCENARIO_IDS]);
+const select = d.getElementById('v2-scenario');
+select.value = 'invalid-input';
+select.dispatchEvent(new dom.window.Event('change'));
+await settle(400);
+assert.equal(text(d, 'v2-state'), 'HOLD — ENTRÉE REJETÉE');
+assert.equal(text(d, 'v2-origin'), 'SIMULATION — SCÉNARIO INVALID-INPUT');
+select.value = 'everything-granted';
+select.dispatchEvent(new dom.window.Event('change'));
+await settle(400);
+assert.equal(text(d, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
+assert.doesNotMatch(text(d, 'v2-why-list'), /EXECUTION NOT AUTHORIZED|PROVIDER NOT AUTHORIZED/);
+assert.match(text(d, 'mode-v2-val'), /^SIMULATION — SCÉNARIO EVERYTHING-GRANTED · HISTORIQUE/);
 dom.window.close();
 await close(live.server);
 console.log('PASS terminal against the real local server renders the golden HOLD chain');

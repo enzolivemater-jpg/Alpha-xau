@@ -35,6 +35,7 @@
     ANALYSIS_INTERVAL_MS: 60000,
     STALE_THRESHOLD_S: 60,
     V2_VIEW_URL: '',
+    V2_SCENARIOS_URL: '',
   }, window.ALPHA_XAU_CONFIG || {});
 
   const RUNTIME = {
@@ -169,6 +170,8 @@
     modeV2Val: $('mode-v2-val'),
 
     v2Origin: $('v2-origin'),
+    v2ScenarioWrap: $('v2-scenario-wrap'),
+    v2Scenario: $('v2-scenario'),
     v2Status: $('v2-status'),
     v2State: $('v2-state'),
     v2Detail: $('v2-detail'),
@@ -1119,7 +1122,12 @@ let pollTimer = null;
   const V2_ORIGIN_LABELS = {
     GOLDEN_FIXTURE: 'SIMULATION — FIXTURE',
     LOCAL_INPUT_FILE: 'SIMULATION — FICHIER LOCAL',
+    LOCAL_SCENARIO: 'SIMULATION — SCÉNARIO',
   };
+
+  /** Libellé d'origine ; un scénario est nommé par son identifiant. */
+  const originText = (origin) => (origin.kind === 'LOCAL_SCENARIO' && isText(origin.label)
+    ? `${V2_ORIGIN_LABELS[origin.kind]} ${origin.label.toUpperCase()}` : V2_ORIGIN_LABELS[origin.kind]);
 
   const V2_TEMPORAL = ['HISTORICAL', 'AT_GENERATION', 'UNKNOWN'];
 
@@ -1293,9 +1301,9 @@ let pollTimer = null;
     const temporal = view.temporal;
     const historical = temporal.classification === 'HISTORICAL';
     setAttr(el.v2Origin, 'data-state', 'simulated');
-    setText(el.v2Origin, V2_ORIGIN_LABELS[view.origin.kind]);
+    setText(el.v2Origin, originText(view.origin));
     setChainMode(historical ? 'historical' : 'simulated',
-      `${V2_ORIGIN_LABELS[view.origin.kind]}${historical ? ` · HISTORIQUE (cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)})` : ''} · HOLD`);
+      `${originText(view.origin)}${historical ? ` · HISTORIQUE (cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)})` : ''} · HOLD`);
 
     if (chain.outcome === 'REJECTED') {
       const r = chain.rejection || {};
@@ -1368,19 +1376,52 @@ let pollTimer = null;
     }));
   }
 
+  /* Scénario de simulation choisi ; null = l'entrée du serveur local. */
+  let v2Scenario = null;
+  /* Seule la dernière réponse demandée est affichée. */
+  let v2Request = 0;
+
+  /** Liste des scénarios du serveur local ; absente, le sélecteur reste caché. */
+  async function loadScenarios() {
+    if (!CONFIG.V2_SCENARIOS_URL) return;
+    try {
+      const response = await fetch(CONFIG.V2_SCENARIOS_URL, { headers: { accept: 'application/json' } });
+      if (!response.ok) return;
+      const list = await response.json();
+      if (!isList(list)) return;
+      const options = [node('option', '', 'Entrée du serveur', { value: '' })];
+      for (const item of list) {
+        if (!item || !/^[a-z0-9-]{1,64}$/.test(String(item.id)) || !isText(item.label)) continue;
+        options.push(node('option', '', `${item.id} — ${item.label}`, { value: item.id }));
+      }
+      el.v2Scenario.replaceChildren(...options);
+      el.v2ScenarioWrap.hidden = options.length < 2;
+      el.v2Scenario.addEventListener('change', () => {
+        v2Scenario = el.v2Scenario.value || null;
+        refreshV2();
+      });
+    } catch { /* sans liste, l'entrée du serveur reste affichée */ }
+  }
+
   async function refreshV2() {
     if (!CONFIG.V2_VIEW_URL) {
       renderV2Unavailable('unavailable', 'INDISPONIBLE',
         'Aucun runtime V2 déployé. En local : npm run terminal:local');
       return;
     }
+    const request = ++v2Request;
+    const url = v2Scenario ? `${CONFIG.V2_VIEW_URL}?scenario=${encodeURIComponent(v2Scenario)}` : CONFIG.V2_VIEW_URL;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), RUNTIME.FETCH_TIMEOUT_MS);
     try {
-      const response = await fetch(CONFIG.V2_VIEW_URL, { headers: { accept: 'application/json' }, signal: controller.signal });
+      const response = await fetch(url, { headers: { accept: 'application/json' }, signal: controller.signal });
+      if (request !== v2Request) return;
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      renderV2(await response.json());
+      const body = await response.json();
+      if (request !== v2Request) return;
+      renderV2(body);
     } catch (err) {
+      if (request !== v2Request) return;
       renderV2Unavailable('error', 'VUE V2 INJOIGNABLE', `Serveur local injoignable — ${err.message}. HOLD conservé.`);
     } finally {
       clearTimeout(timer);
@@ -1478,6 +1519,7 @@ let pollTimer = null;
     initWorkspaces();
 
     /* La vue V2 est indépendante du flux V1 : elle est lue dans les deux modes. */
+    loadScenarios();
     refreshV2();
     if (CONFIG.V2_VIEW_URL) setInterval(refreshV2, CONFIG.ANALYSIS_INTERVAL_MS);
 

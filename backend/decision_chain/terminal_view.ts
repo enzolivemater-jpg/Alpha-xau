@@ -146,7 +146,7 @@ export const REASON_CODE_CATEGORY: Readonly<Record<string, BlockerCategory>> = {
  */
 export type TerminalCapabilityStatus = 'OPERATIONAL_LOCAL' | 'SIMULATED' | 'BLOCKED' | 'NOT_VALIDATED';
 
-export type TerminalDataOrigin = 'GOLDEN_FIXTURE' | 'LOCAL_INPUT_FILE';
+export type TerminalDataOrigin = 'GOLDEN_FIXTURE' | 'LOCAL_INPUT_FILE' | 'LOCAL_SCENARIO';
 
 export interface TerminalReason {
   readonly code: string;

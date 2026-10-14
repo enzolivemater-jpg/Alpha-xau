@@ -20,12 +20,15 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
+import { TERMINAL_SCENARIOS, findTerminalScenario } from './lib/terminal_scenarios.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FRONTEND = path.join(ROOT, 'frontend');
 export const GOLDEN_FIXTURE = path.join(ROOT, 'tests', 'fixtures', 'decision_chain_dry_run_baseline.json');
 export const VIEW_PATH = '/local/v2/terminal.json';
+export const SCENARIOS_PATH = '/local/v2/scenarios.json';
 const VIEW_URL_PLACEHOLDER = "V2_VIEW_URL: '',";
+const SCENARIOS_URL_PLACEHOLDER = "V2_SCENARIOS_URL: '',";
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -37,13 +40,16 @@ const CONTENT_TYPES = {
   '.ico': 'image/x-icon',
 };
 
-/** index.html with the local view URL; refuses to start if the hook moved. */
+/** index.html with the local URLs; refuses to start if a hook moved. */
 export function localIndexHtml() {
   const html = readFileSync(path.join(FRONTEND, 'index.html'), 'utf8');
-  if (html.split(VIEW_URL_PLACEHOLDER).length !== 2) {
-    throw new Error(`frontend/index.html must contain exactly one "${VIEW_URL_PLACEHOLDER}"`);
+  for (const placeholder of [VIEW_URL_PLACEHOLDER, SCENARIOS_URL_PLACEHOLDER]) {
+    if (html.split(placeholder).length !== 2) {
+      throw new Error(`frontend/index.html must contain exactly one "${placeholder}"`);
+    }
   }
-  return html.replace(VIEW_URL_PLACEHOLDER, `V2_VIEW_URL: '${VIEW_PATH}',`);
+  return html.replace(VIEW_URL_PLACEHOLDER, `V2_VIEW_URL: '${VIEW_PATH}',`)
+    .replace(SCENARIOS_URL_PLACEHOLDER, `V2_SCENARIOS_URL: '${SCENARIOS_PATH}',`);
 }
 
 /** Reads a chain input document; errors are reported, never thrown. */
@@ -63,14 +69,26 @@ export async function buildLocalView({ inputFile = GOLDEN_FIXTURE, now = () => n
   const origin = inputFile === GOLDEN_FIXTURE
     ? { kind: 'GOLDEN_FIXTURE', label: path.relative(ROOT, GOLDEN_FIXTURE) }
     : { kind: 'LOCAL_INPUT_FILE', label: path.basename(inputFile) };
-  return async () => {
-    const document = readChainDocument(inputFile);
+  const golden = JSON.parse(readFileSync(GOLDEN_FIXTURE, 'utf8'));
+  /** Without a scenario, the server's input; with one, that simulation. */
+  return async (scenarioId = null) => {
+    let document;
+    let viewOrigin = origin;
+    if (scenarioId === null) {
+      document = readChainDocument(inputFile);
+    } else {
+      const scenario = findTerminalScenario(scenarioId);
+      if (!scenario) return null;
+      const built = scenario.build(golden);
+      document = { ok: true, knowledgeCutoff: built.knowledgeCutoff, input: built.input };
+      viewOrigin = { kind: 'LOCAL_SCENARIO', label: scenario.id };
+    }
     // An unreadable document still yields a HOLD view, through CHAIN-0's own rejection.
     const outcome = document.ok
       ? chain.evaluateDecisionChain(document.input, document.knowledgeCutoff)
       : chain.evaluateDecisionChain(undefined, undefined);
     const digest = outcome.kind === 'COMPLETED' ? await chain.computeDecisionChainDigest(outcome.result) : null;
-    return view.buildTerminalView(outcome, digest, origin, now().toISOString());
+    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString());
   };
 }
 
@@ -94,15 +112,25 @@ export async function createTerminalServer(options = {}) {
       return;
     }
     let pathname;
+    let scenarioId;
     try {
-      pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://127.0.0.1').pathname);
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      pathname = decodeURIComponent(url.pathname);
+      scenarioId = url.searchParams.get('scenario') || null;
     } catch {
       send(response, 400, 'text/plain; charset=utf-8', 'bad request', method);
       return;
     }
+    if (pathname === SCENARIOS_PATH) {
+      const list = TERMINAL_SCENARIOS.map(({ id, label }) => ({ id, label }));
+      send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(list), method);
+      return;
+    }
     if (pathname === VIEW_PATH) {
       try {
-        send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(await view()), method);
+        const body = await view(scenarioId);
+        if (body === null) send(response, 404, 'text/plain; charset=utf-8', 'unknown scenario', method);
+        else send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(body), method);
       } catch (error) {
         send(response, 500, 'text/plain; charset=utf-8', `view error: ${error.message}`, method);
       }

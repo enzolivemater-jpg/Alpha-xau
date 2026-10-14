@@ -45,8 +45,8 @@ only v2.
   order, with their stages). Inherited (`UPSTREAM`) reasons are counted.
   Unclassified codes are listed.
 
-`simulated` is always `true`. The origin is `GOLDEN_FIXTURE` or
-`LOCAL_INPUT_FILE`, never a production source.
+`simulated` is always `true`. The origin is `GOLDEN_FIXTURE`,
+`LOCAL_INPUT_FILE` or `LOCAL_SCENARIO`, never a production source.
 
 ## Terminal rules
 
@@ -94,7 +94,23 @@ npm run terminal:local                    # http://127.0.0.1:4173/ (golden fixtu
 node scripts/serve_terminal_local.mjs --port 4180 --input path/to/chain-input.json
 ```
 
-The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`. The server:
+The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`.
+
+`GET /local/v2/scenarios.json` lists local simulation scenarios derived from the
+golden fixture (`scripts/lib/terminal_scenarios.mjs`). `GET
+/local/v2/terminal.json?scenario=<id>` serves one of them, with origin
+`LOCAL_SCENARIO`. An unknown id returns 404. The scenarios are:
+- `golden`;
+- `everything-granted` (every grantable authorization, still HOLD);
+- `read-7-days-later`;
+- `market-unavailable`;
+- `lookahead` (price 500 µs after the cutoff);
+- `invalid-input`.
+
+The terminal offers them in a selector and shows only the latest requested
+view. Each scenario is a simulation, never market data.
+
+The server:
 - binds `127.0.0.1` only and accepts only `GET` and `HEAD`;
 - serves `frontend/` read-only and refuses paths outside it;
 - injects `V2_VIEW_URL` only into the page it serves.
