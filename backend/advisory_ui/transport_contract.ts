@@ -112,7 +112,7 @@ function safeAdvisory(value: unknown): value is AdvisoryUiViewModel {
 }
 
 /** The only available writer builds a safe view from untrusted upstream claims.
- * Deliberately no send(), fetch(), publish(), runtime version or destination.
+ * Deliberately no network retrieval, publishing, runtime version or destination.
  */
 export function encodeOfflineAdvisoryPacket(claims: unknown, cutoff: unknown): string {
   const advisory = buildInstitutionalAdvisoryUi(claims, cutoff);
