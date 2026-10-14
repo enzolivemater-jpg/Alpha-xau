@@ -45,6 +45,21 @@ console.log('--- NORMALIZATION ---');
   const r = normalizeRawNewsObservation({ ...baseInput(), sourceCode: ' federalreserve' });
   t('sourceCode space -> rejected', !r.ok && r.reason === 'source_code_not_canonical', JSON.stringify(r));
 }
+// Texte que PostgreSQL rejette (NUL, demi-paire isolée) : rejet explicite.
+for (const [label, patch] of [
+  ['titre avec NUL', { title: 'Rate\u0000 decision' }],
+  ['titre avec demi-paire haute isolée', { title: 'Rate \uD800 decision' }],
+  ['résumé avec demi-paire basse isolée', { summary: 'x\uDC00y' }],
+  ['providerItemId avec NUL', { providerItemId: 'id\u0000' }],
+  ['raison de qualité avec demi-paire', { ingestQualityReasons: ['ok', 'bad\uD800'] }],
+]) {
+  const r = normalizeRawNewsObservation({ ...baseInput(), ...patch });
+  t(`${label} -> rejected text_not_storable`, !r.ok && r.reason === 'text_not_storable', JSON.stringify(r));
+}
+{
+  const r = normalizeRawNewsObservation({ ...baseInput(), title: 'Gold \u{1F4C8} rally café' });
+  t('paire de substitution complète et accents -> acceptés', r.ok && r.row.title === 'Gold \u{1F4C8} rally café', JSON.stringify(r));
+}
 {
   const r = normalizeRawNewsObservation({ ...baseInput(), providerItemId: '   ', canonicalUrl: null });
   t('providerItemId vide + URL null -> rejected', !r.ok && r.reason === 'identity_missing', JSON.stringify(r));

@@ -1,8 +1,11 @@
-import { __internals } from './committee_orchestrator.mjs';
-import Ajv from '/home/claude/alpha-xau/node_modules/ajv/dist/2020.js';
-import addFormats from '/home/claude/alpha-xau/node_modules/ajv-formats/dist/index.js';
+import Ajv from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
 import { readFileSync } from 'node:fs';
+import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 
+const { __internals } = await loadBackendModule('ai_engine/committee_orchestrator.ts');
+
+const HORIZONS = ['H1','H2','H3','H4','H5'];
 const { validateScenario, validateCommitteeOutput, normalizeProbabilities,
         riskReward, buildNoValidSetup, asUnitConfidence } = __internals;
 
@@ -46,9 +49,9 @@ t('neutral exempté du RR mais garde invalidation', r.scenario!==null);
 
 console.log('--- Normalisation des probabilités ---');
 const mk=(p)=>({direction:'neutral',probability:p,target:3400,invalidation:3400,activation_condition:'Clôture H1 au-dessus de 3412.50 avec expansion ATR.',activation_condition:'Clôture H1 au-dessus de 3412.50 avec expansion ATR.',confidence:50,reasoning:R});
-for (const input of [[33,33,33,33],[40,30,20,10],[1,1,1,1],[70,20,5,5],[0,0,0,0],[99,1,0,0]]) {
-  const n = normalizeProbabilities({H1:mk(input[0]),H2:mk(input[1]),H3:mk(input[2]),H4:mk(input[3])});
-  const sum = ['H1','H2','H3','H4'].reduce((s,h)=>s+n[h].probability,0);
+for (const input of [[33,33,33,33,33],[40,30,15,10,5],[1,1,1,1,1],[70,20,5,3,2],[0,0,0,0,0],[99,1,0,0,0]]) {
+  const n = normalizeProbabilities({H1:mk(input[0]),H2:mk(input[1]),H3:mk(input[2]),H4:mk(input[3]),H5:mk(input[4])});
+  const sum = HORIZONS.reduce((s,h)=>s+n[h].probability,0);
   t(`somme = 100 pour [${input}]`, sum===100, `got ${sum}`);
 }
 
@@ -57,11 +60,12 @@ const goodPM = { market_regime:'risk_off', overall_bias:'bullish', confidence:72
   H1:{direction:'bullish',probability:35,target:3450,invalidation:3380,activation_condition:'Clôture H1 au-dessus de 3412.50 avec expansion ATR.',confidence:70,reasoning:R},
   H2:{direction:'bullish',probability:30,target:3480,invalidation:3370,activation_condition:'Clôture H1 au-dessus de 3412.50 avec expansion ATR.',confidence:65,reasoning:R},
   H3:{direction:'neutral',probability:20,target:3400,invalidation:3400,activation_condition:'Clôture H1 au-dessus de 3412.50 avec expansion ATR.',confidence:50,reasoning:R},
-  H4:{direction:'bearish',probability:16,target:3300,invalidation:3500,activation_condition:'Clôture H1 au-dessus de 3412.50 avec expansion ATR.',confidence:45,reasoning:R}},
+  H4:{direction:'bearish',probability:10,target:3300,invalidation:3500,activation_condition:'Clôture H1 au-dessus de 3412.50 avec expansion ATR.',confidence:45,reasoning:R},
+  H5:{direction:'bearish',probability:6,target:3250,invalidation:3520,activation_condition:'Clôture H1 au-dessus de 3412.50 avec expansion ATR.',confidence:40,reasoning:R}},
   drivers:['Real yield decline'], risks:['Fed hawkish surprise'], invalidations:['Perte de 3380'] };
 let v = validateCommitteeOutput(goodPM, SPOT);
 t('PM valide accepté', v.valid, JSON.stringify(v.errors));
-t('probabilités renormalisées à 100', v.valid && ['H1','H2','H3','H4'].reduce((s,h)=>s+v.scenarios[h].probability,0)===100);
+t('probabilités renormalisées à 100', v.valid && HORIZONS.reduce((s,h)=>s+v.scenarios[h].probability,0)===100);
 
 const badPM = structuredClone(goodPM); delete badPM.scenarios.H3.invalidation;
 v = validateCommitteeOutput(badPM, SPOT);
@@ -77,7 +81,7 @@ t('72 -> 0.72', Math.abs(asUnitConfidence(72)-0.72)<1e-9);
 t('valeur absurde bornée', asUnitConfidence(500)===1 && asUnitConfidence(-5)===0);
 
 console.log('--- Validation JSON Schema (ajv) ---');
-const schema = JSON.parse(readFileSync('/home/claude/alpha-xau/backend/ai_engine/schema/committee_output.schema.json','utf8'));
+const schema = JSON.parse(readFileSync(new URL('../backend/ai_engine/schema/committee_output.schema.json', import.meta.url),'utf8'));
 const ajv = new Ajv.default({ strict:true, allErrors:true });
 addFormats.default(ajv);
 const validate = ajv.compile(schema);
@@ -102,8 +106,8 @@ console.log('--- NO_VALID_SETUP ---');
 const nvs = buildNoValidSetup(SPOT, ['Contradiction non résolue'], {});
 t('NO_VALID_SETUP conforme au schéma', validate(nvs), JSON.stringify(validate.errors));
 t('bias forcé neutral + confiance 0', nvs.overall_bias==='neutral' && nvs.confidence===0);
-t('4 scénarios présents malgré le rejet', Object.keys(nvs.scenarios).length===4);
-t('somme probabilités = 100', ['H1','H2','H3','H4'].reduce((s,h)=>s+nvs.scenarios[h].probability,0)===100);
+t('5 scénarios présents malgré le rejet', Object.keys(nvs.scenarios).length===HORIZONS.length);
+t('somme probabilités = 100', HORIZONS.reduce((s,h)=>s+nvs.scenarios[h].probability,0)===100);
 
 // ===================== AJOUTS P1-3 / P1-4 =====================
 console.log('--- P1-4 : activation_condition obligatoire ---');
@@ -121,7 +125,7 @@ z=validateScenario('H1',{...base,activation_condition:A},SPOT);
 t('activation conservee dans la sortie', z.scenario.activation_condition===A);
 
 console.log('--- P1-3 : verdicts distincts ---');
-const { BLOCKING_VERDICTS, isBlockingVerdict } = await import('./committee_orchestrator.mjs');
+const { BLOCKING_VERDICTS, isBlockingVerdict } = await loadBackendModule('ai_engine/committee_orchestrator.ts');
 t('5 verdicts, 3 bloquants', BLOCKING_VERDICTS.length===3);
 t('REJECTED bloquant', isBlockingVerdict('REJECTED'));
 t('DATA_INSUFFICIENT bloquant ET distinct', isBlockingVerdict('DATA_INSUFFICIENT') && BLOCKING_VERDICTS.includes('DATA_INSUFFICIENT'));
@@ -136,7 +140,7 @@ for (const v of ['REJECTED','DATA_INSUFFICIENT','CONFLICT']) {
   t(`${v} : biais neutre + confiance 0`, n.overall_bias==='neutral' && n.confidence===0);
   t(`${v} : motif non vide (contrainte SQL)`, n.meta.validation_errors.length>0);
   t(`${v} : scenarios portent une activation explicite`,
-    ['H1','H2','H3','H4'].every(h=>typeof n.scenarios[h].activation_condition==='string' && n.scenarios[h].activation_condition.length>=15));
+    HORIZONS.every(h=>typeof n.scenarios[h].activation_condition==='string' && n.scenarios[h].activation_condition.length>=15));
 }
 const nEmpty=buildNoValidSetup(SPOT,[],{},'CONFLICT');
 t('blocage sans motif -> motif genere non vide', nEmpty.meta.validation_errors.length>0);
