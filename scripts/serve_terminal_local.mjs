@@ -79,7 +79,7 @@ export async function buildLocalView({
   const bridge = await loadBackendModule('decision_chain/market_evidence_chain.ts');
   const providers = await loadBackendModule('market_engine/providers.ts');
   // Raw payloads are checked with the runtime parsers themselves.
-  const parsers = { fred: providers.parseFred, twelve_data: providers.parseTwelveData };
+  const parsers = { fred: providers.parseFredObservations, twelve_data: providers.parseTwelveData };
   const origin = archiveFile !== null ? { kind: 'LOCAL_MARKET_ARCHIVE', label: path.basename(archiveFile) }
     : inputFile === GOLDEN_FIXTURE
       ? { kind: 'GOLDEN_FIXTURE', label: path.relative(ROOT, GOLDEN_FIXTURE) }

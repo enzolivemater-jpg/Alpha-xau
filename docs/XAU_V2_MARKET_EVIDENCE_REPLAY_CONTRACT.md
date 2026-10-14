@@ -113,21 +113,53 @@ The local terminal server takes `--archive file [--archive-digest sha256:…]
 archive labelled `SYNTHETIC_FIXTURE`. View v4 carries the manifest as
 `marketEvidence`.
 
+## Capture (DATA-2)
+
+`backend/market_engine/evidence_capture.ts` turns a provider response that is
+already in hand into archive records. It never requests anything.
+
+**What one capture contains:**
+- the exact body;
+- the provider series or symbol it was requested for (`CAPTURE_SERIES`: FRED
+  `DGS10`, `DFII10`, `VIXCLS`, `DCOILWTICO`, equal to the runtime
+  `FRED_SERIES`, and Twelve Data `XAU/USD`);
+- the explicit time it was received.
+
+**What it does:**
+- The body is kept verbatim under its digest. Every observation it holds
+  becomes a record naming that digest. A FRED body holds several observations;
+  `parseFredObservations` reads them all, with the `parseFred` rules.
+- `publishedAt` stays unknown, because neither provider states a publication
+  time. A Twelve Data quote has no book, so no bid or ask is captured.
+- The log is append-only:
+  - the same bytes again change nothing;
+  - a known observation with the same value is not recorded again;
+  - a different value becomes a revision superseding the latest one;
+  - capture times never go backwards.
+- The declared coverage ends at the last capture, so a later cutoff is
+  `INCOMPLETE`.
+- A capture applies only if the resulting archive replays without a blocking
+  finding (for example an implausible value, or a yield in basis points).
+
+The raw-payload verification now accepts a parser that returns every
+observation of a body. A record must be one of them; with the single-latest
+`parseFred`, older records of a FRED body would be rejected.
+
+`scripts/market_evidence_capture.mjs init | append | replay` runs the log on
+files already on disk. Every time is explicit; file times are never used. An
+archive is `SYNTHETIC_FIXTURE` unless initialized with `--class CAPTURED
+--attest-captured`, the operator's statement that every body came unmodified
+from the provider. Test: `tests/test_market_evidence_capture.mjs`.
+
 ## Not established
 
 - **No authentic market archive exists in this repository:** every replay
   here is a SIMULATION. `HISTORICAL_VERIFIED` is exercised only with test
   bodies written in the test.
-- **Capture is still missing.** An authorized capture would have to record,
-  per provider response:
-  - the raw body and its digest;
-  - the source record id;
-  - the publication time when the source states it (for example FRED
-    `realtime_start`);
-  - the ingestion time;
-  - the coverage window.
-
-  Nothing captures this yet.
+- **No authorized capture has run.** The capture path exists (DATA-2), but
+  no provider response has been recorded. A real capture needs an authorized
+  run: the runtime collectors, or an operator downloading responses with the
+  provider keys. The runtime ingestion still discards raw bodies.
 - **Coverage is self-declared.** The append-only MP-2 table plus its
   complete-or-error RPC is the intended source of a provable coverage.
   Wiring it is gated.

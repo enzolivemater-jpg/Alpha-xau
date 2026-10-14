@@ -239,7 +239,8 @@ export interface MarketEvidenceReplay {
   readonly digest: string;
 }
 
-export type RawPayloadParser = (body: string, symbol: MarketSymbol) => RawDataPoint;
+/** Reads a raw body; a body holding several observations returns them all. */
+export type RawPayloadParser = (body: string, symbol: MarketSymbol) => RawDataPoint | readonly RawDataPoint[];
 
 export interface MarketEvidenceReplayOptions {
   /** When given, an archive whose digest differs is INVALID. */
@@ -450,13 +451,16 @@ export async function replayMarketEvidence(
         continue;
       }
       if (!parser) continue;
-      const point = parser(payload.body, payload.symbol);
-      const value = rawValue(point, record.field);
-      if (point.symbol !== MARKET_EVIDENCE_FIELD_SPEC[record.field].freshnessSymbol
-          || point.source !== record.source || value === null || !Object.is(value, record.value)
-          || point.observedAt === null || canonicalTime(point.observedAt) !== canonicalTime(record.observedAt)) {
-        add('RAW_PAYLOAD_MISMATCH', index, record.evidenceId);
-      }
+      const read = parser(payload.body, payload.symbol);
+      const points: readonly RawDataPoint[] = Array.isArray(read) ? read : [read as RawDataPoint];
+      // The recorded observation must be one the bytes actually contain.
+      const found = points.some((point) => {
+        const value = rawValue(point, record.field);
+        return point.symbol === MARKET_EVIDENCE_FIELD_SPEC[record.field].freshnessSymbol
+          && point.source === record.source && value !== null && Object.is(value, record.value)
+          && point.observedAt !== null && canonicalTime(point.observedAt) === canonicalTime(record.observedAt);
+      });
+      if (!found) add('RAW_PAYLOAD_MISMATCH', index, record.evidenceId);
     }
 
     const coverage = archive.coverage;

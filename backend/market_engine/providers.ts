@@ -266,6 +266,33 @@ export function parseFred(body: string, symbol: MarketSymbol): RawDataPoint {
   return { symbol, source, value: null, observedAt: null, unavailableReason: 'Aucune observation numérique dans la fenêtre' };
 }
 
+/**
+ * Toutes les observations numériques d'une réponse FRED, dans l'ordre de la
+ * réponse. Mêmes règles que `parseFred` (qui n'en garde que la dernière) :
+ * "." et les dates invalides sont ignorées, jamais converties. Utilisé par
+ * la capture de preuves DATA-2 ; le runtime n'en dépend pas.
+ */
+export function parseFredObservations(body: string, symbol: MarketSymbol): RawDataPoint[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  if (!isJsonObject(parsed)) return [];
+  const observations = Array.isArray((parsed as FredResponse).observations) ? (parsed as FredResponse).observations! : [];
+  const points: RawDataPoint[] = [];
+  for (const observation of observations) {
+    if (!observation) continue;
+    const value = toNumberOrNull(observation.value);
+    const observedAt = toUtcIso(observation.date ?? '');
+    if (value !== null && observedAt !== null) {
+      points.push({ symbol, source: 'fred', value, observedAt, open: null, high: null, low: null, bid: null, ask: null, volume: null });
+    }
+  }
+  return points;
+}
+
 export async function fetchFred(
   symbol: MarketSymbol,
   seriesId: string,
