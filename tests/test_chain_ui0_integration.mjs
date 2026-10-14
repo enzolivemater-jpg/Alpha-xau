@@ -20,6 +20,7 @@ const sourceFiles = [
   'command_center/contract.ts', 'alert_engine/contract.ts',
   'acceptance_engine/contract.ts', 'decision_chain/dry_run.ts',
   'observability/offline_receipt.ts', 'advisory_ui/contract.ts',
+  'advisory_ui/transport_contract.ts',
 ];
 const fixture = JSON.parse(readFileSync(
   path.join(root, 'tests/fixtures/chain0_hold_synthetic.json'), 'utf8',
@@ -27,7 +28,7 @@ const fixture = JSON.parse(readFileSync(
 assert.equal(fixture.fixtureType, 'SYNTHETIC_CONTRACT_ONLY');
 
 const temp = mkdtempSync(path.join(tmpdir(), 'xau-chain-ui0-rehearsal-'));
-let run, receipt, ui;
+let run, receipt, ui, transport;
 try {
   for (const source of sourceFiles) {
     const sourceText = readFileSync(path.join(root, 'backend', source), 'utf8');
@@ -43,6 +44,7 @@ try {
   ({ runDecisionChainDryRun: run } = await load('decision_chain/dry_run.mjs'));
   ({ buildOfflineAuditReceipt: receipt } = await load('observability/offline_receipt.mjs'));
   ({ buildInstitutionalAdvisoryUi: ui } = await load('advisory_ui/contract.mjs'));
+  transport = await load('advisory_ui/transport_contract.mjs');
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }
@@ -58,6 +60,18 @@ const uiInput = (s) => ({
   acceptance: s.acceptance,
 });
 const view = ui(uiInput(chain.stages), chain.knowledgeCutoff);
+const wire = transport.encodeOfflineAdvisoryPacket(uiInput(chain.stages), chain.knowledgeCutoff);
+const checkedWire = transport.inspectOfflineAdvisoryPacket(wire);
+assert.equal(checkedWire.status, 'STRUCTURALLY_VALID_UNVERIFIED');
+assert.equal(checkedWire.packet.origin, 'UNVERIFIED');
+assert.equal(checkedWire.packet.actionability, 'NONE');
+assert.deepEqual(checkedWire.packet.advisory, view);
+assert.equal(wire, transport.encodeOfflineAdvisoryPacket(uiInput(chain.stages), chain.knowledgeCutoff));
+const forgedWire = JSON.parse(wire);
+forgedWire.advisory.tradeTicket = { side: 'BUY', size: 1 };
+const refusedWire = transport.inspectOfflineAdvisoryPacket(JSON.stringify(forgedWire));
+assert.equal(refusedWire.status, 'REJECTED');
+assert.equal(refusedWire.reason, 'UNSAFE_ADVISORY');
 assert.deepEqual(view.reasonCodes, [
   'SOURCE_ATTESTATION_NOT_AVAILABLE', 'UI_RUNTIME_NOT_AUTHORIZED',
 ]);
@@ -118,5 +132,11 @@ assert.equal(invalidReceipt.fingerprint, null);
 assert.equal(invalidView.claimedKnowledgeCutoff, null);
 assert.ok(invalidView.reasonCodes.includes('INVALID_CLAIMED_CUTOFF'));
 assert.equal(invalidView.execution, 'FORBIDDEN');
+const invalidWire = transport.inspectOfflineAdvisoryPacket(
+  transport.encodeOfflineAdvisoryPacket(uiInput(invalidChain.stages), invalidChain.knowledgeCutoff),
+);
+assert.equal(invalidWire.status, 'STRUCTURALLY_VALID_UNVERIFIED');
+assert.equal(invalidWire.packet.advisory.claimedKnowledgeCutoff, null);
+assert.equal(invalidWire.packet.actionability, 'NONE');
 
 console.log('Cross-PR CHAIN-0 / OBS-0 / UI-0: deterministic synthetic HOLD, spoof rejection PASS');
