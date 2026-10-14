@@ -42,6 +42,7 @@
  */
 
 import { acquireLock, releaseLock } from './shared/run_lock.js';
+import { parseStrictTimestamp } from './shared/strict_timestamp.js';
 // XAU-V2-OPS-010 : appel direct in-process du comité, plus de self-fetch
 // HTTP (voir postNotification ci-dessous et l'audit XAU-V2-OPS-007).
 import { handleCommitteeEvent, type CommitteeRuntimeEnv } from './ai_engine/committee_orchestrator.js';
@@ -663,8 +664,10 @@ function parseTimestamp(value: string | null | undefined): Date | null {
     ? `${gdelt[1]}-${gdelt[2]}-${gdelt[3]}T${gdelt[4]}:${gdelt[5]}:${gdelt[6]}Z`
     : value;
 
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return null;
+  // Contrôle calendaire strict : Date.parse lirait 2026-02-30 comme le
+  // 2 mars, et une heure sans fuseau comme une heure locale.
+  const ms = parseStrictTimestamp(iso);
+  if (ms === null) return null;
 
   const now = Date.now();
   // Une date future traduit une horloge fournisseur désynchronisée :

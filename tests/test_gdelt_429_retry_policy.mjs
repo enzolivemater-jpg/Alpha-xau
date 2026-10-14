@@ -28,6 +28,7 @@ let p = 0, f = 0;
 const t = (n, c, x = '') => { c ? (p++, console.log(`  OK  ${n}`)) : (f++, console.log(`  FAIL ${n} ${x}`)); };
 
 const ingestSource = readFileSync(new URL('../backend/ingest.ts', import.meta.url), 'utf8');
+const timestampSource = readFileSync(new URL('../backend/shared/strict_timestamp.ts', import.meta.url), 'utf8');
 
 function extractBlock(src, startRegex) {
   const m = startRegex.exec(src);
@@ -102,6 +103,10 @@ const cleanTextSrc = extractBlock(ingestSource, /function cleanText\(/);
 const stripPublisherSuffixSrc = extractBlock(ingestSource, /function stripPublisherSuffix\(/);
 const dedupKeyOfSrc = extractBlock(ingestSource, /function dedupKeyOf\(/);
 const parseTimestampSrc = extractBlock(ingestSource, /function parseTimestamp\(/);
+const timestampShapeMatch = /const SHAPE = .*;/.exec(timestampSource);
+if (!timestampShapeMatch) throw new Error('SHAPE introuvable dans strict_timestamp.ts.');
+const daysInMonthSrc = extractBlock(timestampSource, /function daysInMonth\(/);
+const parseStrictTimestampSrc = extractBlock(timestampSource, /function parseStrictTimestamp\(/);
 const extractDomainSrc = extractBlock(ingestSource, /function extractDomain\(/);
 const errorMessageSrc = extractBlock(ingestSource, /function errorMessage\(err: unknown\)/);
 const redactStringSrc = extractBlock(ingestSource, /function redactString\(value: string\)/);
@@ -170,6 +175,9 @@ ${extractDomainSrc}
 ${cleanTextSrc}
 ${stripPublisherSuffixSrc}
 ${dedupKeyOfSrc}
+${timestampShapeMatch[0]}
+${daysInMonthSrc}
+${parseStrictTimestampSrc}
 ${parseTimestampSrc}
 ${parseRetryAfterSrc}
 ${backoffDelaySrc}
@@ -307,6 +315,21 @@ const results = {};
   results.gdelt_stale_article = { articleCount: articles.length, report, fetchCallCount: __fetchCallCount };
 }
 
+// parseTimestamp() réel sous l'horloge gelée : formes acceptées et rejets
+// calendaires (jamais de décalage silencieux par Date.parse).
+results.parse_timestamp = Object.fromEntries([
+  ['gdelt', '20260913T120000Z'],
+  ['iso', '2026-09-13T12:00:00Z'],
+  ['offset', '2026-09-13T14:00:00+02:00'],
+  ['feb30_gdelt', '20260230T120000Z'],
+  ['hour24', '2026-09-12T24:00:00Z'],
+  ['no_zone', '2026-09-13T12:00:00'],
+  ['prose', 'Sun, 13 Sep 2026 12:00:00 GMT'],
+].map(([label, value]) => {
+  const parsed = parseTimestamp(value);
+  return [label, parsed === null ? null : parsed.toISOString()];
+}));
+
 process.stdout.write(JSON.stringify(results));
 process.exit(0);
 `;
@@ -389,6 +412,18 @@ console.log('--- GDELT ARTICLE PERIME (>48h) SOUS HORLOGE GELEE : FILTRE DE PROD
   t('report.ok = true (la requête HTTP réussit ; seul le filtrage d\'article rejette)', r.report.ok === true);
   t('0 article conservé (seendate > 48h avant l\'horloge gelée -- CONFIG.MAX_ARTICLE_AGE_MS toujours appliqué, jamais affaibli par le gel de test)',
     r.articleCount === 0, `got ${r.articleCount}`);
+}
+
+console.log('--- parseTimestamp STRICT : jamais décalé ni lu en heure locale ---');
+{
+  const r = output.parse_timestamp;
+  t('seendate GDELT -> accepté', r.gdelt === '2026-09-13T12:00:00.000Z');
+  t('ISO Z -> accepté', r.iso === '2026-09-13T12:00:00.000Z');
+  t('ISO avec offset -> converti en UTC', r.offset === '2026-09-13T12:00:00.000Z');
+  t('seendate 30 février -> rejeté (jamais lu comme le 2 mars)', r.feb30_gdelt === null);
+  t('24:00 -> rejeté (jamais lu comme le lendemain)', r.hour24 === null);
+  t('heure sans fuseau -> rejetée (jamais lue en heure locale)', r.no_zone === null);
+  t('forme libre -> rejetée', r.prose === null);
 }
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
