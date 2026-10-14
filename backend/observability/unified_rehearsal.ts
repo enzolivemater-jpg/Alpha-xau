@@ -7,7 +7,8 @@
  * No broker, provider, HTTP, database, wall clock, I/O or execution.
  */
 import {
-  evaluateDecisionChain, computeDecisionChainDigest,
+  evaluateDecisionChain, DECISION_CHAIN_SCHEMA_VERSION,
+  DECISION_CHAIN_ALGORITHM_VERSION, type DecisionChainOutcome,
 } from '../decision_chain/dry_run.js';
 import {
   buildTerminalView, type TerminalDataOrigin,
@@ -68,19 +69,39 @@ export interface UnifiedOfflineInput {
 export async function runUnifiedOfflineRehearsal(raw: UnifiedOfflineInput) {
   const knowledgeCutoff = raw.knowledgeCutoff;
   const cutoff = isStrictTimestamp(knowledgeCutoff) ? knowledgeCutoff : '';
-  // The chain owns all twelve stages. No reenactment of the older ten-stage
-  // orchestrator; no implicit promotion of evidence or authorizations.
-  const outcome = evaluateDecisionChain(raw.chainInput, cutoff);
+  // Strict TIME-0 validation is a preflight, not a notice after twelve stages.
+  // The legacy CHAIN-0 parser intentionally accepts a broader timestamp syntax.
+  // On malformed cutoffs we reject *before* invoking that canonical chain.
+  const outcome: DecisionChainOutcome = cutoff !== ''
+    ? evaluateDecisionChain(raw.chainInput, cutoff)
+    : {
+        kind: 'REJECTED', schemaVersion: DECISION_CHAIN_SCHEMA_VERSION,
+        algorithmVersion: DECISION_CHAIN_ALGORITHM_VERSION,
+        mode: 'DRY_RUN', chainState: 'HOLD', execution: 'FORBIDDEN',
+        failedAt: 'INPUT',
+        inputErrors: [{ path: '<knowledgeCutoff>', code: 'INVALID_VALUE' }],
+        stageError: null,
+      };
   const receipt = outcome.kind === 'COMPLETED'
     ? await buildOfflineAuditReceipt(outcome.result)
     : null;
-  const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
-    ? receipt.fingerprint
-    : outcome.kind === 'COMPLETED'
-      ? await computeDecisionChainDigest(outcome.result)
-      : null;
+  // A rejected receipt never mints or retains a digest, even if CHAIN-0
+  // produced an object. It also cannot reach the terminal as a completed run.
+  const audited = outcome.kind === 'COMPLETED'
+    && receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
+    && receipt.fingerprint !== null;
+  const digest = audited ? receipt.fingerprint : null;
+  const visibleOutcome: DecisionChainOutcome = outcome.kind === 'COMPLETED' && !audited
+    ? {
+        kind: 'REJECTED', schemaVersion: DECISION_CHAIN_SCHEMA_VERSION,
+        algorithmVersion: DECISION_CHAIN_ALGORITHM_VERSION,
+        mode: 'DRY_RUN', chainState: 'HOLD', execution: 'FORBIDDEN',
+        failedAt: 'INPUT', inputErrors: [],
+        stageError: 'AUDIT_RECEIPT_REJECTED',
+      }
+    : outcome;
   const terminal = buildTerminalView(
-    outcome, digest, safeLocalOrigin(raw.origin),
+    visibleOutcome, digest, safeLocalOrigin(raw.origin),
     isStrictTimestamp(raw.generatedAt) ? raw.generatedAt : 'INVALID_LOCAL_TIMESTAMP',
   );
   const evidence = buildEvidenceEligibilityManifest(raw.evidenceClaims, cutoff);
@@ -105,7 +126,7 @@ export async function runUnifiedOfflineRehearsal(raw: UnifiedOfflineInput) {
     execution: 'FORBIDDEN' as const,
     authorization: 'NONE' as const,
     provenance: 'UNVERIFIED' as const,
-    outcome: outcome.kind,
+    outcome: visibleOutcome.kind,
     terminal,
     receipt,
     evidence,
