@@ -47,7 +47,24 @@ belongs to only one module and does not imply runtime approval.
 | OBS-0 v2 | `xau.offline-audit-receipt.v2` | `canonical-chain-hold-receipt-2.0.0` |
 | UI-0 | `xau.institutional-advisory-ui.v1` | `institutional-offline-hold-projection-1.0.0` |
 | TR-0 | `xau.offline-advisory-transport.v1` | `offline-canonical-readonly-transport-1.0.0` |
-| Combined harness | `xau.unified-offline-rehearsal.v1` | `unified-readonly-cross-contract-1.0.0` |
+| Combined harness | `xau.unified-offline-rehearsal.v1` | `unified-readonly-cross-contract-1.1.0` |
 
 The old CHAIN-0 `runDecisionChainDryRun(input)` ten-stage shape and OBS-0
 `xau.offline-audit-receipt.v1` are not accepted by these v2 adapters.
+
+## ARCH-4 — untrusted caller-envelope boundary (draft additive hardening)
+
+The offline integration harness accepts **untrusted runtime values**, not just a
+TypeScript interface. Its entry boundary rejects unknown top-level keys,
+non-plain objects, accessors, missing metadata, non-local origin enums, unsafe
+display labels, malformed RFC3339 generation/cutoff claims, and any generation
+instant earlier than the claimed knowledge cutoff. Evidence arrays are bounded
+to 512 claims for this purely local rehearsal. Rejection projects the existing
+canonical CHAIN-0 `REJECTED / HOLD / FORBIDDEN` state without running any stage,
+minting a receipt, or forwarding caller origin/clock labels. This is not source
+authentication: valid origin and time fields remain **caller-supplied claims**.
+
+The structural output schema is unchanged (`v1`); the tightened input validation
+is tracked as algorithm `1.1.0`. Run
+`tests/test_unified_input_boundary.mjs` for negative and replay regressions.
+No live providers, real market sources, migration, merge or production authority.
