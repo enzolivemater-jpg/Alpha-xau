@@ -311,6 +311,26 @@ assert.ok([...d.querySelectorAll('#news-stream .stream__title')].every((n) => n.
 dom.window.close();
 console.log('PASS terminal renders the HOLD chain, provenance per field and the capability matrix');
 
+// --- Provenance: a recent or unreadable cutoff is still a SIMULATION, never LIVE.
+for (const [classification, age, label, mode] of [
+  ['AT_GENERATION', 42, 'SIMULATION · CUTOFF À LA GÉNÉRATION', 'simulated'],
+  ['UNKNOWN', null, 'SIMULATION · CUTOFF INCONNU', 'simulated'],
+]) {
+  const body = structuredClone(view);
+  body.temporal = { classification, cutoffAgeSeconds: age, currentWindowSeconds: 360 };
+  body.origin = { kind: 'LOCAL_INPUT_FILE', label: 'recent.json' };
+  dom = boot(LOCAL, serveView(body));
+  await settle();
+  d = dom.window.document;
+  assert.equal(text(d, 'mode-v2-val'), label, classification);
+  assert.equal(d.getElementById('mode-v2').getAttribute('data-mode'), mode, classification);
+  assert.equal(text(d, 'v2-nav-nature'), `SIMULATION — FICHIER LOCAL · ${label.split(' · ')[1]} · PAS UNE ANALYSE RÉELLE`);
+  assert.doesNotMatch(text(d, 'v2-cutoff-age'), /HISTORIQUE/, classification);
+  assert.doesNotMatch(d.getElementById('ws-chain').textContent + text(d, 'mode-v2-val'), /\bLIVE\b/, classification);
+  dom.window.close();
+}
+console.log('PASS provenance: a recent or unreadable cutoff is labelled SIMULATION, never LIVE');
+
 // --- Refusals: a view claiming anything but HOLD / forbidden is not displayed at all.
 const mutations = [
   ['execution allowed', (v) => { v.chain.execution = 'ALLOWED'; }],
