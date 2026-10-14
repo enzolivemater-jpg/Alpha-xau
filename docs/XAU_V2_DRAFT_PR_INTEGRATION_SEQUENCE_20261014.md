@@ -49,6 +49,19 @@ Comparison of changed **filenames** reported by GitHub on 2026-10-14 (snapshot, 
 
 A shared path is a **review signal**, not proof that Git cannot merge the files. CI green on independent branch heads likewise does not establish combined integrity. An acceptable future reconciliation must run AST runtime-boundary checks, CHAIN-0 negative and spoof corpus, as-of timestamp cases, demo-news isolation, governance checks, TypeScript and the complete deterministic/PostgreSQL-ephemeral CI on the exact final tree. Do not deactivate any regression guard simply to resolve a collision.
 
+## CHAIN-0 API divergence requiring one explicit integration choice
+
+A direct source comparison on 2026-10-14 shows **two incompatible implementations of the same file and exported function**:
+
+| Implementation | `backend/decision_chain/dry_run.ts` | Current entrypoint | Responsibility |
+| --- | --- | --- | --- |
+| #106 (offline contract stream) | ~131 lines, blob `3a8f3e9e` | `runDecisionChainDryRun(input: ChainDryRunInput)` | Combines already-materialized Market Pricing/Positioning gates with ten downstream abstaining stages |
+| #123 (terminal stream) | ~780 lines, blob `61a770e0` | `runDecisionChainDryRun(input: DecisionChainDryRunInput, knowledgeCutoff: string)` plus `evaluateDecisionChain` | Builds Market Pricing and Positioning, then 10 downstream stages; validates input shapes, knowledge cutoff, traces and replay digest |
+
+**These are not drop-in replacements.** Their input contract, entrypoint arity, envelope names and stages differ. A bare Git rebase/cherry-pick can silently drop validation or consumers even when the TypeScript tree compiles. The candidate for the interactive local terminal is #123 because TV-0/TV-1/TV-2 already depend on it, **but this is a review recommendation, not a merged architecture decision**. Preserve #106/#107/#108/#110/#111 negative-only capabilities through explicit adapters or vetted forward-ports; do **not** keep two public functions with the same name and divergent semantics as competing decision authorities.
+
+Future acceptance requires (a) one canonical CHAIN-0 entrypoint and versioned input/output identity, (b) one shared strict as-of cutoff, (c) preservation of hardening and provenance guarantees from the other stream, (d) all 12 stage traces, (e) replay determinism and zero positive output, and (f) exact-tree combined CI, not simply two green PRs. No decision, execution, credential, alert or runtime is authorized by this comparison.
+
 ## REC-1 frozen-reference drift (reconciliation required)
 
 The REC-1 instruction names `a4bdd6d43d048f98dc7e506537a82d4f7488d119` as its frozen main reference, but the observed main head on 2026-10-14 is `ec9cde542d6b51b68391462ee8fa474e650b389f`, **6 commits ahead**. The additional commits are the REC-1-related #97/#98/#99/#101/#102/#103 changes dated 2026-10-12. This records GitHub history, **not** proof of operator approval, production state or correctness of a restore.
