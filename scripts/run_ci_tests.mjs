@@ -62,6 +62,7 @@ const TEST_FILES = [
   'tests/test_advisory_transport_contract.mjs',
   'tests/test_unified_offline_rehearsal.mjs',
   'tests/test_unified_input_boundary.mjs',
+  'tests/test_unified_receipt_gate.mjs',
   'tests/test_decision_chain_scenarios.mjs',
   'tests/test_ecb_collector.mjs',
   'tests/test_ecb_raw_integration.mjs',
