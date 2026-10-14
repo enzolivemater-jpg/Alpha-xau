@@ -47,7 +47,7 @@ belongs to only one module and does not imply runtime approval.
 | OBS-0 v2 | `xau.offline-audit-receipt.v2` | `canonical-chain-hold-receipt-2.0.0` |
 | UI-0 | `xau.institutional-advisory-ui.v1` | `institutional-offline-hold-projection-1.0.0` |
 | TR-0 | `xau.offline-advisory-transport.v1` | `offline-canonical-readonly-transport-1.0.0` |
-| Combined harness | `xau.unified-offline-rehearsal.v1` | `unified-readonly-cross-contract-1.1.0` |
+| Combined harness | `xau.unified-offline-rehearsal.v1` | `unified-readonly-cross-contract-1.2.0` |
 
 The old CHAIN-0 `runDecisionChainDryRun(input)` ten-stage shape and OBS-0
 `xau.offline-audit-receipt.v1` are not accepted by these v2 adapters.
@@ -68,3 +68,23 @@ The structural output schema is unchanged (`v1`); the tightened input validation
 is tracked as algorithm `1.1.0`. Run
 `tests/test_unified_input_boundary.mjs` for negative and replay regressions.
 No live providers, real market sources, migration, merge or production authority.
+
+## ARCH-5 — single admitted receipt for terminal fingerprint (draft)
+
+A structurally **rejected** OBS-0 receipt previously left an alternative
+terminal digest path: `computeDecisionChainDigest` was called directly when
+CHAIN-0 had completed, even though OBS-0 rejected the chain's safety claims.
+That defeated the intended invariant that the terminal fingerprint derives
+**only from an accepted OBS-0 offline receipt**.
+
+The integration harness now sets its terminal fingerprint using only
+`fingerprintFromAcceptedReceipt(receipt)`; it is `null` whenever the receipt
+is rejected, missing, tampered, or malformed. CHAIN-0 remains the only decision
+orchestrator. No alternate hash computation is permitted downstream of the
+receipt. UI-0/TR-0 chain claims are withheld by the same gate. A SHA-256
+fingerprint is not a source attestation, signature, authority to deploy or
+approval to trade. Algorithm version advances to `1.2.0` (schema unchanged).
+
+`tests/test_unified_receipt_gate.mjs` covers acceptance, tampering,
+receipt rejection, malformed hashes and deterministic integration replay.
+This is a negative-only integrity fix, not a positive trading capability.
