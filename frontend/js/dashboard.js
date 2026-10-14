@@ -1762,7 +1762,7 @@ let pollTimer = null;
         region: 'US', category: 'monetary_policy', ts: new Date(Date.now() - 6e5).toISOString(),
       },
       {
-        id: 'demo-2', title: '[DÉMO] Indicateur d'inflation fictif — aucune donnée officielle',
+        id: 'demo-2', title: '[DÉMO] Indicateur d’inflation fictif — aucune donnée officielle',
         news_score: null, classification: 'noise', gold_direction_impact: null,
         region: 'US', category: 'inflation', ts: new Date(Date.now() - 24e5).toISOString(),
       },
