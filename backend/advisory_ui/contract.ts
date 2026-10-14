@@ -115,9 +115,10 @@ function safeCommandCenter(claim: unknown, cutoff: string): boolean {
     || !exactFields(claim.observability, ['state', 'correlationId', 'deploymentId'])
     || claim.observability.state !== 'CONTRACT_ONLY'
     || claim.observability.correlationId !== null || claim.observability.deploymentId !== null) return false;
-  if (!Array.isArray(claim.lineage) || claim.lineage.length !== COMMAND_CENTER_LINEAGE.length) return false;
+  const lineage = claim.lineage;
+  if (!Array.isArray(lineage) || lineage.length !== COMMAND_CENTER_LINEAGE.length) return false;
   return COMMAND_CENTER_LINEAGE.every((expected, i) => {
-    const actual: unknown = claim.lineage[i];
+    const actual: unknown = lineage[i];
     return isObject(actual) && exactFields(actual, ['stage', 'schemaVersion', 'algorithmVersion'])
       && actual.stage === expected.stage && actual.schemaVersion === expected.schemaVersion
       && actual.algorithmVersion === expected.algorithmVersion;
@@ -150,7 +151,8 @@ function safeAcceptance(claim: unknown, cutoff: string): boolean {
     || !ACCEPTANCE_EVIDENCE_KEYS.every((key) => claim.evidence !== null && (claim.evidence as JsonObject)[key] === false)
     || !Array.isArray(claim.missingEvidence)
     || claim.missingEvidence.length !== ACCEPTANCE_EVIDENCE_KEYS.length) return false;
-  return ACCEPTANCE_EVIDENCE_KEYS.every((key, index) => claim.missingEvidence[index] === key);
+  const missingEvidence = claim.missingEvidence as unknown[];
+  return ACCEPTANCE_EVIDENCE_KEYS.every((key, index) => missingEvidence[index] === key);
 }
 
 /** Always non-actionable: structurally consistent claims never prove authenticity. */
