@@ -65,8 +65,9 @@ const AUTHORITY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const REVISION = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const VERSION = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-/* Millisecond precision only; greater precision may not be safely compared
- * by JS Date.parse, so nine-digit timestamps are rejected rather than rounded.
+/* Preserve EVIDENCE-0's approved-for-review millisecond input precision.
+ * Shared TIME-0 compares real instants exactly; greater precision remains
+ * disallowed here until this evidence schema is independently reviewed.
  */
 function instant(value: unknown): bigint | null {
   return parseStrictInstant(value, 3)?.epochNanoseconds ?? null;
