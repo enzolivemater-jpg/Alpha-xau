@@ -35,6 +35,7 @@ import {
 import { fetchMarketSnapshot } from '../market_engine/context.js';
 // Correctif P0-CONCURRENCY : verrou partagé, arbitré par PostgreSQL.
 import { acquireLock, releaseLock, isUniqueViolation } from '../shared/run_lock.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 /* -------------------------------------------------------------------------- */
 /*  1. ENVIRONNEMENT ET CONFIGURATION                                          */
@@ -1233,9 +1234,11 @@ export function validateCommitteeEvent(raw: unknown): EventValidation {
   const source = typeof body['source'] === 'string' ? body['source'].trim() : '';
   if (source.length === 0) errors.push('source manquante.');
 
+  // Horodatage strict à fuseau explicite : Date.parse lirait 2026-02-30
+  // comme le 2 mars et une heure sans fuseau comme une heure locale.
   const triggeredRaw = body['triggered_at'];
-  const triggeredMs = typeof triggeredRaw === 'string' ? Date.parse(triggeredRaw) : NaN;
-  if (!Number.isFinite(triggeredMs)) {
+  const triggeredMs = parseStrictTimestamp(triggeredRaw);
+  if (triggeredMs === null) {
     errors.push(`triggered_at invalide : ${JSON.stringify(triggeredRaw)}.`);
   }
 
@@ -1260,7 +1263,7 @@ export function validateCommitteeEvent(raw: unknown): EventValidation {
     }
   }
 
-  if (errors.length > 0 || !eventType) return { ok: false, errors };
+  if (errors.length > 0 || !eventType || triggeredMs === null) return { ok: false, errors };
 
   return {
     ok: true,
