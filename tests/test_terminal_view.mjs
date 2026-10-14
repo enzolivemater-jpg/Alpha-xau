@@ -93,6 +93,12 @@ assert.equal(view.market.fields.find((f) => f.field === 'dxy').statusAtCutoff, '
 assert.deepEqual(view.market.replay, { mode: 'LATEST_ONLY', reproducible: false, reason: 'INGESTION_CUTOFF_NOT_AVAILABLE' });
 assert.deepEqual(view.positioning, { evidenceState: 'EVIDENCE_READY', positioningState: 'UNAVAILABLE',
   evidenceCount: 1, sourceAuthorities: ['authority_test'], observedThrough: '2026-09-30T19:31:00.000Z' });
+assert.deepEqual(view.horizons, ['H1', 'H2', 'H3', 'H4', 'H5'].map((horizon) =>
+  ({ horizon, status: 'ABSTAIN', direction: 'UNAVAILABLE' })));
+const acceptance = await loadBackendModule('acceptance_engine/contract.ts');
+assert.deepEqual(view.acceptance, { state: 'NOT_ACCEPTED', productionReadiness: 'HOLD',
+  evidence: acceptance.ACCEPTANCE_EVIDENCE_KEYS.map((key) => ({ key, declared: false })) });
+assert.deepEqual(view.observability, { state: 'CONTRACT_ONLY', correlationId: null, deploymentId: null });
 console.log('PASS golden view copies every stage state, reason and market field');
 
 // --- Temporal class: the existing XAUUSD LIVE window, not a new threshold.
@@ -164,6 +170,8 @@ for (const [input, cutoff] of [[undefined, undefined], [{ ...golden.input, extra
   assert.ok(rv.chain.rejection.inputErrors.length > 0);
   assert.deepEqual(rv.stages, []);
   assert.deepEqual(rv.market.fields, []);
+  assert.deepEqual(rv.horizons, []);
+  assert.deepEqual(rv.acceptance.evidence, []);
   assert.deepEqual(rv.holdRationale, { firstBlockedStage: null, rootCauses: [], inheritedReasonCount: 0, unclassifiedCodes: [] });
   assert.equal(rv.temporal.classification, 'UNKNOWN');
   assert.ok(rv.capabilities.every((c) => c.status === 'BLOCKED' || c.status === 'NOT_VALIDATED'), 'rejected view operational');

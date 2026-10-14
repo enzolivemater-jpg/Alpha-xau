@@ -193,6 +193,10 @@
     v2PositioningThrough: $('v2-positioning-through'),
     v2PositioningSources: $('v2-positioning-sources'),
     v2Capabilities: $('v2-capabilities'),
+    v2Horizons: $('v2-horizons'),
+    v2Evidence: $('v2-evidence'),
+    v2AcceptanceState: $('v2-acceptance-state'),
+    v2Observability: $('v2-observability'),
     v2CapabilityCount: $('v2-capability-count'),
   };
 
@@ -1131,6 +1135,21 @@ let pollTimer = null;
 
   const V2_TEMPORAL = ['HISTORICAL', 'AT_GENERATION', 'UNKNOWN'];
 
+  /* Manifeste E2E-0 : ce qu'il faut prouver avant toute production. */
+  const V2_EVIDENCE_LABELS = {
+    restorableRecoveryPoint: 'Point de restauration vérifié',
+    productionMigrationsApplied: 'Migrations de production appliquées',
+    officialBundleLiveProven: 'Bundle officiel prouvé en direct',
+    runtimeDeploymentProven: 'Déploiement runtime prouvé',
+    providerPoliciesApproved: 'Politiques fournisseurs approuvées',
+    semanticMethodsApproved: 'Méthodes sémantiques approuvées',
+    portfolioRiskPoliciesApproved: 'Politiques portefeuille et risque approuvées',
+    alertDeliveryPolicyApproved: 'Politique de livraison des alertes approuvée',
+    goldenPathReplayProven: 'Rejeu du chemin de référence prouvé',
+    incidentRecoveryProven: 'Reprise après incident prouvée',
+    executionAuthorityApproved: 'Autorité d\'exécution approuvée',
+  };
+
   const isList = Array.isArray;
   const isText = (v) => typeof v === 'string' && v.length > 0;
   const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -1151,7 +1170,8 @@ let pollTimer = null;
     if (!chain || chain.chainState !== 'HOLD') return 'état de chaîne différent de HOLD';
     if (chain.execution !== 'FORBIDDEN') return 'exécution non interdite';
     if (chain.outcome !== 'COMPLETED' && chain.outcome !== 'REJECTED') return 'issue inconnue';
-    if (!isList(view.stages) || !isList(view.capabilities) || !view.market || !isList(view.market.fields)) {
+    if (!isList(view.stages) || !isList(view.capabilities) || !view.market || !isList(view.market.fields)
+        || !isList(view.horizons) || !view.acceptance || !isList(view.acceptance.evidence) || !view.observability) {
       return 'structure incomplète';
     }
     const why = view.holdRationale;
@@ -1161,6 +1181,10 @@ let pollTimer = null;
     }
     for (const c of view.capabilities) {
       if (!c || !has(V2_CAPABILITY_LABELS, c.status) || !isList(c.blockers)) return 'capacité non conforme';
+    }
+    for (const h of view.horizons) {
+      // Une direction n'existe qu'avec une méthode approuvée ; il n'y en a aucune.
+      if (!h || h.status !== 'ABSTAIN' || h.direction !== 'UNAVAILABLE') return 'horizon non abstenu';
     }
     for (const st of view.stages) {
       if (!st || !isText(st.stage) || !isText(st.state) || !isList(st.reasons)
@@ -1235,6 +1259,10 @@ let pollTimer = null;
     el.v2Stages.replaceChildren(node('li', 'v2__empty', '—'));
     el.v2Market.replaceChildren(v2EmptyRow(6, '—'));
     el.v2Capabilities.replaceChildren(node('li', 'v2__empty', 'Matrice indisponible sans vue V2.'));
+    el.v2Horizons.replaceChildren(node('li', 'v2__empty', '—'));
+    el.v2Evidence.replaceChildren(node('li', 'v2__empty', '—'));
+    setText(el.v2AcceptanceState, '—');
+    setText(el.v2Observability, '—');
     setText(el.v2CapabilityCount, '—');
   }
 
@@ -1360,6 +1388,8 @@ let pollTimer = null;
     setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length
       ? pos.sourceAuthorities.join(' · ') : 'N/A');
 
+    renderReadiness(view);
+
     const counts = {};
     for (const c of view.capabilities) counts[c.status] = (counts[c.status] || 0) + 1;
     setText(el.v2CapabilityCount, Object.keys(V2_CAPABILITY_LABELS)
@@ -1374,6 +1404,34 @@ let pollTimer = null;
       li.appendChild(node('p', 'cap__blockers', `Blocages : ${v2Blockers(c.blockers)}`));
       return li;
     }));
+  }
+
+  function renderReadiness(view) {
+    el.v2Horizons.replaceChildren(view.horizons.length === 0
+      ? node('li', 'v2__empty', 'Aucun horizon : entrée rejetée.')
+      : fragmentOf(view.horizons, (h) => {
+        const li = node('li', 'horizon', undefined, { 'data-status': h.status });
+        li.appendChild(node('span', 'horizon__id', h.horizon));
+        li.appendChild(node('span', 'horizon__status', h.status));
+        li.appendChild(node('span', 'horizon__dir', 'aucune direction'));
+        return li;
+      }));
+    const acc = view.acceptance;
+    const declared = acc.evidence.filter((e) => e && e.declared === true).length;
+    setText(el.v2AcceptanceState, acc.state ? `${acc.state} · ${declared}/${acc.evidence.length} DÉCLARÉES` : '—');
+    el.v2Evidence.replaceChildren(acc.evidence.length === 0
+      ? node('li', 'v2__empty', 'Aucun manifeste : entrée rejetée.')
+      : fragmentOf(acc.evidence, (e) => {
+        const ok = e && e.declared === true;
+        const li = node('li', 'evidence__item', undefined, { 'data-declared': String(ok) });
+        li.appendChild(node('span', 'evidence__mark', ok ? 'DÉCLARÉE' : 'MANQUANTE'));
+        li.appendChild(node('span', 'evidence__label', V2_EVIDENCE_LABELS[e && e.key] || String(e && e.key)));
+        return li;
+      }));
+    const obs = view.observability;
+    setText(el.v2Observability, obs.state
+      ? `${obs.state} · corrélation ${obs.correlationId || 'absente'} · déploiement ${obs.deploymentId || 'absent'}`
+      : 'N/A');
   }
 
   /* Scénario de simulation choisi ; null = l'entrée du serveur local. */

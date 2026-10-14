@@ -239,6 +239,18 @@ export interface TerminalView {
     readonly sourceAuthorities: readonly string[];
     readonly observedThrough: string | null;
   };
+  readonly horizons: readonly { readonly horizon: string; readonly status: string; readonly direction: string }[];
+  readonly acceptance: {
+    readonly state: string | null;
+    readonly productionReadiness: string | null;
+    /** As declared in the chain input; for a simulation, a declaration only. */
+    readonly evidence: readonly { readonly key: string; readonly declared: boolean }[];
+  };
+  readonly observability: {
+    readonly state: string | null;
+    readonly correlationId: string | null;
+    readonly deploymentId: string | null;
+  };
   readonly capabilities: readonly TerminalCapability[];
 }
 
@@ -390,6 +402,9 @@ export function buildTerminalView(
       stages: [],
       market: { state: null, observedThrough: null, replay: null, fields: [] },
       positioning: { evidenceState: null, positioningState: null, evidenceCount: 0, sourceAuthorities: [], observedThrough: null },
+      horizons: [],
+      acceptance: { state: null, productionReadiness: null, evidence: [] },
+      observability: { state: null, correlationId: null, deploymentId: null },
       capabilities: capabilities([], false),
     };
   }
@@ -452,6 +467,17 @@ export function buildTerminalView(
       evidenceCount: positioning.evidence.length,
       sourceAuthorities: [...positioning.sourceAuthorities],
       observedThrough: positioning.observedThrough,
+    },
+    horizons: result.stages.horizonSynthesis.scenarios.map(({ horizon, status, direction }) => ({ horizon, status, direction })),
+    acceptance: {
+      state: result.stages.acceptance.acceptanceState,
+      productionReadiness: result.stages.acceptance.productionReadiness,
+      evidence: Object.entries(result.stages.acceptance.evidence).map(([key, declared]) => ({ key, declared: declared === true })),
+    },
+    observability: {
+      state: result.stages.commandCenter.observability.state,
+      correlationId: result.stages.commandCenter.observability.correlationId,
+      deploymentId: result.stages.commandCenter.observability.deploymentId,
     },
     capabilities: capabilities(stages, true),
   };

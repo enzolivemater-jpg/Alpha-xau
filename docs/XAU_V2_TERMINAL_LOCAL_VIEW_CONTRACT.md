@@ -45,6 +45,11 @@ only v2.
   order, with their stages). Inherited (`UPSTREAM`) reasons are counted.
   Unclassified codes are listed.
 
+- `horizons` (status and direction of H1–H5), `acceptance` (state and the
+  eleven E2E-0 evidence flags *as declared in the chain input*) and
+  `observability` (state, correlation and deployment IDs). The terminal refuses
+  a horizon that does not abstain or that carries a direction.
+
 `simulated` is always `true`. The origin is `GOLDEN_FIXTURE`,
 `LOCAL_INPUT_FILE` or `LOCAL_SCENARIO`, never a production source.
 

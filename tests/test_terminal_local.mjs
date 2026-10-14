@@ -246,6 +246,18 @@ assert.equal(text(d, 'tab-chain-state'), 'HOLD');
 assert.ok(!/\bLIVE\b/.test(text(d, 'mode-v1-val') + text(d, 'mode-v2-val')));
 assert.equal(text(d, 'macro-meta'), 'DÉMO — VALEURS SYNTHÉTIQUES');
 assert.equal(text(d, 'conviction-grade'), '', 'no duplicated N/A');
+// Horizons, acceptance manifest, observability.
+const horizons = [...d.querySelectorAll('#v2-horizons .horizon')];
+assert.deepEqual(horizons.map((h) => h.querySelector('.horizon__id').textContent), ['H1', 'H2', 'H3', 'H4', 'H5']);
+assert.ok(horizons.every((h) => h.querySelector('.horizon__status').textContent === 'ABSTAIN'
+  && h.querySelector('.horizon__dir').textContent === 'aucune direction'));
+const evidence = [...d.querySelectorAll('#v2-evidence .evidence__item')];
+assert.equal(evidence.length, 11);
+assert.ok(evidence.every((e) => e.querySelector('.evidence__mark').textContent === 'MANQUANTE'));
+assert.equal(evidence[0].querySelector('.evidence__label').textContent, 'Point de restauration vérifié');
+assert.equal(evidence[10].querySelector('.evidence__label').textContent, "Autorité d'exécution approuvée");
+assert.equal(text(d, 'v2-acceptance-state'), 'NOT_ACCEPTED · 0/11 DÉCLARÉES');
+assert.equal(text(d, 'v2-observability'), 'CONTRACT_ONLY · corrélation absente · déploiement absent');
 // Local V1 panels: demo, honest.
 assert.equal(text(d, 'price-freshness'), 'DÉMO');
 assert.equal(text(d, 'execution-status'), 'AUCUNE ANALYSE');
@@ -266,6 +278,9 @@ const mutations = [
   ['unknown temporal class', (v) => { v.temporal.classification = 'LIVE'; }],
   ['rationale missing', (v) => { delete v.holdRationale; }],
   ['unknown root cause', (v) => { v.holdRationale.rootCauses[0].category = 'NONE'; }],
+  ['horizon with a direction', (v) => { v.horizons[0].direction = 'BULLISH'; }],
+  ['horizon not abstaining', (v) => { v.horizons[2].status = 'READY'; }],
+  ['acceptance missing', (v) => { delete v.acceptance; }],
   ['unknown origin', (v) => { v.origin.kind = 'PRODUCTION'; }],
   ['unknown capability status', (v) => { v.capabilities[0].status = 'LIVE'; }],
   ['unknown stage capability', (v) => { v.stages[8].capability = 'EXECUTABLE'; }],
@@ -460,6 +475,9 @@ await settle(400);
 assert.equal(text(d, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
 assert.doesNotMatch(text(d, 'v2-why-list'), /EXECUTION NOT AUTHORIZED|PROVIDER NOT AUTHORIZED/);
 assert.match(text(d, 'mode-v2-val'), /^SIMULATION — SCÉNARIO EVERYTHING-GRANTED · HISTORIQUE/);
+// Every evidence declared by the simulation, still not accepted.
+assert.equal(text(d, 'v2-acceptance-state'), 'NOT_ACCEPTED · 11/11 DÉCLARÉES');
+assert.equal(text(d, 'v2-observability'), 'CONTRACT_ONLY · corrélation corr-test-1 · déploiement deploy-test-1');
 dom.window.close();
 await close(live.server);
 console.log('PASS terminal against the real local server renders the golden HOLD chain');
