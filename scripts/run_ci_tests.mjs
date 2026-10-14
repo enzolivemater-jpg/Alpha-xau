@@ -30,6 +30,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 const TEST_FILES = [
+  'tests/test_ci_inventory.mjs',
   'tests/test_alert_contract.mjs',
   'tests/test_ai_committee_v2_contract.mjs',
   'tests/test_bea_pce_adapter.mjs',
