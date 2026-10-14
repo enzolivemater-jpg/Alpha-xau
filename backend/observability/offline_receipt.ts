@@ -49,7 +49,25 @@ export interface OfflineAuditReceipt {
   readonly lineage: readonly AuditLineageEntry[];
 }
 
-const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+/** Explicit, deterministic timestamp validator; Date.parse normalizes invalid dates. */
+function validKnowledgeCutoff(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+  const hour = Number(match[4]), minute = Number(match[5]), second = Number(match[6]);
+  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const dayCounts = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (day < 1 || day > dayCounts[month - 1]) return false;
+  const zone = match[7];
+  if (zone !== 'Z') {
+    const tzHour = Number(zone.slice(1, 3)), tzMinute = Number(zone.slice(4, 6));
+    if (tzHour > 14 || tzMinute > 59 || (tzHour === 14 && tzMinute !== 0)) return false;
+  }
+  return true;
+}
+
 const EXPECTED = [
   ['REGIME', REGIME_SCHEMA_VERSION, REGIME_ALGORITHM_VERSION, 'UNAVAILABLE'],
   ['HORIZONS', HORIZON_SCHEMA_VERSION, HORIZON_ALGORITHM_VERSION, 'ABSTAIN'],
@@ -80,7 +98,7 @@ export async function buildOfflineAuditReceipt(run: ChainDryRunResult): Promise<
     problems.add('CHAIN_STATE_INVALID');
   }
   const cutoff = run.knowledgeCutoff;
-  if (!timestampPattern.test(cutoff) || !Number.isFinite(Date.parse(cutoff))) {
+  if (!validKnowledgeCutoff(cutoff)) {
     problems.add('CUTOFF_INVALID');
   }
 
