@@ -29,3 +29,33 @@ Only after source review, forward-port uses of TIME-0 to EVIDENCE-0, hardened OB
 Future broad use by already-merged regime, pricing, positioning or acceptance gates requires separate reviewed localized PRs. A TIME-0 helper does not itself approve any upstream data, methodology, runtime, migration or action.
 
 **Human gates remain closed.**
+
+## ARCH-TIME-1 — cross-parser conformance at the offline boundary
+
+This is an **additive CI proof obligation**, not a runtime migration.
+The original `backend/shared/strict_timestamp.ts` is still used by
+the existing decision chain, while `backend/shared/temporal_contract.ts`
+is the TIME-0 validator at the unified rehearsal trust boundary.
+
+The deterministic regression in
+`tests/test_cross_temporal_boundary.mjs` verifies:
+
+- On 324 supported RFC3339 vectors (valid dates, times, nanosecond
+  fractions and accepted UTC offsets), both implementations resolve the
+  exact same epoch nanosecond count.
+- Equivalent offsets yield the same instant. Millisecond rounding can
+  never hide an observation strictly after its knowledge cutoff.
+- The unified boundary **rejects** unsupported offsets (including
+  `-00:00`), year zero, and impossible civil dates, withholding the
+  decision receipt and digest rather than accepting a legacy parser's
+  broader syntax.
+- All rejected inputs remain `HOLD / FORBIDDEN / UNVERIFIED`.
+
+This does **not** claim that two parsers are now interchangeable.
+The legacy parser deliberately accepts a broader syntax; replacing it
+inside other engines could change their public input contracts and needs
+a separate approval, version bump, replay corpus and regression review.
+Do not disable this guard to hide disagreements.
+
+No live runtime, source attestation, database migration, deployment,
+broker capability or REC-1 operation is included.
