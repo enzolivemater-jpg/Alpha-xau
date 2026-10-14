@@ -33,6 +33,22 @@ The institutional local terminal is a **separate, overlapping development stream
 - **Exact-commit GitHub check snapshot:** #123 `08caf726`, #124 `8c4e14eb`, #125 `dd4040c2`, #126 `64ba1fde`: all showed **10/10 completed successful check runs** on 2026-10-14. This is source-branch CI only; combined integration and cross-browser/UI acceptance remain unproven.
 - **Do not merge #123/#124/#125/#126, do not deploy, and do not modify main without new explicit authorization.** Retain HOLD / ABSTAIN / FORBIDDEN and the REC-1 Human Gate.
 
+## Exact cross-stream overlap evidence (file paths only)
+
+Comparison of changed **filenames** reported by GitHub on 2026-10-14 (snapshot, not a merge-conflict diagnosis):
+
+| PR pair | Shared changed paths | Review consequence |
+| --- | ---: | --- |
+| #115 vs #126 | 4 | Both touch `backend/decision_chain/dry_run.ts`, `tests/test_decision_chain_dry_run.mjs`, `package.json` and `scripts/run_ci_tests.mjs`; inspect source semantics, fixtures and CI registration in a combined branch |
+| #117 vs #126 | 4 | The same four shared paths; preserve hardened OBS-0 from #110 rather than an older #118 snapshot |
+| #121 vs #126 | 4 | The same four shared paths; TIME-0 strict cutoff code must be reconciled on the selected chain |
+| #119 vs #126 | 1 | Shared `scripts/run_ci_tests.mjs`; append every required test without losing existing registrations |
+| #123 vs #124 | 67 | Expected inherited changes in stacked PRs — **not** 67 proven Git merge conflicts |
+| #124 vs #125 | 76 | Inherited changes; review only TV-1-specific delta after TV-0 |
+| #125 vs #126 | 79 | Inherited changes; review only TV-2-specific delta after TV-1 |
+
+A shared path is a **review signal**, not proof that Git cannot merge the files. CI green on independent branch heads likewise does not establish combined integrity. An acceptable future reconciliation must run AST runtime-boundary checks, CHAIN-0 negative and spoof corpus, as-of timestamp cases, demo-news isolation, governance checks, TypeScript and the complete deterministic/PostgreSQL-ephemeral CI on the exact final tree. Do not deactivate any regression guard simply to resolve a collision.
+
 ## REC-1 frozen-reference drift (reconciliation required)
 
 The REC-1 instruction names `a4bdd6d43d048f98dc7e506537a82d4f7488d119` as its frozen main reference, but the observed main head on 2026-10-14 is `ec9cde542d6b51b68391462ee8fa474e650b389f`, **6 commits ahead**. The additional commits are the REC-1-related #97/#98/#99/#101/#102/#103 changes dated 2026-10-12. This records GitHub history, **not** proof of operator approval, production state or correctness of a restore.
