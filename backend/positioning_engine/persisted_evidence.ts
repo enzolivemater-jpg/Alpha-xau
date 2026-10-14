@@ -6,6 +6,7 @@ import {
   type PositioningEvidenceInput,
   type PositioningUnit,
 } from './evidence_contract.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const POSITIONING_PERSISTENCE_SCHEMA_VERSION = 'xau.positioning-persistence.v1' as const;
 export const POSITIONING_PERSISTENCE_ALGORITHM_VERSION = 'positioning-persisted-evidence-adapter-1.0.0' as const;
@@ -48,7 +49,6 @@ const CODE = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 const INSTRUMENT = /^[A-Z0-9][A-Z0-9_.:/-]{0,31}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const REVISION = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/;
 const UNITS: ReadonlySet<string> = new Set(['CONTRACTS', 'PERCENT', 'RATIO', 'INDEX']);
 
@@ -70,9 +70,8 @@ function civilDate(value: unknown): value is string {
 }
 
 function timestamp(value: unknown): { readonly ms: number; readonly canonical: string } | null {
-  if (typeof value !== 'string' || !TIMESTAMP.test(value) || !civilDate(value.slice(0, 10))) return null;
-  const ms = Date.parse(value);
-  if (!Number.isFinite(ms)) return null;
+  const ms = parseStrictTimestamp(value);
+  if (ms === null) return null;
   return { ms, canonical: new Date(ms).toISOString() };
 }
 
