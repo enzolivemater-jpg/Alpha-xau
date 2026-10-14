@@ -47,7 +47,7 @@ belongs to only one module and does not imply runtime approval.
 | OBS-0 v2 | `xau.offline-audit-receipt.v2` | `canonical-chain-hold-receipt-2.0.0` |
 | UI-0 | `xau.institutional-advisory-ui.v1` | `institutional-offline-hold-projection-1.0.0` |
 | TR-0 | `xau.offline-advisory-transport.v1` | `offline-canonical-readonly-transport-1.0.0` |
-| Combined harness | `xau.unified-offline-rehearsal.v1` | `unified-readonly-cross-contract-1.0.0` |
+| Combined harness | `xau.unified-offline-rehearsal.v1` | `unified-readonly-cross-contract-1.0.1` |
 
 The old CHAIN-0 `runDecisionChainDryRun(input)` ten-stage shape and OBS-0
 `xau.offline-audit-receipt.v1` are not accepted by these v2 adapters.
@@ -84,3 +84,22 @@ to untrusted callers.
 This change is non-mergeable by default and requires a separate human gate.
 
 > Draft successor security patch EVIDENCE-0 uses a 256-claim atomic limit and own-data descriptors. See `docs/XAU_V2_EVIDENCE_0_STRUCTURAL_MANIFEST.md`; no source attestation or runtime activation follows.
+
+## Audit-failure containment patch (post CI discovery)
+
+The cross-parser CI on the first ARCH-TIME-1 commit exposed an actual
+semantic defect: an invalid TIME-0 offset such as `+14:01` was converted
+to an empty string and passed to CHAIN-0. CHAIN-0 returned `COMPLETED`
+with abstentions, and the offline integration was able to compute a
+digest even when its audit receipt rejected the invalid cutoff.
+
+The integration now **rejects invalid TIME-0 cutoffs before invoking
+CHAIN-0**, with no stages evaluated, no receipt and no digest. In
+addition, even a `COMPLETED` chain result cannot be projected as
+completed if OBS-0 rejects its receipt: terminal output becomes
+`REJECTED` and the digest stays null. The positive HOLD path still
+uses exactly one canonical twelve-stage chain.
+
+Algorithm identity bumped to `unified-readonly-cross-contract-1.0.1`.
+The exact-head regression CI must pass before this patch is reviewable;
+the first failing CI remains an important archived detection proof.
