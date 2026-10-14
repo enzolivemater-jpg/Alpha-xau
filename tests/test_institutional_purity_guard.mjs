@@ -28,6 +28,7 @@ const WHEN_PRESENT = [
   'backend/observability/offline_receipt.ts',
   'backend/observability/evidence_manifest.ts',
   'backend/advisory_ui/contract.ts',
+  'backend/advisory_ui/transport_contract.ts',
 ];
 // The optional files are stacked changes in separate PRs, not assumed to
 // exist on main. Once merged, this guard automatically includes them.
