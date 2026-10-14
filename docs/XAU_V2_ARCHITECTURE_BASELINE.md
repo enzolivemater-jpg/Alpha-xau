@@ -106,3 +106,23 @@ Les dépendances précises et versions gelées sont définies par chaque `contra
 - Garder les tests existants ; étendre le test de topologie lorsque l'on ajoute **volontairement** une dépendance inter-moteurs. Un échec est un signal de revue, pas une justification pour désactiver la garde.
 - Avant toute activité de production, relire la tête actuelle de `main`, PR ouvertes, CI, état Supabase, migrations et Human Gates. L'instantané de ce document n'est pas un état production à perpétuité.
 - Conserver `main` et REC-1 gelés pour cette intervention ; le seul artefact GitHub admissible ici est une PR de préparation **non fusionnée**.
+
+## 7. ARCH-1B — Legacy transitive runtime boundary (supplement)
+
+The initial ARCH-1 guard checked only the **direct** import edges of the legacy
+Worker, ingestion entrypoint and historical Committee. ARCH-1B adds a
+TypeScript-AST-based, transitive import/re-export/require/dynamic-import
+reachability check from all three entrypoints. No path may reach the ten V2
+decision-only contracts or the proposed CHAIN-0, OBS-0, EVIDENCE-0, UI-0,
+or TR-0 roots. Missing sources and non-literal dynamic imports are rejected
+rather than silently assumed safe.
+
+Shared market-data ingestion components are not classified as V2 decision
+authority merely because a data adapter is reused. A deliberate future
+production attachment requires a new reviewed integration gate and an explicit
+change to the boundary tests; disabling the test to mask a dependency would
+be a regression.
+
+This is an **offline static guard**, not proof of a deployed service or
+sandbox isolation. It introduces no runtime import, provider call,
+database operation, migration, alert, broker capability or deployment.
