@@ -2004,8 +2004,11 @@ export function isProviderCircuitOpen(
   const anthropic = (latest.providers as { anthropic?: { failure_kind?: string } } | null)?.anthropic;
   const kind = anthropic?.failure_kind;
   if (kind !== 'ACCOUNT_BLOCKED' && kind !== 'TEMPORARILY_UNAVAILABLE') return false;
-  const ageMs = nowMs - Date.parse(latest.started_at);
-  return ageMs < CIRCUIT_COOLDOWN_MS[kind];
+  // Panne connue mais horodatage illisible : la fin de la fenêtre de
+  // recharge est inconnue, le circuit reste OUVERT (NaN < x est faux).
+  const startedMs = Date.parse(latest.started_at);
+  if (!Number.isFinite(startedMs)) return true;
+  return nowMs - startedMs < CIRCUIT_COOLDOWN_MS[kind];
 }
 
 /**
