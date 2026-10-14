@@ -20,6 +20,25 @@ At this snapshot, main = ec9cde542d6b51b68391462ee8fa474e650b389f. All architect
 | Methodology research gates | #122 METH-0 | Documentation and tests only. Eight stages remain UNAPPROVED; no invented signal, threshold, provider or risk policy |
 | Combined CI experiments | #115, #117, #121 | NEVER MERGE these composite branches; they contain overlapping source histories |
 
+## Terminal CHAIN-0 / TV-0 / TV-1 / TV-2: stacked architecture review (2026-10-14)
+
+The institutional local terminal is a **separate, overlapping development stream**, not a deployed runtime or a second approved decision engine. The source PR chain is:
+
+`#123 CHAIN-0 → #124 TV-0 → #125 TV-1 → #126 TV-2`.
+
+- **#123** inherits development history from #104 (inactive agent proposal). Compare the actual decision-chain dry-run with #106/#111 and reconcile source contracts **before** selecting any implementation. Never retain competing decision-chain orchestrators silently.
+- **#124** depends on #123; **#125** depends on #124; **#126** depends on #125. Their PR diffs target `main` to run Quality Gate but include inherited changes; green CI is **not** permission to merge independently or in bulk.
+- Reconcile `backend/decision_chain/dry_run.ts`, shared market/as-of contracts, frontend files, and `scripts/run_ci_tests.mjs` against #105/#109/#113 architecture guards, #110 OBS hardening, #112 EVIDENCE, #116 UI, #119 TR, #120 TIME and #121 temporal integration before combining. **Forward-port reviewed deltas; do not overwrite newer hardened files with older snapshots.**
+- #126 can explain HOLD, blocked gates, timestamps and provenance in the **LOCAL SIMULATION**; it is not evidence of live prices, authentic news, provider use, approved trading methods, broker connectivity or a production approval. Demo market panels and fictional directional news must remain explicitly labeled as simulated and never become action authority.
+- **Exact-commit GitHub check snapshot:** #123 `08caf726`, #124 `8c4e14eb`, #125 `dd4040c2`, #126 `64ba1fde`: all showed **10/10 completed successful check runs** on 2026-10-14. This is source-branch CI only; combined integration and cross-browser/UI acceptance remain unproven.
+- **Do not merge #123/#124/#125/#126, do not deploy, and do not modify main without new explicit authorization.** Retain HOLD / ABSTAIN / FORBIDDEN and the REC-1 Human Gate.
+
+## REC-1 frozen-reference drift (reconciliation required)
+
+The REC-1 instruction names `a4bdd6d43d048f98dc7e506537a82d4f7488d119` as its frozen main reference, but the observed main head on 2026-10-14 is `ec9cde542d6b51b68391462ee8fa474e650b389f`, **6 commits ahead**. The additional commits are the REC-1-related #97/#98/#99/#101/#102/#103 changes dated 2026-10-12. This records GitHub history, **not** proof of operator approval, production state or correctness of a restore.
+
+Do not silently reinterpret the frozen reference as the later commit, reset `main`, or use this snapshot to authorize an operation. Reconcile the six GitHub commits against the authorized recovery scope and explicit Human Gate before any subsequent merge, migration, deploy or restore.
+
 Other unrelated open PRs (#96, #100) remain outside this approval scope.
 
 ## Discovered source conflict — mandatory future regression
