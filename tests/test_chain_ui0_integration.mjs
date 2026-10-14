@@ -19,6 +19,7 @@ const sourceFiles = [
   'risk_engine/final_action_contract.ts', 'action_engine/contract.ts',
   'command_center/contract.ts', 'alert_engine/contract.ts',
   'acceptance_engine/contract.ts', 'decision_chain/dry_run.ts',
+  'shared/temporal_contract.ts',
   'observability/offline_receipt.ts', 'advisory_ui/contract.ts',
   'advisory_ui/transport_contract.ts',
 ];
