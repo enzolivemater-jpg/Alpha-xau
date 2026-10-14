@@ -90,6 +90,17 @@ for (const [change, expected] of [
   [(v) => { v.stages.finalActionRisk.algorithmVersion = 'unknown'; }, 'STAGE_IDENTITY_INVALID'],
   [(v) => { v.stages.acceptance.reasonCodes = ['DUPLICATE', 'DUPLICATE']; }, 'REASON_CODES_INVALID'],
   [(v) => { v.systemState = 'READY'; }, 'CHAIN_STATE_INVALID'],
+  [(v) => { v.stages.horizons.scenarios[0].horizon = 'H5'; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.horizons.scenarios[2].confidence = 0.9; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.committee.request = { prompt: 'forced' }; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.prePm.riskVerdict = 'APPROVED'; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.finalActionRisk.maximumLoss = 500; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.action.recommendation = 'BUY'; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.commandCenter.observability.correlationId = 'fake-runtime-id'; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.alerts.recipient = 'someone@example.invalid'; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.alerts.channel = 'EMAIL'; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.acceptance.evidence.executionAuthorityApproved = true; }, 'UNSAFE_OUTPUT_PRESENT'],
+  [(v) => { v.stages.acceptance.acceptanceRun = { success: true }; }, 'UNSAFE_OUTPUT_PRESENT'],
 ]) {
   const clone = structuredClone(chain);
   change(clone);
@@ -99,7 +110,6 @@ for (const [change, expected] of [
   assert.ok(rejected.problems.includes(expected), expected);
   assert.equal(rejected.execution, 'FORBIDDEN');
 }
-
 // Regression: Date.parse normalizes nonexistent days. No valid receipt for them.
 for (const bad of [
   '2026-02-30T15:00:00.000Z',
