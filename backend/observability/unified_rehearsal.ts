@@ -6,13 +6,11 @@
  * This is NOT a second decision engine or a production endpoint.
  * No broker, provider, HTTP, database, wall clock, I/O or execution.
  */
-import {
-  evaluateDecisionChain, computeDecisionChainDigest,
-} from '../decision_chain/dry_run.js';
+import { evaluateDecisionChain } from '../decision_chain/dry_run.js';
 import {
   buildTerminalView, type TerminalDataOrigin,
 } from '../decision_chain/terminal_view.js';
-import { buildOfflineAuditReceipt } from '../observability/offline_receipt.js';
+import { buildOfflineAuditReceipt, type OfflineAuditReceipt } from '../observability/offline_receipt.js';
 import { buildEvidenceEligibilityManifest } from '../observability/evidence_manifest.js';
 import { buildInstitutionalAdvisoryUi } from '../advisory_ui/contract.js';
 import {
@@ -21,7 +19,7 @@ import {
 import { compareStrictInstants, isStrictTimestamp } from '../shared/temporal_contract.js';
 
 export const UNIFIED_REHEARSAL_SCHEMA_VERSION = 'xau.unified-offline-rehearsal.v1' as const;
-export const UNIFIED_REHEARSAL_ALGORITHM_VERSION = 'unified-readonly-cross-contract-1.1.0' as const;
+export const UNIFIED_REHEARSAL_ALGORITHM_VERSION = 'unified-readonly-cross-contract-1.2.0' as const;
 
 export interface UnifiedOfflineInput {
   readonly chainInput: unknown;
@@ -101,6 +99,27 @@ function normalizeEnvelope(raw: unknown): UnifiedOfflineInput {
   }
 }
 
+/**
+ * One audit authority within this OFFLINE experiment: the reviewed OBS-0
+ * receipt. A rejected, absent or malformed receipt must never be replaced
+ * with a fresh digest directly from CHAIN-0. A digest is NOT a signature.
+ */
+export function fingerprintFromAcceptedReceipt(receipt: OfflineAuditReceipt | null): string | null {
+  if (receipt === null
+      || receipt.verification !== 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
+      || receipt.mode !== 'OFFLINE_ONLY'
+      || receipt.authorization !== 'NONE'
+      || receipt.provenance !== 'UNVERIFIED'
+      || receipt.execution !== 'FORBIDDEN'
+      || !Array.isArray(receipt.problems)
+      || receipt.problems.length !== 0
+      || typeof receipt.fingerprint !== 'string'
+      || !/^[0-9a-f]{64}$/.test(receipt.fingerprint)) {
+    return null;
+  }
+  return receipt.fingerprint;
+}
+
 /** Returns only an advisory, structurally unverified HOLD evaluation. */
 export async function runUnifiedOfflineRehearsal(raw: unknown) {
   const input = normalizeEnvelope(raw);
@@ -112,17 +131,13 @@ export async function runUnifiedOfflineRehearsal(raw: unknown) {
   const receipt = outcome.kind === 'COMPLETED'
     ? await buildOfflineAuditReceipt(outcome.result)
     : null;
-  const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
-    ? receipt.fingerprint
-    : outcome.kind === 'COMPLETED'
-      ? await computeDecisionChainDigest(outcome.result)
-      : null;
+  const digest = fingerprintFromAcceptedReceipt(receipt);
   const terminal = buildTerminalView(outcome, digest, input.origin, input.generatedAt);
   const evidence = buildEvidenceEligibilityManifest(input.evidenceClaims, cutoff);
 
   // On ANY rejection or failed receipt, no upstream claim is promoted to UI.
   const claims = outcome.kind === 'COMPLETED'
-    && receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
+    && digest !== null
     ? {
         commandCenter: outcome.result.stages.commandCenter,
         alerts: outcome.result.stages.alert,
