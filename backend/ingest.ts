@@ -42,6 +42,7 @@
  */
 
 import { acquireLock, releaseLock } from './shared/run_lock.js';
+import { parseStrictTimestamp } from './shared/strict_timestamp.js';
 // XAU-V2-OPS-010 : appel direct in-process du comité, plus de self-fetch
 // HTTP (voir postNotification ci-dessous et l'audit XAU-V2-OPS-007).
 import { handleCommitteeEvent, type CommitteeRuntimeEnv } from './ai_engine/committee_orchestrator.js';
@@ -617,14 +618,19 @@ function cleanText(raw: string | null | undefined, maxLength: number): string | 
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&#(\d+);/g, (_m, code: string) => {
+      // Valeurs scalaires Unicode uniquement : une demi-paire de substitution
+      // isolée (U+D800-U+DFFF) donnerait un JSON que PostgreSQL rejette.
       const n = Number(code);
-      return n > 0 && n < 0x10ffff ? String.fromCodePoint(n) : ' ';
+      return n > 0 && n <= 0x10ffff && (n < 0xd800 || n > 0xdfff) ? String.fromCodePoint(n) : ' ';
     })
     .replace(/&[a-z]+;|&#x[0-9a-f]+;/gi, (m) => HTML_ENTITIES[m.toLowerCase()] ?? ' ')
     // Marqueur de troncature propre à NewsAPI : "… [+2317 chars]".
     .replace(/\[\+\d+\s*chars?\]/gi, ' ')
     // Caractères de contrôle et zero-width.
     .replace(/[\u0000-\u001f\u007f\u200b-\u200f\ufeff]/g, ' ')
+    // Demi-paire de substitution isolée (déjà présente dans le JSON source) :
+    // un seul article la portant ferait échouer l'insertion du lot entier.
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -663,8 +669,10 @@ function parseTimestamp(value: string | null | undefined): Date | null {
     ? `${gdelt[1]}-${gdelt[2]}-${gdelt[3]}T${gdelt[4]}:${gdelt[5]}:${gdelt[6]}Z`
     : value;
 
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return null;
+  // Contrôle calendaire strict : Date.parse lirait 2026-02-30 comme le
+  // 2 mars, et une heure sans fuseau comme une heure locale.
+  const ms = parseStrictTimestamp(iso);
+  if (ms === null) return null;
 
   const now = Date.now();
   // Une date future traduit une horloge fournisseur désynchronisée :
@@ -1495,17 +1503,22 @@ function scoreArticle(
  * indépendantes, la base restant l'autorité finale.
  *
  * En cas de doublon, l'exemplaire retenu est celui de la source la plus
- * fiable, puis le plus complet.
+ * fiable, puis le plus complet. Un titre trop court pour une clé fiable est
+ * écarté et compté dans `discarded` : fetched = unique + duplicates + discarded.
  */
 function deduplicate(
   articles: readonly NormalizedArticle[],
   registry: SourceRegistry,
-): { unique: NormalizedArticle[]; duplicates: number } {
+): { unique: NormalizedArticle[]; duplicates: number; discarded: number } {
   const best = new Map<string, NormalizedArticle>();
   let duplicates = 0;
+  let discarded = 0;
 
   for (const article of articles) {
-    if (article.dedupKey.length < 8) continue; // Titre trop court pour être fiable.
+    if (article.dedupKey.length < 8) { // Titre trop court pour être fiable.
+      discarded++;
+      continue;
+    }
 
     const existing = best.get(article.dedupKey);
     if (!existing) {
@@ -1522,7 +1535,7 @@ function deduplicate(
     if (currentScore > existingScore) best.set(article.dedupKey, article);
   }
 
-  return { unique: [...best.values()], duplicates };
+  return { unique: [...best.values()], duplicates, discarded };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2001,8 +2014,11 @@ export function isProviderCircuitOpen(
   const anthropic = (latest.providers as { anthropic?: { failure_kind?: string } } | null)?.anthropic;
   const kind = anthropic?.failure_kind;
   if (kind !== 'ACCOUNT_BLOCKED' && kind !== 'TEMPORARILY_UNAVAILABLE') return false;
-  const ageMs = nowMs - Date.parse(latest.started_at);
-  return ageMs < CIRCUIT_COOLDOWN_MS[kind];
+  // Panne connue mais horodatage illisible : la fin de la fenêtre de
+  // recharge est inconnue, le circuit reste OUVERT (NaN < x est faux).
+  const startedMs = Date.parse(latest.started_at);
+  if (!Number.isFinite(startedMs)) return true;
+  return nowMs - startedMs < CIRCUIT_COOLDOWN_MS[kind];
 }
 
 /**
@@ -2639,7 +2655,7 @@ export async function runIngestion(
     if (!ofacRaw.ok) errors.push(`ofac: ${providers.ofac.error}`);
 
     const fetched = gdelt.articles.length + newsapi.articles.length;
-    const { unique, duplicates } = deduplicate([...gdelt.articles, ...newsapi.articles], registry);
+    const { unique, duplicates, discarded } = deduplicate([...gdelt.articles, ...newsapi.articles], registry);
 
     // Scoring. Les articles non pertinents pour XAUUSD sont rejetés ici.
     const scored: ScoredEvent[] = [];
@@ -2647,10 +2663,11 @@ export async function runIngestion(
       const event = scoreArticle(article, registry, runId);
       if (event) scored.push(event);
     }
-    const rejected = unique.length - scored.length;
+    // Un titre écarté avant scoring est un article rejeté, pas un article perdu.
+    const rejected = unique.length - scored.length + discarded;
 
     log.info('Scoring terminé', {
-      fetched, duplicates, rejected, scored: scored.length,
+      fetched, duplicates, rejected, discarded, scored: scored.length,
     });
 
     // Persistance par lots : une insertion unique de 300 lignes dépasserait
