@@ -113,4 +113,36 @@ const forgery = build([{ ...good, producerVersion: 'PRODUCTION_APPROVED' }], cut
 assert.equal(forgery.evidenceState, 'UNVERIFIED');
 assert.equal(forgery.authorization, 'NONE');
 assert.doesNotMatch(source, /\bfetch\(|process\.env|Date\.now\(|Math\.random\(|new WebSocket\(/);
+
+// Security regression: bounded, atomic batches and descriptor-only claim copy.
+// Even 256 exact duplicates are bounded and deterministically deduplicated.
+const limit = build(Array.from({ length: 256 }, () => good), cutoff);
+assert.equal(limit.structuralStatus, 'COHERENT');
+assert.equal(limit.claims.length, 1);
+const oversized = build(Array.from({ length: 257 }, () => good), cutoff);
+assert.equal(oversized.structuralStatus, 'REJECTED');
+assert.deepEqual(oversized.claims, []);
+assert.ok(oversized.reasonCodes.includes('INVALID_CLAIM_SHAPE'));
+assert.equal(oversized.authorization, 'NONE');
+
+let getterCalls = 0;
+const withGetter = { ...good };
+Object.defineProperty(withGetter, 'publishedAt', {
+  enumerable: true,
+  get() { getterCalls++; throw Error('claim getter must not run'); },
+});
+const accessorDenied = build([withGetter], cutoff);
+assert.equal(getterCalls, 0, 'must reject accessors without evaluating them');
+assert.equal(accessorDenied.structuralStatus, 'REJECTED');
+assert.deepEqual(accessorDenied.claims, []);
+assert.ok(accessorDenied.reasonCodes.includes('INVALID_CLAIM_SHAPE'));
+
+const trap = new Proxy({}, {
+  ownKeys() { throw Error('malformed claim proxy'); },
+});
+const proxyDenied = build([trap], cutoff);
+assert.equal(proxyDenied.structuralStatus, 'REJECTED');
+assert.deepEqual(proxyDenied.claims, []);
+assert.equal(proxyDenied.evidenceState, 'UNVERIFIED');
+
 console.log(`PASS EVIDENCE-0: ${checks.length} rejection cases + deterministic ordering, no admission`);
