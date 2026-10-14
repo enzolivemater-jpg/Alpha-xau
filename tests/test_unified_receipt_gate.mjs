@@ -19,7 +19,7 @@ const outcome = chain.evaluateDecisionChain(fixture.input, fixture.knowledgeCuto
 assert.equal(outcome.kind, 'COMPLETED');
 const acceptedReceipt = await obs.buildOfflineAuditReceipt(outcome.result);
 assert.equal(acceptedReceipt.verification, 'STRUCTURALLY_VALID_HOLD_UNVERIFIED');
-assert.match(acceptedReceipt.fingerprint, /^[0-9a-f]{64}$/);
+assert.match(acceptedReceipt.fingerprint, /^sha256:[0-9a-f]{64}$/);
 assert.equal(unified.fingerprintFromAcceptedReceipt(acceptedReceipt), acceptedReceipt.fingerprint);
 
 const forged = structuredClone(outcome.result);
