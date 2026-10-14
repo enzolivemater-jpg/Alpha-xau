@@ -23,3 +23,20 @@ The calendar inconsistency between OBS-0 `Date.parse` normalization and strict U
 ## Compatibility correction discovered by composite CI
 
 A naive whole-file copy of the earlier OBS-0 calendar patch removed later OBS-0 spoof defenses. The combined CI correctly rejected this regression. The final experiment therefore uses the fully hardened OBS-0 implementation from PR #115 and applies **only** the strict calendar predicate from PR #118, preserving the full prior adversarial receipt corpus. Any final integration must follow this same forward-port/rebase sequence rather than replacing the newer observability module with an old branch snapshot.
+
+## TR-0 extension (draft PR #119)
+
+A further independent **offline** transport adapter has been introduced downstream
+of UI-0. A reproducible, versioned, canonical and size-limited JSON string is
+built from actual CHAIN-0 CC/AL/E2E outputs via UI-0. The reader accepts only
+`STRUCTURALLY_VALID_UNVERIFIED` or refuses an unsafe envelope, never
+`LIVE`, `READY`, `AUTHORIZED` or an executable ticket.
+
+The integration now verifies the canonical packet, source version and
+unconditional refusal of a forged order, plus safe representation of an invalid
+calendar cutoff. ARCH-2 and ARCH-3 also include the optional TR-0 module in
+their pure import checks. This is a rehearsal, not an activated web transport.
+
+Review UI-0 (#116) before TR-0 (#119); the composite branch remains a
+**NO-MERGE experiment**. No HTTP route, runtime, storage, provider, broker,
+migration, REC-1 action, production service or deploy was introduced.
