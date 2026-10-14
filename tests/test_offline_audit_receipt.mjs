@@ -105,6 +105,7 @@ for (const bad of [
   '2026-02-30T15:00:00.000Z',
   '2026-04-31T15:00:00.000Z',
   '2027-02-29T15:00:00.000Z',
+  '1900-02-29T15:00:00.000Z',
   '2026-13-01T15:00:00.000Z',
   '2026-10-13T24:00:00.000Z',
   '2026-10-13T15:60:00.000Z',
@@ -123,7 +124,7 @@ for (const bad of [
   assert.equal(negative.fingerprint, null, bad);
   assert.ok(negative.problems.includes('CUTOFF_INVALID'), bad);
 }
-for (const good of ['2028-02-29T12:00:00Z', '2028-02-29T12:00:00+02:00']) {
+for (const good of ['2028-02-29T12:00:00Z', '2028-02-29T12:00:00+02:00', '2000-02-29T12:00:00Z']) {
   const modified = structuredClone(input);
   modified.knowledgeCutoff = good;
   for (const key of ['eventImpact', 'goldTransmission', 'marketPricing', 'positioning']) {
