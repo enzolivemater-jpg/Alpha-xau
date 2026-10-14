@@ -20,6 +20,37 @@ import {
 } from '../advisory_ui/transport_contract.js';
 import { isStrictTimestamp } from '../shared/temporal_contract.js';
 
+/**
+ * JSON/JS callers are not trusted merely because they satisfy a TS interface.
+ * Read own data descriptors without running accessors; never allow a caller to
+ * label a fixture as a live feed or inject unbounded display metadata.
+ * This label is an unverified local claim, not evidence provenance.
+ */
+function safeLocalOrigin(raw: unknown): {
+  readonly kind: TerminalDataOrigin;
+  readonly label: string;
+} {
+  const fallback = { kind: 'LOCAL_SCENARIO', label: 'SIMULATED:unverified-local-origin' } as const;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return fallback;
+  let fields: PropertyDescriptorMap;
+  try {
+    fields = Object.getOwnPropertyDescriptors(raw);
+  } catch {
+    return fallback;
+  }
+  if (Reflect.ownKeys(fields).length !== 2 || !fields.kind || !fields.label
+      || !Object.hasOwn(fields.kind, 'value') || !Object.hasOwn(fields.label, 'value')) {
+    return fallback;
+  }
+  const kind: unknown = fields.kind.value;
+  const label: unknown = fields.label.value;
+  if ((kind !== 'GOLDEN_FIXTURE' && kind !== 'LOCAL_INPUT_FILE' && kind !== 'LOCAL_SCENARIO')
+      || typeof label !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(label)) {
+    return fallback;
+  }
+  return { kind, label: `SIMULATED:${label}` };
+}
+
 export const UNIFIED_REHEARSAL_SCHEMA_VERSION = 'xau.unified-offline-rehearsal.v1' as const;
 export const UNIFIED_REHEARSAL_ALGORITHM_VERSION = 'unified-readonly-cross-contract-1.0.0' as const;
 
@@ -48,7 +79,10 @@ export async function runUnifiedOfflineRehearsal(raw: UnifiedOfflineInput) {
     : outcome.kind === 'COMPLETED'
       ? await computeDecisionChainDigest(outcome.result)
       : null;
-  const terminal = buildTerminalView(outcome, digest, raw.origin, raw.generatedAt);
+  const terminal = buildTerminalView(
+    outcome, digest, safeLocalOrigin(raw.origin),
+    isStrictTimestamp(raw.generatedAt) ? raw.generatedAt : 'INVALID_LOCAL_TIMESTAMP',
+  );
   const evidence = buildEvidenceEligibilityManifest(raw.evidenceClaims, cutoff);
 
   // On ANY rejection or failed receipt, no upstream claim is promoted to UI.
