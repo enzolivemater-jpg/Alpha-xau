@@ -38,6 +38,7 @@ const OPTIONAL = [
   'backend/observability/offline_receipt.ts',
   'backend/observability/evidence_manifest.ts',
   'backend/advisory_ui/contract.ts',
+  'backend/advisory_ui/transport_contract.ts',
 ];
 const activeOptional = OPTIONAL.filter((file) => existsSync(path.join(ROOT, file)));
 const ALLOW = new Set([...CORE_ALLOWLIST, ...activeOptional]);
