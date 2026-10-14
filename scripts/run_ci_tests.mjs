@@ -51,6 +51,7 @@ const TEST_FILES = [
   'tests/test_committee_validation.mjs',
   'tests/test_command_center_contract.mjs',
   'tests/test_completion_board_and_recovery_authorization.mjs',
+  'tests/test_contract_version_registry.mjs',
   'tests/test_decision_chain_contract.mjs',
   'tests/test_decision_chain_dry_run.mjs',
   'tests/test_decision_chain_scenarios.mjs',
