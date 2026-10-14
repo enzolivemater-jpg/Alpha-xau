@@ -296,7 +296,8 @@ body {
   flex: 1;
   padding: var(--sp-3);
   min-height: 0;
-  overflow: hidden;
+  /* Jamais de contenu masqué : un panneau trop court défile. */
+  overflow: auto;
 }
 
 .panel__body--scroll { overflow-y: auto; padding: 0; }
@@ -1132,7 +1133,8 @@ tr[data-status='UNAVAILABLE'] .v2__state-cell { color: var(--down); }
 
   .readout__item { grid-template-columns: 82px 1fr; }
   .scen__levels { grid-template-columns: repeat(2, 1fr); }
-  .footbar { gap: var(--sp-3); }
+  .footbar { gap: var(--sp-1) var(--sp-3); flex-wrap: wrap; flex-basis: auto; padding: var(--sp-1) var(--sp-3); }
+  .footbar__item--right { margin-left: 0; }
 }
 
 /* --------------------------------------------------------------------------
