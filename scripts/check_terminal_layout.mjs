@@ -4,7 +4,10 @@
  * CI, which has no browser). For each workspace and viewport it reports:
  * - elements whose content is clipped by overflow hidden/clip, or that
  *   overflow the viewport outside a horizontal scroller;
- * - visible text below WCAG AA contrast (4.5:1, or 3:1 for large text).
+ * - visible text below WCAG AA contrast (4.5:1, or 3:1 for large text);
+ * - below 900 px, any vertical scroller other than the page itself.
+ * The chain workspace is also checked with every section expanded, and on a
+ * degraded and a rejected scenario.
  *
  *   XAU_PLAYWRIGHT=/path/to/node_modules/playwright-core \
  *   XAU_CHROMIUM=/path/to/chromium node scripts/check_terminal_layout.mjs
@@ -17,7 +20,13 @@ import { pathToFileURL } from 'node:url';
 import { createTerminalServer } from './serve_terminal_local.mjs';
 
 const VIEWPORTS = [[320, 640], [390, 844], [1024, 768], [1280, 720], [1440, 900]];
-const WORKSPACES = ['marche', 'chaine'];
+const VARIANTS = [
+  { name: 'marche', hash: 'marche' },
+  { name: 'chaine', hash: 'chaine' },
+  { name: 'chaine déplié', hash: 'chaine', expand: true },
+  { name: 'chaine market-unavailable déplié', hash: 'chaine', scenario: 'market-unavailable', expand: true },
+  { name: 'chaine invalid-input', hash: 'chaine', scenario: 'invalid-input' },
+];
 
 /** Runs in the page: clipped and overflowing elements. */
 function findClipping() {
@@ -41,6 +50,20 @@ function findClipping() {
     }
   }
   return [...new Set(out)];
+}
+
+/** Runs in the page: vertical scrollers other than the page (narrow screens). */
+function findNestedScroll() {
+  if (window.innerWidth > 900) return [];
+  const out = [];
+  for (const e of document.querySelectorAll('body *')) {
+    if (!e.getClientRects().length) continue;
+    const o = getComputedStyle(e).overflowY;
+    if (['auto', 'scroll'].includes(o) && e.scrollHeight > e.clientHeight + 1) {
+      out.push(`nested scroll ${e.tagName.toLowerCase()}.${e.className}#${e.id}`);
+    }
+  }
+  return out;
 }
 
 /** Runs in the page: text below WCAG AA. */
@@ -94,13 +117,21 @@ async function main() {
   let problems = 0;
   try {
     for (const [width, height] of VIEWPORTS) {
-      for (const workspace of WORKSPACES) {
+      for (const variant of VARIANTS) {
         const page = await browser.newPage({ viewport: { width, height } });
-        await page.goto(`${base}#${workspace}`, { waitUntil: 'load' });
+        await page.goto(`${base}#${variant.hash}`, { waitUntil: 'load' });
         await page.waitForTimeout(800);
-        const found = [...await page.evaluate(findClipping), ...await page.evaluate(findLowContrast)];
+        if (variant.scenario) {
+          await page.selectOption('#v2-scenario', variant.scenario);
+          await page.waitForTimeout(500);
+        }
+        if (variant.expand) {
+          await page.evaluate(() => { for (const box of document.querySelectorAll('#ws-chain details')) box.open = true; });
+        }
+        const found = [...await page.evaluate(findClipping), ...await page.evaluate(findLowContrast),
+          ...await page.evaluate(findNestedScroll)];
         problems += found.length;
-        process.stdout.write(`${found.length ? 'FAIL' : 'OK  '} ${workspace} ${width}x${height}${found.length ? `\n  ${found.join('\n  ')}` : ''}\n`);
+        process.stdout.write(`${found.length ? 'FAIL' : 'OK  '} ${variant.name} ${width}x${height}${found.length ? `\n  ${found.join('\n  ')}` : ''}\n`);
         await page.close();
       }
     }
