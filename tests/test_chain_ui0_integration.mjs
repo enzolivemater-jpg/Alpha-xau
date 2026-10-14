@@ -101,4 +101,22 @@ const narrowView = ui(uiInput(compromised.stages), compromised.knowledgeCutoff);
 assert.equal(narrowView.provenance, 'UNVERIFIED');
 assert.equal(narrowView.deployment, 'NOT_CONNECTED');
 assert.equal(narrowView.execution, 'FORBIDDEN');
+
+// Joint cutoff rejection: OBS must not fingerprint a normalized February 30,
+// and UI must not display its alleged as-of date as a valid calendar claim.
+const invalid = structuredClone(initialInput);
+invalid.knowledgeCutoff = '2026-02-30T15:00:00.000Z';
+for (const key of ['eventImpact', 'goldTransmission', 'marketPricing', 'positioning']) {
+  invalid[key].knowledgeCutoff = invalid.knowledgeCutoff;
+}
+const invalidChain = run(invalid);
+const invalidReceipt = await receipt(invalidChain);
+const invalidView = ui(uiInput(invalidChain.stages), invalidChain.knowledgeCutoff);
+assert.equal(invalidReceipt.verification, 'REJECTED');
+assert.ok(invalidReceipt.problems.includes('CUTOFF_INVALID'));
+assert.equal(invalidReceipt.fingerprint, null);
+assert.equal(invalidView.claimedKnowledgeCutoff, null);
+assert.ok(invalidView.reasonCodes.includes('INVALID_CLAIMED_CUTOFF'));
+assert.equal(invalidView.execution, 'FORBIDDEN');
+
 console.log('Cross-PR CHAIN-0 / OBS-0 / UI-0: deterministic synthetic HOLD, spoof rejection PASS');
