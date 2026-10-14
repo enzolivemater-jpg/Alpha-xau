@@ -1,0 +1,36 @@
+{
+  "fixtureType": "SYNTHETIC_CONTRACT_ONLY",
+  "description": "No live observations, market prices, production authorization, or external evidence.",
+  "input": {
+    "knowledgeCutoff": "2026-10-13T15:00:00.000Z",
+    "eventImpact": {
+      "algorithmVersion": "event-impact-deterministic-processor-v5",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "knowledgeCutoff": "2026-10-13T15:00:00.000Z"
+    },
+    "goldTransmission": {
+      "algorithmVersion": "gold-transmission-deterministic-processor-v5",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "knowledgeCutoff": "2026-10-13T15:00:00.000Z"
+    },
+    "marketPricing": {
+      "schemaVersion": "xau.market-pricing-snapshot.v1",
+      "algorithmVersion": "market-pricing-envelope-1.0.0",
+      "state": "DEGRADED",
+      "reasonCodes": [
+        "HISTORICAL_REPLAY_UNAVAILABLE"
+      ],
+      "knowledgeCutoff": "2026-10-13T15:00:00.000Z"
+    },
+    "positioning": {
+      "schemaVersion": "xau.positioning-evidence.v1",
+      "algorithmVersion": "positioning-evidence-normalizer-1.0.0",
+      "evidenceState": "ABSTAIN",
+      "positioningState": "UNAVAILABLE",
+      "reasonCodes": [
+        "NO_POSITIONING_EVIDENCE"
+      ],
+      "knowledgeCutoff": "2026-10-13T15:00:00.000Z"
+    }
+  }
+}

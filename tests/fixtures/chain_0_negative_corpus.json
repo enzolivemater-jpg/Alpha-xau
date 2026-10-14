@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "xau.chain-0-negative-corpus.v1",
+  "cases": [
+    {
+      "name": "impact unknown algorithm",
+      "path": "eventImpact.algorithmVersion",
+      "value": "unapproved-ei-999",
+      "stage": "horizons",
+      "reason": "EVENT_IMPACT_VERSION_MISMATCH"
+    },
+    {
+      "name": "transmission unknown algorithm",
+      "path": "goldTransmission.algorithmVersion",
+      "value": "unapproved-gt-999",
+      "stage": "horizons",
+      "reason": "GOLD_TRANSMISSION_VERSION_MISMATCH"
+    },
+    {
+      "name": "pricing unknown schema",
+      "path": "marketPricing.schemaVersion",
+      "value": "xau.market-pricing-bogus",
+      "stage": "regime",
+      "reason": "MARKET_PRICING_VERSION_MISMATCH"
+    },
+    {
+      "name": "pricing unknown algorithm",
+      "path": "marketPricing.algorithmVersion",
+      "value": "unapproved-mp-999",
+      "stage": "horizons",
+      "reason": "MARKET_PRICING_VERSION_MISMATCH"
+    },
+    {
+      "name": "positioning unknown schema",
+      "path": "positioning.schemaVersion",
+      "value": "xau.positioning-bogus",
+      "stage": "regime",
+      "reason": "POSITIONING_VERSION_MISMATCH"
+    },
+    {
+      "name": "positioning unknown algorithm",
+      "path": "positioning.algorithmVersion",
+      "value": "unapproved-p-999",
+      "stage": "horizons",
+      "reason": "POSITIONING_VERSION_MISMATCH"
+    },
+    {
+      "name": "impact mismatched as-of",
+      "path": "eventImpact.knowledgeCutoff",
+      "value": "2026-10-15T09:00:00.000Z",
+      "stage": "horizons",
+      "reason": "UPSTREAM_CUTOFF_MISMATCH"
+    },
+    {
+      "name": "pricing mismatched as-of",
+      "path": "marketPricing.knowledgeCutoff",
+      "value": "2026-10-15T09:00:00.000Z",
+      "stage": "regime",
+      "reason": "UPSTREAM_CUTOFF_MISMATCH"
+    },
+    {
+      "name": "positioning mismatched as-of",
+      "path": "positioning.knowledgeCutoff",
+      "value": "2026-10-15T09:00:00.000Z",
+      "stage": "regime",
+      "reason": "UPSTREAM_CUTOFF_MISMATCH"
+    },
+    {
+      "name": "invalid caller cutoff",
+      "path": "knowledgeCutoff",
+      "value": "not-a-date",
+      "stage": "acceptance",
+      "reason": "INVALID_KNOWLEDGE_CUTOFF"
+    },
+    {
+      "name": "pricing provider unavailable",
+      "path": "marketPricing.state",
+      "value": "ABSTAIN",
+      "stage": "regime",
+      "reason": "MARKET_PRICING_ABSTAINED"
+    },
+    {
+      "name": "impact unavailable",
+      "path": "eventImpact.status",
+      "value": "UNAVAILABLE",
+      "stage": "horizons",
+      "reason": "EVENT_IMPACT_INSUFFICIENT"
+    },
+    {
+      "name": "GT unavailable",
+      "path": "goldTransmission.status",
+      "value": "UNAVAILABLE",
+      "stage": "horizons",
+      "reason": "GOLD_TRANSMISSION_INSUFFICIENT"
+    }
+  ]
+}
