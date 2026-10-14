@@ -356,6 +356,22 @@ try {
   assert.equal(rejectedOutcome.kind, 'REJECTED');
   assert.equal(rejectedOutcome.chainState, 'HOLD');
   assert.deepEqual(rejectedOutcome.inputErrors, [{ path: 'extra', code: 'UNKNOWN_KEY' }]);
+  // The replay digest is a function of the input alone: the host time zone
+  // and locale (Danish collation sorts "aa" after "z") must not change it.
+  const multiEvidence = structuredClone(baseline);
+  multiEvidence.positioningEvidence = ['cftc', 'aa-bank', 'authority_test'].map((sourceAuthority) => ({
+    ...baseline.positioningEvidence[0], sourceAuthority,
+  }));
+  const multiFile = path.join(scratch, 'multi-evidence.json');
+  writeFileSync(multiFile, JSON.stringify({ knowledgeCutoff: cutoff, input: multiEvidence }));
+  const inProcess = await mod.computeDecisionChainDigest(mod.runDecisionChainDryRun(structuredClone(multiEvidence), cutoff));
+  for (const [TZ, locale] of [['UTC', 'C'], ['Pacific/Kiritimati', 'da_DK.UTF-8'], ['America/St_Johns', 'tr_TR.UTF-8']]) {
+    const hostRun = spawnSync(process.execPath, [cli, multiFile], {
+      encoding: 'utf8', env: { ...process.env, TZ, LC_ALL: locale, LANG: locale },
+    });
+    assert.equal(hostRun.status, 0, hostRun.stderr);
+    assert.equal(JSON.parse(hostRun.stdout).digest, inProcess, `${TZ} ${locale}`);
+  }
   writeFileSync(badFile, '{not json');
   assert.equal(run(badFile).status, 1);
   assert.equal(run(badFile, 'extra').status, 1);
