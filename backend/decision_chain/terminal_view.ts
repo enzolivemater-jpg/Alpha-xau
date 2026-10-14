@@ -256,7 +256,7 @@ function capabilities(stages: readonly TerminalStageView[], completed: boolean):
     stageCapability('POSITIONING', 'POSITIONING', 'Preuves de positionnement normalisées ; aucun signal directionnel.'),
     stageCapability('REGIME', 'REGIME', 'Porte de dépendances R-0 ; aucune méthode de régime approuvée.'),
     { id: 'EVENT_IMPACT_GOLD_TRANSMISSION', status: 'BLOCKED', blockers: ['BUSINESS_DECISION', 'AUTHORIZATION'],
-      detail: 'Agrégation multiévénement non définie ; fournisseur de consensus non autorisé.' },
+      detail: 'Agrégation EIA-0 : insuffisance seule ; combinaison positive et ensemble d\'événements non définis ; consensus non autorisé.' },
     stageCapability('HORIZON_SYNTHESIS', 'HORIZON_SYNTHESIS', 'H1–H5 : cinq abstentions explicites.'),
     stageCapability('SCENARIO_TREE', 'HORIZON_SYNTHESIS', 'Arbre de scénarios V2 indisponible tant que S-1 n\'est pas approuvé.'),
     stageCapability('AI_COMMITTEE', 'AI_COMMITTEE', 'Comité V2 : appel fournisseur interdit.'),
