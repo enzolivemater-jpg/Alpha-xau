@@ -58,7 +58,7 @@ const object = (value: unknown): value is ObjectValue =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 const keysExactly = (value: ObjectValue, keys: readonly string[]) =>
   Object.keys(value).length === keys.length
-  && Object.keys(value).every((key) => keys.includes(key));
+  && Object.keys(value).every((key, index) => key === keys[index]);
 
 function safeReasons(value: unknown): boolean {
   if (!Array.isArray(value) || value.length < 2 || value.length > REASONS.length) return false;
