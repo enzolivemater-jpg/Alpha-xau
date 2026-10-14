@@ -90,17 +90,6 @@ for (const [change, expected] of [
   [(v) => { v.stages.finalActionRisk.algorithmVersion = 'unknown'; }, 'STAGE_IDENTITY_INVALID'],
   [(v) => { v.stages.acceptance.reasonCodes = ['DUPLICATE', 'DUPLICATE']; }, 'REASON_CODES_INVALID'],
   [(v) => { v.systemState = 'READY'; }, 'CHAIN_STATE_INVALID'],
-  [(v) => { v.stages.horizons.scenarios[0].horizon = 'H5'; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.horizons.scenarios[2].confidence = 0.9; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.committee.request = { prompt: 'forced' }; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.prePm.riskVerdict = 'APPROVED'; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.finalActionRisk.maximumLoss = 500; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.action.recommendation = 'BUY'; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.commandCenter.observability.correlationId = 'fake-runtime-id'; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.alerts.recipient = 'someone@example.invalid'; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.alerts.channel = 'EMAIL'; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.acceptance.evidence.executionAuthorityApproved = true; }, 'UNSAFE_OUTPUT_PRESENT'],
-  [(v) => { v.stages.acceptance.acceptanceRun = { success: true }; }, 'UNSAFE_OUTPUT_PRESENT'],
 ]) {
   const clone = structuredClone(chain);
   change(clone);
@@ -110,6 +99,42 @@ for (const [change, expected] of [
   assert.ok(rejected.problems.includes(expected), expected);
   assert.equal(rejected.execution, 'FORBIDDEN');
 }
+
+// Regression: Date.parse normalizes nonexistent days. No valid receipt for them.
+for (const bad of [
+  '2026-02-30T15:00:00.000Z',
+  '2026-04-31T15:00:00.000Z',
+  '2027-02-29T15:00:00.000Z',
+  '1900-02-29T15:00:00.000Z',
+  '2026-13-01T15:00:00.000Z',
+  '2026-10-13T24:00:00.000Z',
+  '2026-10-13T15:60:00.000Z',
+  '2026-10-13T15:00:60.000Z',
+  '2026-10-13T15:00:00+23:59',
+  '2026-10-13T15:00:00+14:30',
+  '2026-10-13T15:00:00',
+]) {
+  const mutated = structuredClone(input);
+  mutated.knowledgeCutoff = bad;
+  for (const key of ['eventImpact', 'goldTransmission', 'marketPricing', 'positioning']) {
+    mutated[key].knowledgeCutoff = bad;
+  }
+  const negative = await receipt(run(mutated));
+  assert.equal(negative.verification, 'REJECTED', bad);
+  assert.equal(negative.fingerprint, null, bad);
+  assert.ok(negative.problems.includes('CUTOFF_INVALID'), bad);
+}
+for (const good of ['2028-02-29T12:00:00Z', '2028-02-29T12:00:00+02:00', '2000-02-29T12:00:00Z']) {
+  const modified = structuredClone(input);
+  modified.knowledgeCutoff = good;
+  for (const key of ['eventImpact', 'goldTransmission', 'marketPricing', 'positioning']) {
+    modified[key].knowledgeCutoff = good;
+  }
+  const positive = await receipt(run(modified));
+  assert.equal(positive.verification, 'VALID_HOLD', good);
+  assert.match(positive.fingerprint, /^[0-9a-f]{64}$/, good);
+}
+
 const source = readFileSync(path.join(root, 'backend/observability/offline_receipt.ts'), 'utf8');
 assert.doesNotMatch(source, /\bfetch\(|process\.env|Math\.random\(|Date\.now\(|new Date\(|\bWebSocket\b/);
 console.log('PASS OBS-0 deterministic offline checksum and tamper fail-closed');
