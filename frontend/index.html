@@ -86,7 +86,28 @@
   <button class="banner__action" type="button" id="error-retry">Réessayer</button>
 </div>
 
-<main class="grid">
+<!--
+  Barre d'espaces de travail. La nature des données est toujours visible,
+  quel que soit l'onglet : DÉMO (valeurs synthétiques du navigateur),
+  SIMULATION (moteurs exécutés sur une entrée locale), HISTORIQUE (cutoff
+  antérieur à la fenêtre de fraîcheur), LIVE (flux réel et frais). La
+  décision reste HOLD et l'exécution interdite dans tous les cas.
+-->
+<nav class="workbar" aria-label="Espaces de travail et nature des données">
+  <div class="tabs" role="tablist" aria-label="Espaces de travail">
+    <button class="tabs__tab" type="button" role="tab" id="tab-market" aria-controls="ws-market" aria-selected="true" tabindex="0">MARCHÉ</button>
+    <button class="tabs__tab" type="button" role="tab" id="tab-chain" aria-controls="ws-chain" aria-selected="false" tabindex="-1">CHAÎNE V2 <span class="tabs__state" id="tab-chain-state">—</span></button>
+  </div>
+  <div class="modes" role="status" aria-live="polite">
+    <span class="mode" id="mode-v1" data-mode="unknown"><span class="mode__key">DONNÉES MARCHÉ</span><span class="mode__val" id="mode-v1-val">—</span></span>
+    <span class="mode" id="mode-v2" data-mode="unavailable"><span class="mode__key">CHAÎNE V2</span><span class="mode__val" id="mode-v2-val">INDISPONIBLE</span></span>
+    <span class="mode" data-mode="hold"><span class="mode__key">DÉCISION</span><span class="mode__val">HOLD — EXÉCUTION INTERDITE</span></span>
+  </div>
+</nav>
+
+<main class="workspaces">
+
+<div class="grid workspace" id="ws-market" role="tabpanel" aria-labelledby="tab-market">
 
   <!-- ============== PANNEAU 1 — COMMAND CENTER ========================= -->
   <section class="panel panel--command" aria-labelledby="p1-title">
@@ -159,7 +180,7 @@
   <section class="panel panel--macro" aria-labelledby="p2-title">
     <div class="panel__head">
       <h2 class="panel__title" id="p2-title">MACRO DRIVER MATRIX</h2>
-      <span class="panel__meta">IMPACT OR</span>
+      <span class="panel__meta" id="macro-meta">IMPACT OR</span>
     </div>
 
     <div class="panel__body">
@@ -272,21 +293,24 @@
     </div>
   </section>
 
-  <!-- ============== PANNEAU 5 — CHAÎNE DÉCISIONNELLE V2 ================ -->
-  <!--
-    Projection en lecture seule d'un dry run CHAIN-0 servi par le serveur
-    local (scripts/serve_terminal_local.mjs). Sans ce serveur, le panneau dit
-    qu'aucun runtime V2 n'existe : il n'affiche jamais un état par défaut.
-    La chaîne est toujours HOLD et l'exécution toujours interdite ; une vue
-    qui affirmerait autre chose est rejetée par le terminal.
-  -->
+</div>
+
+<!-- ============== ESPACE CHAÎNE V2 ===================================== -->
+<!--
+  Projection en lecture seule d'un dry run CHAIN-0 servi par le serveur
+  local (scripts/serve_terminal_local.mjs). Sans ce serveur, l'espace dit
+  qu'aucun runtime V2 n'existe : il n'affiche jamais un état par défaut.
+  Une vue qui affirmerait autre chose que HOLD est rejetée en bloc.
+-->
+<div class="workspace workspace--chain" id="ws-chain" role="tabpanel" aria-labelledby="tab-chain" hidden>
+
   <section class="panel panel--chain" aria-labelledby="p5-title">
     <div class="panel__head">
       <h2 class="panel__title" id="p5-title">CHAÎNE DÉCISIONNELLE V2</h2>
       <span class="badge" id="v2-origin" data-state="unknown">—</span>
     </div>
 
-    <div class="panel__body panel__body--scroll v2">
+    <div class="panel__body v2">
       <div class="v2__status" id="v2-status" data-state="unavailable" role="status">
         <span class="v2__state" id="v2-state">INDISPONIBLE</span>
         <span class="v2__detail" id="v2-detail">Aucun runtime V2 déployé.</span>
@@ -297,57 +321,64 @@
         <div><dt>EXÉCUTION</dt><dd id="v2-execution">—</dd></div>
         <div><dt>INTÉGRITÉ</dt><dd id="v2-integrity">—</dd></div>
         <div><dt>CUTOFF</dt><dd class="num" id="v2-cutoff">—</dd></div>
-        <div><dt>EMPREINTE</dt><dd class="num" id="v2-digest">—</dd></div>
+        <div><dt>ÂGE DU CUTOFF</dt><dd class="num" id="v2-cutoff-age">—</dd></div>
         <div><dt>GÉNÉRÉE</dt><dd class="num" id="v2-generated">—</dd></div>
+        <div class="v2__facts-wide"><dt>EMPREINTE DE REJEU</dt><dd class="num" id="v2-digest">—</dd></div>
       </dl>
 
-      <table class="v2__table">
-        <caption class="sr-only">Étages de la chaîne CHAIN-0, état et motifs</caption>
-        <thead>
-          <tr><th scope="col">ÉTAGE</th><th scope="col">ÉTAT</th><th scope="col">CAPACITÉ</th><th scope="col">MOTIFS</th></tr>
-        </thead>
-        <tbody id="v2-stages">
-          <tr><td colspan="4" class="v2__empty">—</td></tr>
-        </tbody>
-      </table>
+      <h3 class="v2__subtitle">POURQUOI HOLD</h3>
+      <div class="v2__why" id="v2-why" hidden>
+        <p class="v2__why-lead" id="v2-why-lead"></p>
+        <dl class="v2__why-list" id="v2-why-list"></dl>
+      </div>
 
-      <table class="v2__table">
-        <caption class="v2__caption">MARCHÉ AU CUTOFF — provenance et fraîcheur par champ</caption>
-        <thead>
-          <tr><th scope="col">CHAMP</th><th scope="col" class="ta-r">VALEUR</th><th scope="col">ÉTAT</th><th scope="col" class="ta-r">ÂGE</th><th scope="col">OBSERVÉ (UTC)</th><th scope="col">SOURCE</th></tr>
-        </thead>
-        <tbody id="v2-market">
-          <tr><td colspan="6" class="v2__empty">—</td></tr>
-        </tbody>
-      </table>
-
-      <dl class="v2__facts">
-        <div><dt>REJEU MARCHÉ</dt><dd id="v2-replay">—</dd></div>
-        <div><dt>POSITIONNEMENT</dt><dd id="v2-positioning">—</dd></div>
-        <div><dt>SOURCES POSITIONNEMENT</dt><dd id="v2-positioning-sources">—</dd></div>
-      </dl>
+      <h3 class="v2__subtitle">ÉTAGES — ÉTAT, CAPACITÉ ET MOTIFS</h3>
+      <ol class="stages" id="v2-stages">
+        <li class="v2__empty">—</li>
+      </ol>
     </div>
   </section>
 
-  <!-- ============== PANNEAU 6 — MATRICE DES CAPACITÉS =================== -->
-  <section class="panel panel--capabilities" aria-labelledby="p6-title">
-    <div class="panel__head">
-      <h2 class="panel__title" id="p6-title">MATRICE DES CAPACITÉS</h2>
-      <span class="panel__meta" id="v2-capability-count">—</span>
-    </div>
+  <div class="workspace__side">
+    <section class="panel panel--evidence" aria-labelledby="p6-title">
+      <div class="panel__head">
+        <h2 class="panel__title" id="p6-title">MARCHÉ AU CUTOFF</h2>
+        <span class="panel__meta" id="v2-market-state">—</span>
+      </div>
+      <div class="panel__body v2">
+        <div class="v2__scroll-x">
+          <table class="v2__table v2__table--market">
+            <caption class="sr-only">Champs de marché au cutoff : valeur, état, âge, observation et source</caption>
+            <thead>
+              <tr><th scope="col">CHAMP</th><th scope="col" class="ta-r">VALEUR</th><th scope="col">ÉTAT AU CUTOFF</th><th scope="col" class="ta-r">ÂGE</th><th scope="col">OBSERVÉ (UTC)</th><th scope="col">SOURCE</th></tr>
+            </thead>
+            <tbody id="v2-market">
+              <tr><td colspan="6" class="v2__empty">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <dl class="v2__facts v2__facts--stack">
+          <div><dt>REJEU MARCHÉ</dt><dd id="v2-replay">—</dd></div>
+          <div><dt>POSITIONNEMENT</dt><dd id="v2-positioning">—</dd></div>
+          <div><dt>POSITIONNEMENT OBSERVÉ JUSQU'À</dt><dd class="num" id="v2-positioning-through">—</dd></div>
+          <div><dt>SOURCES POSITIONNEMENT</dt><dd id="v2-positioning-sources">—</dd></div>
+        </dl>
+      </div>
+    </section>
 
-    <div class="panel__body panel__body--scroll">
-      <table class="v2__table">
-        <caption class="sr-only">Capacités du terminal : opérationnel local, simulé, bloqué ou non validé</caption>
-        <thead>
-          <tr><th scope="col">CAPACITÉ</th><th scope="col">STATUT</th><th scope="col">BLOCAGES</th><th scope="col">DÉTAIL</th></tr>
-        </thead>
-        <tbody id="v2-capabilities">
-          <tr><td colspan="4" class="v2__empty">Matrice indisponible sans vue V2.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+    <section class="panel panel--capabilities" aria-labelledby="p7-title">
+      <div class="panel__head">
+        <h2 class="panel__title" id="p7-title">MATRICE DES CAPACITÉS</h2>
+      </div>
+      <div class="panel__body v2">
+        <p class="v2__counts" id="v2-capability-count">—</p>
+        <ul class="caps" id="v2-capabilities">
+          <li class="v2__empty">Matrice indisponible sans vue V2.</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+</div>
 
 </main>
 

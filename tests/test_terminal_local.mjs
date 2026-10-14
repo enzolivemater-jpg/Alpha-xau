@@ -43,7 +43,8 @@ assert.ok(served.includes(`V2_VIEW_URL: '${VIEW_PATH}',`));
 response = await fetch(`${base}${VIEW_PATH}`);
 assert.equal(response.status, 200);
 const view = await response.json();
-assert.equal(view.schemaVersion, 'xau.terminal-local-view.v1');
+assert.equal(view.schemaVersion, 'xau.terminal-local-view.v2');
+assert.equal(view.temporal.classification, 'HISTORICAL', 'the golden fixture is in the past');
 assert.equal(view.chain.chainState, 'HOLD');
 assert.equal(view.chain.execution, 'FORBIDDEN');
 assert.equal(view.chain.integrity, 'CONSISTENT');
@@ -119,35 +120,69 @@ await settle();
 let d = dom.window.document;
 assert.equal(text(d, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
 assert.equal(d.getElementById('v2-status').getAttribute('data-state'), 'hold');
-assert.equal(text(d, 'v2-origin'), 'SIMULÉ — FIXTURE');
+assert.match(text(d, 'v2-detail'), /pas une analyse de marché réelle/);
+assert.equal(text(d, 'v2-origin'), 'SIMULATION — FIXTURE');
 assert.equal(text(d, 'v2-chain-state'), 'HOLD');
 assert.equal(text(d, 'v2-execution'), 'INTERDITE');
 assert.equal(text(d, 'v2-integrity'), 'CONSISTENT');
 assert.equal(text(d, 'v2-cutoff'), '2026-10-01T14:15:00.000Z');
-assert.equal(d.getElementById('v2-digest').getAttribute('title'), view.chain.digest);
-const stageRows = [...d.querySelectorAll('#v2-stages tr')];
-assert.equal(stageRows.length, 12);
-assert.equal(stageRows[0].cells[0].textContent, 'MARKET PRICING');
-assert.equal(stageRows[0].cells[1].textContent, 'DEGRADED');
-assert.equal(stageRows[0].cells[2].textContent, 'SIMULÉ');
-assert.equal(stageRows[8].cells[0].textContent, 'ACTION');
-assert.equal(stageRows[8].getAttribute('data-capability'), 'BLOCKED');
-assert.match(stageRows[8].cells[3].textContent, /EXECUTION_NOT_AUTHORIZED/);
+assert.equal(text(d, 'v2-digest'), view.chain.digest, 'full digest shown');
+assert.match(text(d, 'v2-cutoff-age'), /^\d+ (s|min|h|j) — HISTORIQUE$/);
+// Why HOLD: first blocking stage and root causes by category.
+assert.equal(d.getElementById('v2-why').hidden, false);
+assert.match(text(d, 'v2-why-lead'), /^Premier étage bloquant : HORIZON SYNTHESIS\. \d+ motif\(s\) hérité\(s\) de l'amont/);
+const why = [...d.querySelectorAll('#v2-why-list .why')];
+assert.deepEqual(why.map((w) => w.getAttribute('data-category')), view.holdRationale.rootCauses.map((c) => c.category));
+const auth = why.find((w) => w.getAttribute('data-category') === 'AUTHORIZATION');
+assert.match(auth.querySelector('.why__cat').textContent, /^AUTORISATION — autorisation explicite requise$/);
+assert.match(auth.querySelector('.why__codes').textContent, /EXECUTION NOT AUTHORIZED/);
+// Stage cards.
+const stages = [...d.querySelectorAll('#v2-stages .stage')];
+assert.equal(stages.length, 12);
+const stage = (i, sel) => stages[i].querySelector(sel).textContent;
+assert.equal(stage(0, '.stage__name'), 'MARKET PRICING');
+assert.equal(stage(0, '.stage__state'), 'DEGRADED');
+assert.equal(stage(0, '.stage__cap'), 'SIMULÉ');
+assert.equal(stage(8, '.stage__name'), 'ACTION');
+assert.equal(stages[8].getAttribute('data-capability'), 'BLOCKED');
+const actionReasons = [...stages[8].querySelectorAll('.reason')].map((r) =>
+  [r.getAttribute('data-category'), r.querySelector('.reason__cat').textContent, r.querySelector('.reason__code').textContent]);
+assert.deepEqual(actionReasons, [
+  ['UPSTREAM', 'AMONT', 'FINAL_RISK_NOT_READY'],
+  ['AUTHORIZATION', 'AUTORISATION', 'EXECUTION_NOT_AUTHORIZED'],
+  ['ENVIRONMENT', 'ENVIRONNEMENT', 'BROKER_NOT_CONNECTED'],
+  ['BUSINESS_DECISION', 'DÉCISION MÉTIER', 'ACTION_METHOD_NOT_APPROVED'],
+]);
+assert.match(stage(8, '.stage__version'), /^xau\.action-abstention\.v1 · action-abstention-gate-1\.0\.0$/);
+// Market at the cutoff: a LIVE field of a simulation is labelled as such.
 const marketRows = [...d.querySelectorAll('#v2-market tr')];
 assert.equal(marketRows.length, 8);
 assert.deepEqual([...marketRows[0].cells].map((c) => c.textContent),
-  ['SPOT', '3900', 'LIVE', '60s', '2026-10-01T14:14:00.000Z', 'twelve_data']);
+  ['SPOT', '3900', 'LIVE AU CUTOFF', '60 s', '2026-10-01 14:14:00Z', 'twelve_data']);
 assert.deepEqual([...marketRows[3].cells].map((c) => c.textContent), ['DXY', 'N/A', 'UNAVAILABLE', 'N/A', 'N/A', 'N/A']);
+assert.equal([...marketRows[4].cells][3].textContent, '14 h');
+assert.ok(marketRows.every((r) => r.cells[2].textContent !== 'LIVE'), 'no bare LIVE in a simulation');
+assert.equal(text(d, 'v2-market-state'), 'MP-0 DEGRADED');
 assert.equal(text(d, 'v2-replay'), 'LATEST_ONLY — non reproductible (INGESTION_CUTOFF_NOT_AVAILABLE)');
-assert.equal(text(d, 'v2-positioning'),
-  "EVIDENCE_READY · 1 preuve(s) · signal UNAVAILABLE · observé jusqu'à 2026-09-30T19:31:00.000Z");
+assert.equal(text(d, 'v2-positioning'), 'EVIDENCE_READY · 1 preuve(s) · signal UNAVAILABLE');
+assert.equal(text(d, 'v2-positioning-through'), '2026-09-30T19:31:00.000Z');
 assert.equal(text(d, 'v2-positioning-sources'), 'authority_test');
-const capRows = [...d.querySelectorAll('#v2-capabilities tr')];
-assert.equal(capRows.length, view.capabilities.length);
-const execRow = capRows.find((r) => r.cells[0].textContent === 'EXECUTION');
-assert.equal(execRow.cells[1].textContent, 'BLOQUÉ');
-assert.match(execRow.cells[2].textContent, /AUTORISATION/);
+// Capability list.
+const caps = [...d.querySelectorAll('#v2-capabilities .cap')];
+assert.equal(caps.length, view.capabilities.length);
+const exec = caps.find((c) => c.querySelector('.cap__id').textContent === 'EXECUTION');
+assert.equal(exec.querySelector('.cap__status').textContent, 'BLOQUÉ');
+assert.match(exec.querySelector('.cap__blockers').textContent, /AUTORISATION/);
 assert.match(text(d, 'v2-capability-count'), /OPÉRATIONNEL LOCAL 3 · SIMULÉ \d+ · BLOQUÉ \d+ · NON VALIDÉ 1/);
+// Data nature, always visible: DEMO market, SIMULATION + HISTORICAL chain, HOLD decision.
+assert.equal(d.getElementById('mode-v1').getAttribute('data-mode'), 'demo');
+assert.equal(text(d, 'mode-v1-val'), 'DÉMO — VALEURS SYNTHÉTIQUES');
+assert.equal(d.getElementById('mode-v2').getAttribute('data-mode'), 'historical');
+assert.match(text(d, 'mode-v2-val'), /^SIMULATION — FIXTURE · HISTORIQUE \(cutoff il y a \d+ (s|min|h|j)\) · HOLD$/);
+assert.equal(text(d, 'tab-chain-state'), 'HOLD');
+assert.ok(!/\bLIVE\b/.test(text(d, 'mode-v1-val') + text(d, 'mode-v2-val')));
+assert.equal(text(d, 'macro-meta'), 'DÉMO — VALEURS SYNTHÉTIQUES');
+assert.equal(text(d, 'conviction-grade'), '', 'no duplicated N/A');
 // Local V1 panels: demo, honest.
 assert.equal(text(d, 'price-freshness'), 'DÉMO');
 assert.equal(text(d, 'execution-status'), 'AUCUNE ANALYSE');
@@ -164,7 +199,10 @@ const mutations = [
   ['execution allowed', (v) => { v.chain.execution = 'ALLOWED'; }],
   ['chain GO', (v) => { v.chain.chainState = 'GO'; }],
   ['not simulated', (v) => { v.simulated = false; }],
-  ['unknown version', (v) => { v.schemaVersion = 'xau.terminal-local-view.v2'; }],
+  ['previous version', (v) => { v.schemaVersion = 'xau.terminal-local-view.v1'; }],
+  ['unknown temporal class', (v) => { v.temporal.classification = 'LIVE'; }],
+  ['rationale missing', (v) => { delete v.holdRationale; }],
+  ['unknown root cause', (v) => { v.holdRationale.rootCauses[0].category = 'NONE'; }],
   ['unknown origin', (v) => { v.origin.kind = 'PRODUCTION'; }],
   ['unknown capability status', (v) => { v.capabilities[0].status = 'LIVE'; }],
   ['unknown stage capability', (v) => { v.stages[8].capability = 'EXECUTABLE'; }],
@@ -178,7 +216,10 @@ for (const [name, mutate] of mutations) {
   await settle();
   d = dom.window.document;
   assert.equal(text(d, 'v2-state'), 'VUE V2 REFUSÉE', name);
-  assert.equal(d.querySelectorAll('#v2-stages tr').length, 1, name);
+  assert.equal(d.querySelectorAll('#v2-stages .stage').length, 0, name);
+  assert.equal(d.getElementById('v2-why').hidden, true, name);
+  assert.equal(d.getElementById('mode-v2').getAttribute('data-mode'), 'refused', name);
+  assert.equal(text(d, 'tab-chain-state'), 'REFUSÉE', name);
   assert.equal(text(d, 'v2-chain-state'), '—', name);
   assert.equal(text(d, 'v2-positioning'), '—', name);
   assert.equal(text(d, 'v2-capabilities').trim(), 'Matrice indisponible sans vue V2.', name);
@@ -190,14 +231,54 @@ console.log(`PASS ${mutations.length} non-conforming views are refused whole`);
 const hostile = structuredClone(view);
 hostile.stages[0].reasons[0].code = '<img src=x onerror="window.__pwned=1">';
 hostile.capabilities[0].detail = '<script>window.__pwned=1</script>';
+hostile.holdRationale.rootCauses[0].codes[0] = '<img src=y onerror="window.__pwned=2">';
+hostile.market.fields[0].source = '<b>twelve</b>';
 dom = boot(LOCAL, serveView(hostile));
 await settle();
 d = dom.window.document;
 assert.equal(dom.window.__pwned, undefined);
-assert.equal(d.querySelectorAll('#v2-stages img, #v2-capabilities script').length, 0);
-assert.match(d.querySelector('#v2-stages tr').cells[3].textContent, /<img src=x/);
+assert.equal(d.querySelectorAll('#ws-chain img, #ws-chain script, #ws-chain b').length, 0);
+assert.match(d.querySelector('#v2-why-list .why__codes').textContent, /<img src=y/);
+assert.match(d.querySelector('#v2-stages .reason__code').textContent, /<img src=x/);
 dom.window.close();
 console.log('PASS view strings are rendered as text only');
+
+// --- Workspaces: accessible tabs, hash and remembered choice; HOLD visible from both.
+const tabState = (d) => [d.getElementById('ws-market').hidden, d.getElementById('ws-chain').hidden,
+  d.getElementById('tab-market').getAttribute('aria-selected'), d.getElementById('tab-chain').getAttribute('aria-selected')];
+dom = boot(LOCAL, serveView(view));
+await settle();
+d = dom.window.document;
+assert.deepEqual(tabState(d), [false, true, 'true', 'false'], 'market workspace by default');
+assert.match(d.querySelector('.workbar').textContent, /HOLD — EXÉCUTION INTERDITE/, 'decision visible from the market tab');
+d.getElementById('tab-chain').click();
+assert.deepEqual(tabState(d), [true, false, 'false', 'true']);
+assert.equal(d.getElementById('tab-chain').tabIndex, 0);
+assert.equal(d.getElementById('tab-market').tabIndex, -1);
+assert.equal(dom.window.localStorage.getItem('alpha-xau.workspace'), 'chain');
+d.getElementById('tab-chain').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+assert.deepEqual(tabState(d), [false, true, 'true', 'false']);
+assert.equal(d.activeElement.id, 'tab-market');
+d.getElementById('tab-market').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+assert.deepEqual(tabState(d), [true, false, 'false', 'true']);
+dom.window.close();
+const bootAt = (hash, stored) => {
+  const dom2 = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: `http://127.0.0.1:4173/${hash}` });
+  if (stored) dom2.window.localStorage.setItem('alpha-xau.workspace', stored);
+  dom2.window.fetch = serveView(view);
+  dom2.window.ALPHA_XAU_CONFIG = LOCAL;
+  const script = dom2.window.document.createElement('script');
+  script.textContent = js;
+  dom2.window.document.body.appendChild(script);
+  return dom2;
+};
+for (const [hash, stored, chainShown] of [['#chaine', null, true], ['', 'chain', true], ['#marche', 'chain', false], ['', 'bogus', false]]) {
+  const dom2 = bootAt(hash, stored);
+  await settle(50);
+  assert.equal(dom2.window.document.getElementById('ws-chain').hidden, !chainShown, `${hash} ${stored}`);
+  dom2.window.close();
+}
+console.log('PASS workspaces: keyboard tabs, #chaine/#marche, remembered choice, HOLD visible from both');
 
 // --- Degraded: no URL, HTTP error, network error, rejected chain, violated integrity.
 dom = boot({ ...LOCAL, V2_VIEW_URL: '' }, () => Promise.reject(new Error('no fetch expected')));
@@ -241,13 +322,37 @@ assert.equal(d.getElementById('v2-status').getAttribute('data-state'), 'rejected
 dom.window.close();
 console.log('PASS degraded V2 states: unavailable, unreachable, rejected input, violated integrity');
 
+// --- Market data nature with a real (mocked) feed: LIVE only when fresh.
+const SUPA = { SUPABASE_URL: 'https://t.supabase.co', SUPABASE_ANON_KEY: 'anon', POLL_INTERVAL_MS: 1e6,
+  ANALYSIS_INTERVAL_MS: 1e6, STALE_THRESHOLD_S: 60, V2_VIEW_URL: '' };
+const tick = (staleness) => [{ symbol: 'XAUUSD', bid: 3401, ask: 3402, spread: 1, close: 3401.5, dxy_value: 97.1,
+  us10y_yield: null, real_yield: null, vix: null, wti: null, ts: '2026-10-14T10:00:00Z', staleness_seconds: staleness }];
+const feed = (staleness) => (url) => Promise.resolve({ ok: true, status: 200,
+  json: () => Promise.resolve(String(url).includes('v_market_latest') ? tick(staleness) : []) });
+for (const [name, impl, mode, label] of [
+  ['fresh', feed(12), 'live', 'LIVE 12s'],
+  ['stale', feed(900), 'stale', 'PÉRIMÉ 900s'],
+  ['down', () => Promise.reject(new Error('ECONNREFUSED')), 'offline', 'FLUX ROMPU'],
+]) {
+  // Two consecutive failures are needed before the feed is declared broken.
+  dom = boot(name === 'down' ? { ...SUPA, POLL_INTERVAL_MS: 50 } : SUPA, impl);
+  await settle(300);
+  d = dom.window.document;
+  assert.equal(d.getElementById('mode-v1').getAttribute('data-mode'), mode, name);
+  assert.equal(text(d, 'mode-v1-val'), label, name);
+  if (name !== 'down') assert.equal(text(d, 'macro-meta'), `TICK 10:00 UTC · ${name === 'fresh' ? 12 : 900}s`, name);
+  assert.equal(text(d, 'mode-v2-val'), 'INDISPONIBLE', name);
+  dom.window.close();
+}
+console.log('PASS market data nature: LIVE only when fresh, PÉRIMÉ beyond the threshold, FLUX ROMPU when down');
+
 // --- End to end: jsdom against the real server.
 const live = await listen();
 dom = boot(LOCAL, (url) => fetch(new URL(String(url), live.base)));
 await settle(400);
 d = dom.window.document;
 assert.equal(text(d, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
-assert.equal(d.querySelectorAll('#v2-stages tr').length, 12);
+assert.equal(d.querySelectorAll('#v2-stages .stage').length, 12);
 dom.window.close();
 await close(live.server);
 console.log('PASS terminal against the real local server renders the golden HOLD chain');

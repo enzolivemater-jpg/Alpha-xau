@@ -12,14 +12,22 @@
  * and deployment proof.
  */
 
+import { SYMBOL_RULES } from '../market_engine/validate.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 import {
   DECISION_CHAIN_STAGES,
   type DecisionChainOutcome,
   type DecisionChainStage,
 } from './dry_run.js';
 
-export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v1' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-1.0.0' as const;
+export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v2' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-2.0.0' as const;
+
+/**
+ * A view whose cutoff precedes its generation by more than the spot LIVE
+ * window (the existing XAUUSD rule) describes the past: HISTORICAL.
+ */
+export const TERMINAL_VIEW_CURRENT_WINDOW_SECONDS = SYMBOL_RULES.XAUUSD.liveMaxAgeS;
 
 /**
  * DATA: an input is missing, stale or invalid.
@@ -174,12 +182,36 @@ export interface TerminalCapability {
   readonly detail: string;
 }
 
+export interface TerminalRootCause {
+  readonly category: BlockerCategory;
+  /** Distinct codes in stage order. */
+  readonly codes: readonly string[];
+  readonly stages: readonly DecisionChainStage[];
+}
+
+/**
+ * Why the chain holds. Root causes are every classified reason that is not
+ * a mere consequence of an upstream stage; inherited reasons are counted.
+ */
+export interface TerminalHoldRationale {
+  readonly firstBlockedStage: DecisionChainStage | null;
+  readonly rootCauses: readonly TerminalRootCause[];
+  readonly inheritedReasonCount: number;
+  readonly unclassifiedCodes: readonly string[];
+}
+
 export interface TerminalView {
   readonly schemaVersion: typeof TERMINAL_VIEW_SCHEMA_VERSION;
   readonly algorithmVersion: typeof TERMINAL_VIEW_ALGORITHM_VERSION;
   readonly generatedAt: string;
   readonly origin: { readonly kind: TerminalDataOrigin; readonly label: string };
   readonly simulated: true;
+  readonly temporal: {
+    readonly classification: 'HISTORICAL' | 'AT_GENERATION' | 'UNKNOWN';
+    readonly cutoffAgeSeconds: number | null;
+    readonly currentWindowSeconds: number;
+  };
+  readonly holdRationale: TerminalHoldRationale;
   readonly chain: {
     readonly outcome: 'COMPLETED' | 'REJECTED';
     readonly schemaVersion: string;
@@ -274,6 +306,49 @@ function capabilities(stages: readonly TerminalStageView[], completed: boolean):
   ];
 }
 
+function temporalOf(knowledgeCutoff: string | null, generatedAt: string): TerminalView['temporal'] {
+  const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
+  const generatedMs = parseStrictTimestamp(generatedAt);
+  if (cutoffMs === null || generatedMs === null) {
+    return { classification: 'UNKNOWN', cutoffAgeSeconds: null, currentWindowSeconds: TERMINAL_VIEW_CURRENT_WINDOW_SECONDS };
+  }
+  const cutoffAgeSeconds = Math.floor((generatedMs - cutoffMs) / 1000);
+  return {
+    classification: cutoffAgeSeconds > TERMINAL_VIEW_CURRENT_WINDOW_SECONDS ? 'HISTORICAL' : 'AT_GENERATION',
+    cutoffAgeSeconds,
+    currentWindowSeconds: TERMINAL_VIEW_CURRENT_WINDOW_SECONDS,
+  };
+}
+
+function holdRationaleOf(stages: readonly TerminalStageView[]): TerminalHoldRationale {
+  const groups = new Map<BlockerCategory, { codes: string[]; stages: DecisionChainStage[] }>();
+  let inheritedReasonCount = 0;
+  const unclassified: string[] = [];
+  for (const stage of stages) {
+    for (const reason of stage.reasons) {
+      if (reason.category === null) {
+        if (!unclassified.includes(reason.code)) unclassified.push(reason.code);
+        continue;
+      }
+      if (reason.category === 'UPSTREAM') {
+        inheritedReasonCount += 1;
+        continue;
+      }
+      const group = groups.get(reason.category) ?? { codes: [], stages: [] };
+      if (!group.codes.includes(reason.code)) group.codes.push(reason.code);
+      if (!group.stages.includes(stage.stage)) group.stages.push(stage.stage);
+      groups.set(reason.category, group);
+    }
+  }
+  return {
+    firstBlockedStage: stages.find((stage) => stage.capability === 'BLOCKED')?.stage ?? null,
+    rootCauses: BLOCKER_ORDER.filter((category) => groups.has(category))
+      .map((category) => ({ category, codes: groups.get(category)!.codes, stages: groups.get(category)!.stages })),
+    inheritedReasonCount,
+    unclassifiedCodes: unclassified,
+  };
+}
+
 const errorText = (error: { readonly path: string; readonly code: string }) =>
   `${error.path === '' ? '<input>' : error.path}: ${error.code}`;
 
@@ -293,6 +368,8 @@ export function buildTerminalView(
   if (outcome.kind === 'REJECTED') {
     return {
       ...base,
+      temporal: temporalOf(null, generatedAt),
+      holdRationale: { firstBlockedStage: null, rootCauses: [], inheritedReasonCount: 0, unclassifiedCodes: [] },
       chain: {
         outcome: 'REJECTED',
         schemaVersion: outcome.schemaVersion,
@@ -339,6 +416,8 @@ export function buildTerminalView(
   const positioning = result.stages.positioning;
   return {
     ...base,
+    temporal: temporalOf(result.knowledgeCutoff, generatedAt),
+    holdRationale: holdRationaleOf(stages),
     chain: {
       outcome: 'COMPLETED',
       schemaVersion: result.schemaVersion,

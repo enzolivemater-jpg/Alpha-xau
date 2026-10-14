@@ -55,8 +55,8 @@
   --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   /* Échelle — resserrée : un terminal se lit à 11-13px */
-  --fs-micro:  10px;
-  --fs-xs:     11px;
+  --fs-micro:  10.5px;
+  --fs-xs:     11.5px;
   --fs-sm:     12px;
   --fs-md:     13px;
   --fs-lg:     16px;
@@ -248,7 +248,7 @@ body {
   grid-template-columns: minmax(280px, 1fr) minmax(300px, 1.15fr);
   /* Hauteur minimale par rangée : aucun panneau n'est écrasé au point de
      masquer un bandeau de blocage ; la grille défile si l'écran est court. */
-  grid-template-rows: minmax(340px, 1fr) minmax(340px, 1fr) minmax(360px, 1fr);
+  grid-template-rows: minmax(320px, 1fr) minmax(320px, 1fr);
   gap: 1px;
   background: var(--rule);
   min-height: 0;
@@ -871,26 +871,111 @@ body {
 .footbar__item--right[hidden] { display: none; }
 
 /* --------------------------------------------------------------------------
-   10 bis. CHAÎNE DÉCISIONNELLE V2 ET MATRICE DES CAPACITÉS
-   Couleurs d'état : HOLD et BLOQUÉ en ambre, jamais en vert. Aucun état
-   de ces panneaux n'est un signal exploitable.
+   10 bis. ESPACES DE TRAVAIL ET NATURE DES DONNÉES
    -------------------------------------------------------------------------- */
-.v2 { padding: var(--sp-3); }
+.workbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
+  padding: 0 var(--sp-3);
+  background: var(--panel-head);
+  border-bottom: 1px solid var(--rule);
+}
+
+.tabs { display: flex; gap: 2px; }
+
+.tabs__tab {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.tabs__tab:hover { color: var(--text); }
+.tabs__tab[aria-selected='true'] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs__tab:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+.tabs__state {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  padding: 0 var(--sp-1);
+  border: 1px solid var(--rule-strong);
+  color: var(--text-faint);
+}
+.tabs__state[data-mode='simulated'],
+.tabs__state[data-mode='historical'] { color: var(--major); border-color: var(--major); }
+.tabs__state[data-mode='refused'] { color: var(--down); border-color: var(--down); }
+
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-4);
+  padding: var(--sp-1) 0;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.06em;
+}
+
+.mode { display: inline-flex; gap: var(--sp-2); align-items: baseline; min-width: 0; }
+.mode__key { color: var(--text-faint); white-space: nowrap; }
+.mode__val { color: var(--text-dim); }
+.mode[data-mode='live'] .mode__val { color: var(--up); }
+.mode[data-mode='demo'] .mode__val,
+.mode[data-mode='stale'] .mode__val,
+.mode[data-mode='simulated'] .mode__val,
+.mode[data-mode='historical'] .mode__val,
+.mode[data-mode='hold'] .mode__val { color: var(--major); }
+.mode[data-mode='offline'] .mode__val,
+.mode[data-mode='refused'] .mode__val { color: var(--down); }
+
+.workspaces { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.workspace[hidden] { display: none !important; }
+
+/* Espace CHAÎNE V2 : un seul défilement, panneaux à hauteur naturelle. */
+.workspace--chain {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 1px;
+  background: var(--rule);
+}
+
+.workspace__side { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.workspace--chain .panel { min-height: auto; } /* min-height: 0 annule la contribution à la rangée */
+.workspace--chain .panel__body { flex: none; overflow: visible; }
+
+.v2 { font-size: var(--fs-sm); }
 
 .v2__status {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2) var(--sp-3);
   align-items: baseline;
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3);
   border: 1px solid var(--rule-strong);
   margin-bottom: var(--sp-3);
 }
 
-.v2__state { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.1em; }
-.v2__detail { color: var(--text-dim); font-size: var(--fs-xs); min-width: 0; overflow-wrap: anywhere; }
+.v2__state { font-family: var(--mono); font-size: var(--fs-md); font-weight: 600; letter-spacing: 0.1em; }
+.v2__detail { color: var(--text-dim); min-width: 0; overflow-wrap: anywhere; }
 
-.v2__status[data-state='hold'] { border-color: var(--major); }
+.v2__status[data-state='hold'] { border-color: var(--major); background: rgba(232, 163, 61, 0.06); }
 .v2__status[data-state='hold'] .v2__state { color: var(--major); }
 .v2__status[data-state='rejected'],
 .v2__status[data-state='error'] { border-color: var(--down); }
@@ -898,33 +983,82 @@ body {
 .v2__status[data-state='error'] .v2__state { color: var(--down); }
 .v2__status[data-state='unavailable'] .v2__state { color: var(--text-faint); }
 
+.v2__why { margin-bottom: var(--sp-3); }
+.v2__why[hidden] { display: none; }
+.v2__why-lead { margin: 0 0 var(--sp-2); color: var(--text); }
+.v2__why-list { margin: 0; display: grid; gap: var(--sp-2); }
+.why { border-left: 2px solid var(--rule-strong); padding: var(--sp-1) var(--sp-3); }
+.why[data-category='BUSINESS_DECISION'] { border-left-color: var(--major); }
+.why[data-category='AUTHORIZATION'] { border-left-color: var(--critical); }
+.why[data-category='ENVIRONMENT'] { border-left-color: var(--info); }
+.why[data-category='DATA'],
+.why[data-category='INTEGRITY'],
+.why[data-category='UNCLASSIFIED'] { border-left-color: var(--down); }
+.why__cat { font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: 0.06em; color: var(--text); }
+.why__codes { margin: 2px 0 0; font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); overflow-wrap: anywhere; }
+.why__stages { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--text-faint); }
+
 .v2__facts {
   margin: 0 0 var(--sp-3);
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--sp-2) var(--sp-3);
 }
-
+.v2__facts--stack { grid-template-columns: 1fr; margin: var(--sp-3) 0 0; }
+.v2__facts-wide { grid-column: 1 / -1; }
 .v2__facts dt { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.1em; color: var(--text-faint); }
-.v2__facts dd { margin: 0; font-family: var(--mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.v2__facts dd { margin: 2px 0 0; font-family: var(--mono); font-size: var(--fs-xs); overflow-wrap: break-word; }
 
-.v2__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--fs-xs);
-  margin-bottom: var(--sp-3);
-}
-
-.v2__caption {
-  caption-side: top;
-  text-align: left;
+.v2__subtitle {
+  margin: var(--sp-4) 0 var(--sp-2);
   font-family: var(--mono);
   font-size: var(--fs-micro);
-  letter-spacing: 0.1em;
+  font-weight: 500;
+  letter-spacing: 0.12em;
   color: var(--text-faint);
-  padding-bottom: var(--sp-1);
 }
 
+.stages { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+
+.stage {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-strong);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--panel-alt);
+}
+.stage[data-capability='SIMULATED'] { border-left-color: var(--major); }
+.stage[data-capability='BLOCKED'] { border-left-color: var(--down); }
+
+.stage__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-3); }
+.stage__name { font-family: var(--mono); font-size: var(--fs-sm); font-weight: 600; letter-spacing: 0.06em; color: var(--text); }
+.stage__state { font-family: var(--mono); font-size: var(--fs-xs); color: var(--major); }
+.stage[data-capability='BLOCKED'] .stage__state { color: var(--down); }
+.stage__cap { margin-left: auto; font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.08em; color: var(--text-faint); }
+
+.stage__reasons { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+.reason {
+  display: inline-flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  max-width: 100%;
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--rule-strong);
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+}
+.reason__cat { color: var(--text-faint); letter-spacing: 0.06em; white-space: nowrap; }
+.reason__code { color: var(--text-dim); overflow-wrap: anywhere; }
+.reason[data-category='BUSINESS_DECISION'] { border-color: rgba(232, 163, 61, 0.5); }
+.reason[data-category='AUTHORIZATION'] { border-color: rgba(255, 92, 87, 0.5); }
+.reason[data-category='ENVIRONMENT'] { border-color: rgba(74, 158, 219, 0.5); }
+.reason[data-category='DATA'],
+.reason[data-category='INTEGRITY'],
+.reason[data-category='UNCLASSIFIED'] { border-color: var(--down); }
+
+.stage__version { margin-top: var(--sp-1); font-family: var(--mono); font-size: var(--fs-micro); color: var(--text-faint); overflow-wrap: anywhere; }
+
+.v2__scroll-x { overflow-x: auto; }
+.v2__table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
 .v2__table th {
   font-family: var(--mono);
   font-size: var(--fs-micro);
@@ -934,23 +1068,33 @@ body {
   text-align: left;
   padding: var(--sp-1) var(--sp-2);
   border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
 }
+.v2__table td { padding: var(--sp-2); border-bottom: 1px solid var(--panel-alt); vertical-align: top; white-space: nowrap; }
+.v2__field { font-family: var(--mono); color: var(--text); }
+.v2__empty { color: var(--text-faint); list-style: none; }
+.v2__state-cell { font-family: var(--mono); }
+/* Un champ LIVE au cutoff d'une simulation n'est pas un flux en direct : neutre. */
+tr[data-status='LIVE'] .v2__state-cell { color: var(--text); }
+tr[data-status='STALE'] .v2__state-cell { color: var(--major); }
+tr[data-status='UNAVAILABLE'] .v2__state-cell { color: var(--down); }
 
-.v2__table td {
-  padding: var(--sp-1) var(--sp-2);
-  border-bottom: 1px solid var(--panel-alt);
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
+.v2__counts { margin: 0 0 var(--sp-3); font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.06em; color: var(--text-dim); }
 
-.v2__reasons { color: var(--text-dim); font-family: var(--mono); font-size: var(--fs-micro); }
-.v2__empty { color: var(--text-faint); }
-.v2__state-cell { font-family: var(--mono); white-space: nowrap; }
-
-tr[data-capability='OPERATIONAL_LOCAL'] .v2__state-cell { color: var(--info); }
-tr[data-capability='SIMULATED'] .v2__state-cell { color: var(--major); }
-tr[data-capability='BLOCKED'] .v2__state-cell { color: var(--down); }
-tr[data-capability='NOT_VALIDATED'] .v2__state-cell { color: var(--text-faint); }
+.caps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.cap { border-left: 3px solid var(--rule-strong); padding: var(--sp-1) var(--sp-3); }
+.cap[data-capability='OPERATIONAL_LOCAL'] { border-left-color: var(--info); }
+.cap[data-capability='SIMULATED'] { border-left-color: var(--major); }
+.cap[data-capability='BLOCKED'] { border-left-color: var(--down); }
+.cap__head { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); align-items: baseline; }
+.cap__id { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; color: var(--text); }
+.cap__status { margin-left: auto; font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.08em; }
+.cap[data-capability='OPERATIONAL_LOCAL'] .cap__status { color: var(--info); }
+.cap[data-capability='SIMULATED'] .cap__status { color: var(--major); }
+.cap[data-capability='BLOCKED'] .cap__status { color: var(--down); }
+.cap[data-capability='NOT_VALIDATED'] .cap__status { color: var(--text-faint); }
+.cap__detail { margin: 2px 0 0; color: var(--text-dim); font-size: var(--fs-xs); }
+.cap__blockers { margin: 2px 0 0; color: var(--text-faint); font-family: var(--mono); font-size: var(--fs-micro); }
 
 /* --------------------------------------------------------------------------
    11. RESPONSIVE
@@ -974,8 +1118,8 @@ tr[data-capability='NOT_VALIDATED'] .v2__state-cell { color: var(--text-faint); 
   .panel--scenarios  { order: 2; }
   .panel--news       { order: 3; }
   .panel--macro      { order: 4; }
-  .panel--chain        { order: 5; }
-  .panel--capabilities { order: 6; }
+  .workspace--chain { grid-template-columns: 1fr; }
+  .v2__facts--stack { grid-template-columns: 1fr; }
   .v2__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

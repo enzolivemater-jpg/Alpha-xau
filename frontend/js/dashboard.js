@@ -138,6 +138,7 @@
     driversList: $('drivers-list'),
 
     macroRows: $('macro-rows'),
+    macroMeta: $('macro-meta'),
 
     newsStream: $('news-stream'),
     newsCount: $('news-count'),
@@ -157,20 +158,36 @@
     tplNews: $('tpl-news-item'),
     tplScenario: $('tpl-scenario'),
 
+    tabMarket: $('tab-market'),
+    tabChain: $('tab-chain'),
+    tabChainState: $('tab-chain-state'),
+    wsMarket: $('ws-market'),
+    wsChain: $('ws-chain'),
+    modeV1: $('mode-v1'),
+    modeV1Val: $('mode-v1-val'),
+    modeV2: $('mode-v2'),
+    modeV2Val: $('mode-v2-val'),
+
     v2Origin: $('v2-origin'),
     v2Status: $('v2-status'),
     v2State: $('v2-state'),
     v2Detail: $('v2-detail'),
+    v2Why: $('v2-why'),
+    v2WhyLead: $('v2-why-lead'),
+    v2WhyList: $('v2-why-list'),
     v2ChainState: $('v2-chain-state'),
     v2Execution: $('v2-execution'),
     v2Integrity: $('v2-integrity'),
     v2Cutoff: $('v2-cutoff'),
+    v2CutoffAge: $('v2-cutoff-age'),
     v2Digest: $('v2-digest'),
     v2Generated: $('v2-generated'),
     v2Stages: $('v2-stages'),
     v2Market: $('v2-market'),
+    v2MarketState: $('v2-market-state'),
     v2Replay: $('v2-replay'),
     v2Positioning: $('v2-positioning'),
+    v2PositioningThrough: $('v2-positioning-through'),
     v2PositioningSources: $('v2-positioning-sources'),
     v2Capabilities: $('v2-capabilities'),
     v2CapabilityCount: $('v2-capability-count'),
@@ -322,15 +339,19 @@
       // Un prix de démonstration n'a pas de fraîcheur : il n'est jamais LIVE.
       setAttr(el.priceFreshness, 'data-state', 'demo');
       setText(el.priceFreshness, 'DÉMO');
+      setMarketMode('demo');
     } else if (staleness === null) {
       setAttr(el.priceFreshness, 'data-state', 'unknown');
       setText(el.priceFreshness, 'FRAÎCHEUR N/A');
+      setMarketMode('unknown');
     } else if (staleness <= CONFIG.STALE_THRESHOLD_S) {
       setAttr(el.priceFreshness, 'data-state', 'live');
       setText(el.priceFreshness, `LIVE ${staleness}s`);
+      setMarketMode('live', staleness);
     } else {
       setAttr(el.priceFreshness, 'data-state', 'stale');
       setText(el.priceFreshness, `STALE ${staleness}s`);
+      setMarketMode('stale', staleness);
     }
 
     setText(el.commandUpdated, fmtTimeUTC(tick.ts) + ' UTC');
@@ -341,6 +362,11 @@
     for (const t of ticks) bySymbol[t.symbol] = t;
 
     const gold = bySymbol['XAUUSD'];
+
+    /* Provenance de la matrice : jamais une valeur sans dire d'où et de quand. */
+    setText(el.macroMeta, DEMO_MODE ? 'DÉMO — VALEURS SYNTHÉTIQUES'
+      : gold && gold.ts ? `TICK ${fmtTimeUTC(gold.ts)} UTC${isNum(gold.staleness_seconds) ? ` · ${gold.staleness_seconds}s` : ''}`
+        : 'HORODATAGE N/A');
 
     /* Les drivers macro sont estampillés sur le tick de l'or (colonnes
        dxy_value, real_yield…). On retombe sur les instruments dédiés
@@ -663,6 +689,25 @@
     /* La donnée affichée devient suspecte dès que le flux est rompu. */
     setAttr(el.priceFreshness, 'data-state', 'offline');
     setText(el.priceFreshness, 'FLUX ROMPU');
+    setMarketMode('offline');
+  }
+
+  /**
+   * Nature des données marché, toujours visible. LIVE n'est affiché que pour
+   * un flux réel dont la fraîcheur est dans le seuil ; tout le reste le dit.
+   */
+  const MARKET_MODES = {
+    demo: 'DÉMO — VALEURS SYNTHÉTIQUES',
+    live: 'LIVE',
+    stale: 'PÉRIMÉ',
+    offline: 'FLUX ROMPU',
+    unknown: 'FRAÎCHEUR INCONNUE',
+    connecting: 'CONNEXION…',
+  };
+
+  function setMarketMode(mode, staleness) {
+    setAttr(el.modeV1, 'data-mode', mode);
+    setText(el.modeV1Val, isNum(staleness) ? `${MARKET_MODES[mode]} ${staleness}s` : MARKET_MODES[mode]);
   }
 
   function clearError() {
@@ -777,7 +822,7 @@
     setText(el.aiBias, 'N/A');
     setAttr(el.aiBias, 'data-dir', 'neutral');
     setText(el.convictionValue, 'N/A');
-    setText(el.convictionGrade, 'N/A');
+    el.convictionGrade.textContent = '';
     el.convictionBar.style.width = '0%';
     setText(el.marketRegime, 'N/A');
     setText(el.executionStatus, state === 'NO_DATA' ? 'AUCUNE ANALYSE' : state);
@@ -1003,10 +1048,48 @@ let pollTimer = null;
   }
 
   /* ======================================================================
-     11 bis. CHAÎNE DÉCISIONNELLE V2 (VUE LOCALE CHAIN-0)
+     11 bis. ESPACES DE TRAVAIL
      ====================================================================== */
 
-  const V2_SCHEMA_VERSION = 'xau.terminal-local-view.v1';
+  const WORKSPACE_KEY = 'alpha-xau.workspace';
+
+  /** Onglets accessibles : flèches gauche/droite, Début/Fin, ancre #chaine. */
+  function selectWorkspace(name, focus) {
+    const chain = name === 'chain';
+    el.wsMarket.hidden = chain;
+    el.wsChain.hidden = !chain;
+    for (const [tab, selected] of [[el.tabMarket, !chain], [el.tabChain, chain]]) {
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    }
+    if (focus) (chain ? el.tabChain : el.tabMarket).focus();
+    try { window.localStorage.setItem(WORKSPACE_KEY, chain ? 'chain' : 'market'); } catch { /* stockage indisponible */ }
+  }
+
+  function initWorkspaces() {
+    let initial = window.location.hash === '#chaine' ? 'chain' : 'market';
+    if (initial === 'market' && window.location.hash !== '#marche') {
+      try { if (window.localStorage.getItem(WORKSPACE_KEY) === 'chain') initial = 'chain'; } catch { /* idem */ }
+    }
+    selectWorkspace(initial, false);
+    el.tabMarket.addEventListener('click', () => selectWorkspace('market', false));
+    el.tabChain.addEventListener('click', () => selectWorkspace('chain', false));
+    for (const tab of [el.tabMarket, el.tabChain]) {
+      tab.addEventListener('keydown', (event) => {
+        const key = event.key;
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
+        event.preventDefault();
+        const toChain = key === 'End' || ((key === 'ArrowRight' || key === 'ArrowLeft') && tab === el.tabMarket);
+        selectWorkspace(toChain ? 'chain' : 'market', true);
+      });
+    }
+  }
+
+  /* ======================================================================
+     11 ter. CHAÎNE DÉCISIONNELLE V2 (VUE LOCALE CHAIN-0)
+     ====================================================================== */
+
+  const V2_SCHEMA_VERSION = 'xau.terminal-local-view.v2';
 
   const V2_CAPABILITY_LABELS = {
     OPERATIONAL_LOCAL: 'OPÉRATIONNEL LOCAL',
@@ -1024,13 +1107,26 @@ let pollTimer = null;
     ENVIRONMENT: 'ENVIRONNEMENT',
   };
 
-  const V2_ORIGIN_LABELS = {
-    GOLDEN_FIXTURE: 'SIMULÉ — FIXTURE',
-    LOCAL_INPUT_FILE: 'SIMULÉ — FICHIER LOCAL',
+  /* Ce qu'il faut pour lever chaque type de blocage. */
+  const V2_BLOCKER_ACTIONS = {
+    INTEGRITY: 'défaut technique à corriger',
+    DATA: 'données à fournir ou à corriger',
+    BUSINESS_DECISION: 'méthode ou politique à approuver',
+    AUTHORIZATION: 'autorisation explicite requise',
+    ENVIRONMENT: 'runtime, déploiement ou connexion inexistants',
   };
+
+  const V2_ORIGIN_LABELS = {
+    GOLDEN_FIXTURE: 'SIMULATION — FIXTURE',
+    LOCAL_INPUT_FILE: 'SIMULATION — FICHIER LOCAL',
+  };
+
+  const V2_TEMPORAL = ['HISTORICAL', 'AT_GENERATION', 'UNKNOWN'];
 
   const isList = Array.isArray;
   const isText = (v) => typeof v === 'string' && v.length > 0;
+  const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  const label = (code) => String(code).replace(/_/g, ' ');
 
   /**
    * Garde-fou client : la vue doit dire HOLD, exécution interdite, simulée,
@@ -1041,7 +1137,8 @@ let pollTimer = null;
     if (!view || typeof view !== 'object') return 'vue absente';
     if (view.schemaVersion !== V2_SCHEMA_VERSION) return `version inconnue (${String(view.schemaVersion)})`;
     if (view.simulated !== true) return 'vue non marquée simulée';
-    if (!Object.prototype.hasOwnProperty.call(V2_ORIGIN_LABELS, view.origin && view.origin.kind)) return 'origine inconnue';
+    if (!has(V2_ORIGIN_LABELS, view.origin && view.origin.kind)) return 'origine inconnue';
+    if (!view.temporal || !V2_TEMPORAL.includes(view.temporal.classification)) return 'classification temporelle inconnue';
     const chain = view.chain;
     if (!chain || chain.chainState !== 'HOLD') return 'état de chaîne différent de HOLD';
     if (chain.execution !== 'FORBIDDEN') return 'exécution non interdite';
@@ -1049,25 +1146,30 @@ let pollTimer = null;
     if (!isList(view.stages) || !isList(view.capabilities) || !view.market || !isList(view.market.fields)) {
       return 'structure incomplète';
     }
+    const why = view.holdRationale;
+    if (!why || !isList(why.rootCauses) || !isList(why.unclassifiedCodes)) return 'justification du HOLD absente';
+    for (const c of why.rootCauses) {
+      if (!c || !has(V2_BLOCKER_LABELS, c.category) || !isList(c.codes) || !isList(c.stages)) return 'cause non conforme';
+    }
     for (const c of view.capabilities) {
-      if (!c || !Object.prototype.hasOwnProperty.call(V2_CAPABILITY_LABELS, c.status) || !isList(c.blockers)) {
-        return 'capacité non conforme';
-      }
+      if (!c || !has(V2_CAPABILITY_LABELS, c.status) || !isList(c.blockers)) return 'capacité non conforme';
     }
     for (const st of view.stages) {
       if (!st || !isText(st.stage) || !isText(st.state) || !isList(st.reasons)
-          || !Object.prototype.hasOwnProperty.call(V2_CAPABILITY_LABELS, st.capability)) {
+          || !has(V2_CAPABILITY_LABELS, st.capability)) {
         return 'étage non conforme';
       }
     }
     return null;
   }
 
-  function v2Cell(text, className) {
-    const td = document.createElement('td');
-    if (className) td.className = className;
-    td.textContent = text == null || text === '' ? '—' : String(text);
-    return td;
+  /** Construit un élément avec texte et attributs, jamais de HTML. */
+  function node(tag, className, text, attrs) {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text !== undefined) n.textContent = text == null || text === '' ? '—' : String(text);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+    return n;
   }
 
   function v2Row(cells) {
@@ -1077,7 +1179,7 @@ let pollTimer = null;
   }
 
   function v2EmptyRow(colspan, text) {
-    const td = v2Cell(text, 'v2__empty');
+    const td = node('td', 'v2__empty', text);
     td.colSpan = colspan;
     return v2Row([td]);
   }
@@ -1085,25 +1187,100 @@ let pollTimer = null;
   const v2Blockers = (list) => (isList(list) && list.length
     ? list.map((b) => V2_BLOCKER_LABELS[b] || 'NON CLASSÉ').join(' · ') : '—');
 
-  function v2Status(stateName, label, detail) {
+  /** Durée lisible d'un âge en secondes. */
+  function fmtAge(seconds) {
+    if (!isNum(seconds)) return 'N/A';
+    const sign = seconds < 0 ? '-' : '';
+    const s = Math.abs(seconds);
+    if (s < 120) return `${sign}${s} s`;
+    if (s < 7200) return `${sign}${Math.floor(s / 60)} min`;
+    if (s < 172800) return `${sign}${Math.floor(s / 3600)} h`;
+    return `${sign}${Math.floor(s / 86400)} j`;
+  }
+
+  function v2Status(stateName, title, detail) {
     setAttr(el.v2Status, 'data-state', stateName);
-    setText(el.v2State, label);
+    setText(el.v2State, title);
     setText(el.v2Detail, detail);
   }
 
+  function setChainMode(mode, text) {
+    setAttr(el.modeV2, 'data-mode', mode);
+    setText(el.modeV2Val, text);
+    setText(el.tabChainState, mode === 'unavailable' ? '—' : mode === 'refused' ? 'REFUSÉE' : 'HOLD');
+    setAttr(el.tabChainState, 'data-mode', mode);
+  }
+
   /** Vue absente, illisible ou rejetée : rien d'autre n'est affiché. */
-  function renderV2Unavailable(stateName, label, detail) {
-    v2Status(stateName, label, detail);
+  function renderV2Unavailable(stateName, title, detail) {
+    v2Status(stateName, title, detail);
+    setChainMode(stateName === 'unavailable' ? 'unavailable' : 'refused',
+      stateName === 'unavailable' ? 'INDISPONIBLE' : title);
     setAttr(el.v2Origin, 'data-state', 'unknown');
     setText(el.v2Origin, stateName === 'unavailable' ? 'AUCUN RUNTIME' : 'VUE REFUSÉE');
-    for (const node of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2Digest, el.v2Generated,
-      el.v2Replay, el.v2Positioning, el.v2PositioningSources]) {
-      setText(node, '—');
+    el.v2Why.hidden = true;
+    for (const n of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2CutoffAge, el.v2Digest,
+      el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningThrough, el.v2PositioningSources, el.v2MarketState]) {
+      setText(n, '—');
     }
-    el.v2Stages.replaceChildren(v2EmptyRow(4, '—'));
+    setAttr(el.v2Digest, 'title', null);
+    el.v2Stages.replaceChildren(node('li', 'v2__empty', '—'));
     el.v2Market.replaceChildren(v2EmptyRow(6, '—'));
-    el.v2Capabilities.replaceChildren(v2EmptyRow(4, 'Matrice indisponible sans vue V2.'));
+    el.v2Capabilities.replaceChildren(node('li', 'v2__empty', 'Matrice indisponible sans vue V2.'));
     setText(el.v2CapabilityCount, '—');
+  }
+
+  function renderWhy(view) {
+    const why = view.holdRationale;
+    if (view.chain.outcome !== 'COMPLETED') {
+      el.v2Why.hidden = true;
+      return;
+    }
+    el.v2Why.hidden = false;
+    const first = why.firstBlockedStage ? label(why.firstBlockedStage) : 'aucun';
+    setText(el.v2WhyLead, `Premier étage bloquant : ${first}. `
+      + `${why.inheritedReasonCount} motif(s) hérité(s) de l'amont ; causes à lever :`);
+    const items = [];
+    for (const cause of why.rootCauses) {
+      const wrap = node('div', 'why', undefined, { 'data-category': cause.category });
+      wrap.appendChild(node('dt', 'why__cat', `${V2_BLOCKER_LABELS[cause.category]} — ${V2_BLOCKER_ACTIONS[cause.category]}`));
+      wrap.appendChild(node('dd', 'why__codes', cause.codes.map(label).join(' · ')));
+      wrap.appendChild(node('dd', 'why__stages', `Étages : ${cause.stages.map(label).join(', ')}`));
+      items.push(wrap);
+    }
+    if (why.unclassifiedCodes.length) {
+      const wrap = node('div', 'why', undefined, { 'data-category': 'UNCLASSIFIED' });
+      wrap.appendChild(node('dt', 'why__cat', 'NON CLASSÉ — motif inconnu de ce terminal'));
+      wrap.appendChild(node('dd', 'why__codes', why.unclassifiedCodes.map(label).join(' · ')));
+      items.push(wrap);
+    }
+    el.v2WhyList.replaceChildren(...items);
+  }
+
+  function renderStages(view) {
+    if (view.stages.length === 0) {
+      el.v2Stages.replaceChildren(node('li', 'v2__empty', 'Aucun étage : entrée rejetée avant la chaîne.'));
+      return;
+    }
+    el.v2Stages.replaceChildren(fragmentOf(view.stages, (st) => {
+      const li = node('li', 'stage', undefined, { 'data-capability': st.capability, 'data-state': st.state });
+      const head = node('div', 'stage__head');
+      head.appendChild(node('span', 'stage__name', label(st.stage)));
+      head.appendChild(node('span', 'stage__state', st.state));
+      head.appendChild(node('span', 'stage__cap', V2_CAPABILITY_LABELS[st.capability]));
+      li.appendChild(head);
+      const reasons = node('ul', 'stage__reasons');
+      for (const r of st.reasons) {
+        const category = r && has(V2_BLOCKER_LABELS, r.category) ? r.category : 'UNCLASSIFIED';
+        const item = node('li', 'reason', undefined, { 'data-category': category });
+        item.appendChild(node('span', 'reason__cat', V2_BLOCKER_LABELS[category] || 'NON CLASSÉ'));
+        item.appendChild(node('span', 'reason__code', (r && r.code) || '?'));
+        reasons.appendChild(item);
+      }
+      if (st.reasons.length) li.appendChild(reasons);
+      li.appendChild(node('div', 'stage__version', `${st.schemaVersion || '?'} · ${st.algorithmVersion || '?'}`));
+      return li;
+    }));
   }
 
   function renderV2(view) {
@@ -1113,8 +1290,12 @@ let pollTimer = null;
       return;
     }
     const chain = view.chain;
+    const temporal = view.temporal;
+    const historical = temporal.classification === 'HISTORICAL';
     setAttr(el.v2Origin, 'data-state', 'simulated');
     setText(el.v2Origin, V2_ORIGIN_LABELS[view.origin.kind]);
+    setChainMode(historical ? 'historical' : 'simulated',
+      `${V2_ORIGIN_LABELS[view.origin.kind]}${historical ? ` · HISTORIQUE (cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)})` : ''} · HOLD`);
 
     if (chain.outcome === 'REJECTED') {
       const r = chain.rejection || {};
@@ -1127,40 +1308,33 @@ let pollTimer = null;
     } else {
       const findings = isList(chain.inputFindings) ? chain.inputFindings.length : 0;
       v2Status('hold', 'HOLD — EXÉCUTION INTERDITE',
-        `Dry run local, aucune décision positive approuvée${findings ? ` ; ${findings} entrée(s) rendue(s) plus restrictive(s)` : ''}.`);
+        `Simulation locale, pas une analyse de marché réelle. Aucune décision positive approuvée${findings ? ` ; ${findings} entrée(s) rendue(s) plus restrictive(s)` : ''}.`);
     }
+    renderWhy(view);
 
     setText(el.v2ChainState, chain.chainState);
-    setText(el.v2Execution, chain.execution === 'FORBIDDEN' ? 'INTERDITE' : '—');
+    setText(el.v2Execution, 'INTERDITE');
     setText(el.v2Integrity, chain.integrity || 'N/A');
     setText(el.v2Cutoff, chain.knowledgeCutoff || 'N/A');
-    setText(el.v2Digest, isText(chain.digest) ? chain.digest.slice(0, 19) : 'N/A');
+    setText(el.v2CutoffAge, isNum(temporal.cutoffAgeSeconds)
+      ? `${fmtAge(temporal.cutoffAgeSeconds)}${historical ? ' — HISTORIQUE' : ''}` : 'N/A');
+    setText(el.v2Digest, isText(chain.digest) ? chain.digest : 'N/A');
     setAttr(el.v2Digest, 'title', isText(chain.digest) ? chain.digest : null);
     setText(el.v2Generated, isText(view.generatedAt) ? `${fmtTimeUTC(view.generatedAt)} UTC` : 'N/A');
 
-    el.v2Stages.replaceChildren(view.stages.length === 0
-      ? v2EmptyRow(4, 'Aucun étage : entrée rejetée avant la chaîne.')
-      : fragmentOf(view.stages, (st) => {
-        const tr = v2Row([
-          v2Cell(st.stage.replace(/_/g, ' ')),
-          v2Cell(st.state, 'v2__state-cell'),
-          v2Cell(V2_CAPABILITY_LABELS[st.capability]),
-          v2Cell(st.reasons.map((r) => (r && r.code) || '?').join(' · '), 'v2__reasons'),
-        ]);
-        tr.setAttribute('data-capability', st.capability);
-        return tr;
-      }));
+    renderStages(view);
 
+    setText(el.v2MarketState, view.market.state ? `MP-0 ${view.market.state}` : '—');
     el.v2Market.replaceChildren(view.market.fields.length === 0
       ? v2EmptyRow(6, 'Aucun champ de marché.')
       : fragmentOf(view.market.fields, (f) => {
         const tr = v2Row([
-          v2Cell(String(f.field || '?').toUpperCase()),
-          v2Cell(isNum(f.value) ? String(f.value) : 'N/A', 'ta-r num'),
-          v2Cell(f.statusAtCutoff),
-          v2Cell(isNum(f.ageSecondsAtCutoff) ? `${f.ageSecondsAtCutoff}s` : 'N/A', 'ta-r num'),
-          v2Cell(isText(f.observedAt) ? f.observedAt : 'N/A', 'num'),
-          v2Cell(f.source || 'N/A'),
+          node('td', 'v2__field', String(f.field || '?').toUpperCase()),
+          node('td', 'ta-r num', isNum(f.value) ? String(f.value) : 'N/A'),
+          node('td', 'v2__state-cell', f.statusAtCutoff === 'LIVE' ? 'LIVE AU CUTOFF' : f.statusAtCutoff),
+          node('td', 'ta-r num', isNum(f.ageSecondsAtCutoff) ? fmtAge(f.ageSecondsAtCutoff) : 'N/A'),
+          node('td', 'num', isText(f.observedAt) ? f.observedAt.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'N/A'),
+          node('td', '', f.source || 'N/A'),
         ]);
         tr.setAttribute('data-status', String(f.statusAtCutoff || 'UNKNOWN'));
         return tr;
@@ -1173,8 +1347,8 @@ let pollTimer = null;
     const pos = view.positioning || {};
     setText(el.v2Positioning, isText(pos.evidenceState)
       ? `${pos.evidenceState} · ${isNum(pos.evidenceCount) ? pos.evidenceCount : 0} preuve(s) · signal ${pos.positioningState || 'N/A'}`
-        + `${isText(pos.observedThrough) ? ` · observé jusqu'à ${pos.observedThrough}` : ''}`
       : 'N/A');
+    setText(el.v2PositioningThrough, isText(pos.observedThrough) ? pos.observedThrough : 'N/A');
     setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length
       ? pos.sourceAuthorities.join(' · ') : 'N/A');
 
@@ -1183,21 +1357,21 @@ let pollTimer = null;
     setText(el.v2CapabilityCount, Object.keys(V2_CAPABILITY_LABELS)
       .map((k) => `${V2_CAPABILITY_LABELS[k]} ${counts[k] || 0}`).join(' · '));
     el.v2Capabilities.replaceChildren(fragmentOf(view.capabilities, (c) => {
-      const tr = v2Row([
-        v2Cell(String(c.id || '?').replace(/_/g, ' ')),
-        v2Cell(V2_CAPABILITY_LABELS[c.status], 'v2__state-cell'),
-        v2Cell(v2Blockers(c.blockers)),
-        v2Cell(c.detail),
-      ]);
-      tr.setAttribute('data-capability', c.status);
-      return tr;
+      const li = node('li', 'cap', undefined, { 'data-capability': c.status });
+      const head = node('div', 'cap__head');
+      head.appendChild(node('span', 'cap__id', label(c.id || '?')));
+      head.appendChild(node('span', 'cap__status', V2_CAPABILITY_LABELS[c.status]));
+      li.appendChild(head);
+      li.appendChild(node('p', 'cap__detail', c.detail));
+      li.appendChild(node('p', 'cap__blockers', `Blocages : ${v2Blockers(c.blockers)}`));
+      return li;
     }));
   }
 
   async function refreshV2() {
     if (!CONFIG.V2_VIEW_URL) {
       renderV2Unavailable('unavailable', 'INDISPONIBLE',
-        'Aucun runtime V2 déployé. En local : node scripts/serve_terminal_local.mjs');
+        'Aucun runtime V2 déployé. En local : npm run terminal:local');
       return;
     }
     const controller = new AbortController();
@@ -1299,6 +1473,9 @@ let pollTimer = null;
 
   function init() {
     startClock();
+
+    setMarketMode(DEMO_MODE ? 'demo' : 'connecting');
+    initWorkspaces();
 
     /* La vue V2 est indépendante du flux V1 : elle est lue dans les deux modes. */
     refreshV2();
