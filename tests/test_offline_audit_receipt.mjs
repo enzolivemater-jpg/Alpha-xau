@@ -14,6 +14,7 @@ const sources = [
   'risk_engine/pre_pm_contract.ts', 'portfolio_engine/contract.ts',
   'risk_engine/final_action_contract.ts', 'action_engine/contract.ts',
   'command_center/contract.ts', 'alert_engine/contract.ts', 'acceptance_engine/contract.ts',
+  'shared/temporal_contract.ts',
   'decision_chain/dry_run.ts', 'observability/offline_receipt.ts',
 ];
 const temp = mkdtempSync(path.join(tmpdir(), 'xau-obs-0-'));
