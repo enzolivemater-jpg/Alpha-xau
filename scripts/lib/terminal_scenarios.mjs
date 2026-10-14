@@ -89,7 +89,9 @@ TERMINAL_SCENARIOS.push(
   },
   {
     id: 'archive-after-correction',
-    label: 'Même archive rejouée le lendemain : la correction WTI est connue',
+    // Event Impact and Gold Transmission keep the golden cutoff: S-0 reports
+    // the stale upstream evaluation instead of mixing it in silently.
+    label: 'Même archive rejouée le lendemain : correction WTI connue ; Event Impact et Gold Transmission restent au cutoff précédent (incohérence signalée)',
     archive: (fixture) => ({ archive: clone(fixture), knowledgeCutoff: '2026-10-02T14:00:00.000Z' }),
   },
   {

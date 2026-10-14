@@ -118,7 +118,12 @@ const archiveView = await scenarioView('archive-synthetic');
 assert.equal(archiveView.marketEvidence.status, 'VERIFIED');
 assert.equal(archiveView.marketEvidence.nature, 'SIMULATION');
 assert.equal(archiveView.market.fields.find((f) => f.field === 'wti').value, 66.4);
-assert.equal((await scenarioView('archive-after-correction')).market.fields.find((f) => f.field === 'wti').value, 66.9);
+const afterCorrection = await scenarioView('archive-after-correction');
+assert.equal(afterCorrection.market.fields.find((f) => f.field === 'wti').value, 66.9);
+// Upstream summaries evaluated at another cutoff are reported, never mixed in silently.
+assert.ok(reasonsOf(afterCorrection, 'HORIZON_SYNTHESIS').includes('UPSTREAM_CUTOFF_MISMATCH'));
+assert.ok(afterCorrection.holdRationale.rootCauses.some((c) => c.category === 'INTEGRITY' && c.codes.includes('UPSTREAM_CUTOFF_MISMATCH')));
+assert.ok(!reasonsOf(archiveView, 'HORIZON_SYNTHESIS').includes('UPSTREAM_CUTOFF_MISMATCH'), 'aligned cutoffs: no mismatch');
 assert.equal((await scenarioView('archive-incomplete')).marketEvidence.reproducible, false);
 for (const id of ['archive-unit-mismatch', 'archive-contradiction']) {
   const v = await scenarioView(id);
