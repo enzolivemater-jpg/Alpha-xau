@@ -50,13 +50,24 @@ for (const code of classified) {
 }
 console.log(`PASS ${emitted.size} gate reason codes classified exactly once (${GATES.length} gates)`);
 
+// --- Every classified code has a plain-French meaning, and nothing else does.
+assert.deepEqual(Object.keys(tv.REASON_CODE_PLAIN_FR).sort(), [...classified].sort());
+for (const [code, text] of Object.entries(tv.REASON_CODE_PLAIN_FR)) {
+  assert.match(text, /^[A-ZÀ-Ý].{10,}\.$/u, `${code}: one sentence`);
+  assert.doesNotMatch(text, /[A-Z]{2,}_[A-Z]/, `${code}: no raw code in the plain text`);
+  // The plain text never promises a trade or a direction.
+  assert.doesNotMatch(text, /\b(achat|vente|acheter|vendre|BUY|SELL|haussier|baissier)\b/i, code);
+}
+assert.deepEqual(Object.keys(tv.BLOCKER_CATEGORY_PLAIN_FR).sort(), [...CATEGORIES].sort());
+console.log(`PASS ${classified.length} reason codes have a plain-French meaning`);
+
 // --- Golden view: a faithful copy of the chain.
 const outcome = chain.evaluateDecisionChain(golden.input, golden.knowledgeCutoff);
 assert.equal(outcome.kind, 'COMPLETED');
 const digest = await chain.computeDecisionChainDigest(outcome.result);
 const view = tv.buildTerminalView(outcome, digest, ORIGIN, AT);
-assert.equal(view.schemaVersion, 'xau.terminal-local-view.v2');
-assert.equal(view.algorithmVersion, 'terminal-local-view-2.0.0');
+assert.equal(view.schemaVersion, 'xau.terminal-local-view.v3');
+assert.equal(view.algorithmVersion, 'terminal-local-view-3.0.0');
 assert.equal(view.simulated, true);
 assert.equal(view.generatedAt, AT);
 assert.deepEqual(view.origin, ORIGIN);
@@ -73,6 +84,7 @@ outcome.result.trace.forEach((entry, i) => {
   assert.equal(stage.schemaVersion, entry.schemaVersion);
   assert.equal(stage.algorithmVersion, entry.algorithmVersion);
   assert.ok(stage.reasons.every((r) => r.category !== null), entry.stage);
+  assert.ok(stage.reasons.every((r) => r.plain === tv.REASON_CODE_PLAIN_FR[r.code]), entry.stage);
 });
 const abstaining = ['ABSTAIN', 'HOLD', 'SUPPRESSED', 'NOT_ACCEPTED'];
 for (const stage of view.stages) {
@@ -130,7 +142,62 @@ for (const st of view.stages) {
 for (const c of why.rootCauses) assert.equal(new Set(c.codes).size, c.codes.length, `${c.category} codes distinct`);
 assert.ok(why.rootCauses.find((c) => c.category === 'AUTHORIZATION').codes.includes('EXECUTION_NOT_AUTHORIZED'));
 assert.deepEqual(why.unclassifiedCodes, []);
+for (const c of why.rootCauses) {
+  assert.deepEqual(c.reasons, c.codes.map((code) => ({ code, plain: tv.REASON_CODE_PLAIN_FR[code] })), c.category);
+}
 console.log('PASS HOLD rationale: first blocking stage, root causes by category, inherited reasons counted');
+
+// --- Decision summary: state, main reasons, missing data, blocking dependencies.
+const summary = view.summary;
+assert.equal(summary.decision, 'HOLD');
+assert.equal(summary.execution, 'FORBIDDEN');
+assert.equal(summary.status, 'BLOCKED');
+assert.equal(summary.stageCount, 12);
+assert.equal(summary.blockedStageCount, view.stages.filter((st) => st.capability === 'BLOCKED').length);
+assert.equal(summary.headline,
+  `HOLD : ${summary.blockedStageCount} étage(s) sur 12 bloqué(s), le premier à HORIZON SYNTHESIS. Aucune décision positive n'est approuvée.`);
+// Main reasons: every root-cause category once, most codes first.
+assert.deepEqual(summary.mainReasons.map((r) => r.category).sort(), why.rootCauses.map((c) => c.category).sort());
+for (const r of summary.mainReasons) {
+  assert.equal(r.count, why.rootCauses.find((c) => c.category === r.category).codes.length, r.category);
+  assert.equal(r.plain, tv.BLOCKER_CATEGORY_PLAIN_FR[r.category]);
+}
+assert.ok(summary.mainReasons.every((r, i, all) => i === 0 || all[i - 1].count >= r.count), 'sorted by count');
+// Missing data: market fields not fresh at the cutoff, then DATA reasons (optional-field codes not repeated).
+assert.deepEqual(summary.missingData, [
+  { kind: 'MARKET_FIELD', code: 'dxy', plain: 'DXY indisponible au cutoff.' },
+  { kind: 'DATA_REASON', code: 'EVIDENCE_GRAPH_UNAVAILABLE', plain: tv.REASON_CODE_PLAIN_FR.EVIDENCE_GRAPH_UNAVAILABLE },
+]);
+// Blocking dependencies: every approval, authorization and environment root cause, with its stages.
+const dependencyCodes = why.rootCauses.filter((c) => ['BUSINESS_DECISION', 'AUTHORIZATION', 'ENVIRONMENT'].includes(c.category))
+  .flatMap((c) => c.codes);
+assert.deepEqual(summary.blockingDependencies.map((d) => d.code), dependencyCodes);
+for (const dep of summary.blockingDependencies) {
+  assert.equal(dep.category, tv.REASON_CODE_CATEGORY[dep.code], dep.code);
+  assert.equal(dep.plain, tv.REASON_CODE_PLAIN_FR[dep.code], dep.code);
+  assert.deepEqual(dep.stages, view.stages.filter((st) => st.reasons.some((r) => r.code === dep.code)).map((st) => st.stage));
+  assert.ok(dep.stages.length > 0, dep.code);
+}
+assert.ok(summary.blockingDependencies.some((d) => d.code === 'EXECUTION_NOT_AUTHORIZED' && d.stages.includes('ACTION')));
+assert.equal(summary.missingAcceptanceEvidence, 11);
+console.log('PASS decision summary: HOLD, main reasons by weight, missing data, blocking dependencies with stages');
+
+// --- Degraded inputs: the summary names what is missing.
+const degradedInput = structuredClone(golden.input);
+for (const field of ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti']) {
+  degradedInput.marketSnapshot[field] = { value: null, status: 'UNAVAILABLE', observedAt: null, ageSeconds: null, source: null };
+}
+Object.assign(degradedInput.marketSnapshot, { available: false, reason: 'outage', capturedAt: null });
+const degraded = tv.buildTerminalView(chain.evaluateDecisionChain(degradedInput, golden.knowledgeCutoff), null, ORIGIN, AT);
+assert.equal(degraded.summary.status, 'BLOCKED');
+assert.ok(degraded.summary.missingData.filter((m) => m.kind === 'MARKET_FIELD').length === 8, 'every field listed');
+assert.ok(degraded.summary.missingData.some((m) => m.code === 'SOURCE_SNAPSHOT_UNAVAILABLE'));
+assert.equal(degraded.holdRationale.firstBlockedStage, 'MARKET_PRICING');
+assert.match(degraded.summary.headline, /le premier à MARKET PRICING\./);
+const staleView = tv.buildTerminalView(chain.evaluateDecisionChain(golden.input, '2026-10-08T14:15:00.000Z'), null, ORIGIN, AT);
+assert.ok(staleView.summary.missingData.filter((m) => m.kind === 'MARKET_FIELD').every((m) => /(périmé|indisponible) au cutoff\.$/.test(m.plain)));
+assert.ok(staleView.summary.missingData.some((m) => m.code === 'spot'), 'a stale spot is missing data');
+console.log('PASS degraded inputs: unavailable and stale market fields are listed as missing data');
 
 // --- Capability matrix.
 const caps = Object.fromEntries(view.capabilities.map((c) => [c.id, c]));
@@ -173,6 +240,12 @@ for (const [input, cutoff] of [[undefined, undefined], [{ ...golden.input, extra
   assert.deepEqual(rv.horizons, []);
   assert.deepEqual(rv.acceptance.evidence, []);
   assert.deepEqual(rv.holdRationale, { firstBlockedStage: null, rootCauses: [], inheritedReasonCount: 0, unclassifiedCodes: [] });
+  assert.equal(rv.summary.status, 'INPUT_REJECTED');
+  assert.equal(rv.summary.decision, 'HOLD');
+  assert.equal(rv.summary.execution, 'FORBIDDEN');
+  assert.deepEqual(rv.summary.missingData.map((m) => m.code), rv.chain.rejection.inputErrors);
+  assert.ok(rv.summary.missingData.every((m) => m.kind === 'INPUT_ERROR'));
+  assert.deepEqual([rv.summary.mainReasons, rv.summary.blockingDependencies], [[], []]);
   assert.equal(rv.temporal.classification, 'UNKNOWN');
   assert.ok(rv.capabilities.every((c) => c.status === 'BLOCKED' || c.status === 'NOT_VALIDATED'), 'rejected view operational');
 }
@@ -192,12 +265,14 @@ assert.equal(violated.chain.integrity, 'VIOLATED');
 const regime = violated.stages.find((s) => s.stage === 'REGIME');
 assert.equal(regime.capability, 'BLOCKED');
 assert.ok(regime.blockers.includes('INTEGRITY'));
+assert.equal(violated.summary.status, 'INTEGRITY_VIOLATED');
+assert.match(violated.summary.headline, /incohérence interne/);
 console.log('PASS a violated chain marks the offending stage BLOCKED with an INTEGRITY blocker');
 
 // --- An unknown reason code is shown unclassified, never dropped.
 const odd = structuredClone(outcome.result);
 odd.trace[0].reasonCodes = [...odd.trace[0].reasonCodes, 'NEW_CODE'];
 const oddView = tv.buildTerminalView({ kind: 'COMPLETED', result: odd }, null, ORIGIN, AT);
-assert.deepEqual(oddView.stages[0].reasons.at(-1), { code: 'NEW_CODE', category: null });
+assert.deepEqual(oddView.stages[0].reasons.at(-1), { code: 'NEW_CODE', category: null, plain: null });
 assert.deepEqual(oddView.holdRationale.unclassifiedCodes, ['NEW_CODE']);
 console.log('PASS an unclassified reason code stays visible with a null category');

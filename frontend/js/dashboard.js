@@ -175,8 +175,16 @@
     v2Status: $('v2-status'),
     v2State: $('v2-state'),
     v2Detail: $('v2-detail'),
+    v2NavNature: $('v2-nav-nature'),
+    v2Summary: $('v2-sec-summary'),
+    v2SummaryHeadline: $('v2-summary-headline'),
+    v2SummaryReasons: $('v2-summary-reasons'),
+    v2SummaryMissing: $('v2-summary-missing'),
+    v2SummaryDeps: $('v2-summary-deps'),
+    v2StagesToggle: $('v2-stages-toggle'),
     v2Why: $('v2-why'),
     v2WhyLead: $('v2-why-lead'),
+    v2WhyLift: $('v2-why-lift'),
     v2WhyList: $('v2-why-list'),
     v2ChainState: $('v2-chain-state'),
     v2Execution: $('v2-execution'),
@@ -1096,7 +1104,7 @@ let pollTimer = null;
      11 ter. CHAÎNE DÉCISIONNELLE V2 (VUE LOCALE CHAIN-0)
      ====================================================================== */
 
-  const V2_SCHEMA_VERSION = 'xau.terminal-local-view.v2';
+  const V2_SCHEMA_VERSION = 'xau.terminal-local-view.v3';
 
   const V2_CAPABILITY_LABELS = {
     OPERATIONAL_LOCAL: 'OPÉRATIONNEL LOCAL',
@@ -1122,6 +1130,25 @@ let pollTimer = null;
     AUTHORIZATION: 'autorisation explicite requise',
     ENVIRONMENT: 'runtime, déploiement ou connexion inexistants',
   };
+
+  /* Dépendances bloquantes, regroupées par ce qu'il faut obtenir. */
+  const V2_DEPENDENCY_LABELS = {
+    BUSINESS_DECISION: 'APPROBATIONS MÉTIER',
+    AUTHORIZATION: 'AUTORISATIONS',
+    ENVIRONMENT: 'ENVIRONNEMENT',
+  };
+
+  /* Verbe de la phrase « pour lever le HOLD, il faudrait … ». */
+  const V2_LIFT_VERBS = {
+    INTEGRITY: (n) => `corriger ${n} incohérence(s) interne(s)`,
+    DATA: (n) => `fournir ou corriger ${n} donnée(s)`,
+    BUSINESS_DECISION: (n) => `approuver ${n} méthode(s) ou politique(s)`,
+    AUTHORIZATION: (n) => `accorder ${n} autorisation(s)`,
+    ENVIRONMENT: (n) => `mettre en place ${n} élément(s) d'environnement (runtime, déploiement, connexion)`,
+  };
+
+  const V2_SUMMARY_STATUS = ['BLOCKED', 'INPUT_REJECTED', 'INTEGRITY_VIOLATED'];
+  const V2_MISSING_KINDS = ['MARKET_FIELD', 'DATA_REASON', 'INPUT_ERROR'];
 
   const V2_ORIGIN_LABELS = {
     GOLDEN_FIXTURE: 'SIMULATION — FIXTURE',
@@ -1177,7 +1204,17 @@ let pollTimer = null;
     const why = view.holdRationale;
     if (!why || !isList(why.rootCauses) || !isList(why.unclassifiedCodes)) return 'justification du HOLD absente';
     for (const c of why.rootCauses) {
-      if (!c || !has(V2_BLOCKER_LABELS, c.category) || !isList(c.codes) || !isList(c.stages)) return 'cause non conforme';
+      if (!c || !has(V2_BLOCKER_LABELS, c.category) || !isList(c.codes) || !isList(c.stages)
+          || !isList(c.reasons)) return 'cause non conforme';
+    }
+    const sum = view.summary;
+    if (!sum || sum.decision !== 'HOLD' || sum.execution !== 'FORBIDDEN') return 'synthèse différente de HOLD';
+    if (!V2_SUMMARY_STATUS.includes(sum.status) || !isList(sum.mainReasons) || !isList(sum.missingData)
+        || !isList(sum.blockingDependencies)) return 'synthèse non conforme';
+    if (sum.mainReasons.some((r) => !r || !has(V2_BLOCKER_LABELS, r.category))
+        || sum.missingData.some((m) => !m || !V2_MISSING_KINDS.includes(m.kind))
+        || sum.blockingDependencies.some((dep) => !dep || !has(V2_DEPENDENCY_LABELS, dep.category))) {
+      return 'synthèse non conforme';
     }
     for (const c of view.capabilities) {
       if (!c || !has(V2_CAPABILITY_LABELS, c.status) || !isList(c.blockers)) return 'capacité non conforme';
@@ -1236,9 +1273,12 @@ let pollTimer = null;
     setText(el.v2Detail, detail);
   }
 
-  function setChainMode(mode, text) {
+  /** Nature de la vue : courte dans la barre commune, complète dans l'espace V2. */
+  function setChainMode(mode, text, full) {
     setAttr(el.modeV2, 'data-mode', mode);
     setText(el.modeV2Val, text);
+    setAttr(el.v2NavNature, 'data-mode', mode);
+    setText(el.v2NavNature, full || text);
     setText(el.tabChainState, mode === 'unavailable' ? '—' : mode === 'refused' ? 'REFUSÉE' : 'HOLD');
     setAttr(el.tabChainState, 'data-mode', mode);
   }
@@ -1251,6 +1291,7 @@ let pollTimer = null;
     setAttr(el.v2Origin, 'data-state', 'unknown');
     setText(el.v2Origin, stateName === 'unavailable' ? 'AUCUN RUNTIME' : 'VUE REFUSÉE');
     el.v2Why.hidden = true;
+    el.v2Summary.hidden = true;
     for (const n of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2CutoffAge, el.v2Digest,
       el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningThrough, el.v2PositioningSources, el.v2MarketState]) {
       setText(n, '—');
@@ -1266,6 +1307,45 @@ let pollTimer = null;
     setText(el.v2CapabilityCount, '—');
   }
 
+  /** Une liste de phrases ; l'élément vide garde la liste lisible. */
+  function plainList(className, items, empty) {
+    const ul = node('ul', className);
+    if (!items.length) ul.appendChild(node('li', 'v2__empty', empty));
+    for (const text of items) ul.appendChild(node('li', '', text));
+    return ul;
+  }
+
+  /** Synthèse décisionnelle : état global, raisons, données, dépendances. */
+  function renderSummary(view) {
+    const sum = view.summary;
+    el.v2Summary.hidden = false;
+    setAttr(el.v2Summary, 'data-status', sum.status);
+    setText(el.v2SummaryHeadline, sum.headline);
+    const reasons = sum.mainReasons.map((r) => `${r.count} — ${r.plain || V2_BLOCKER_LABELS[r.category]}`);
+    if (isNum(sum.missingAcceptanceEvidence) && sum.missingAcceptanceEvidence > 0) {
+      reasons.push(`${sum.missingAcceptanceEvidence}/${view.acceptance.evidence.length} preuves de recette manquantes`);
+    }
+    el.v2SummaryReasons.replaceChildren(...plainList('summary__list', reasons, 'Aucune cause racine.').childNodes);
+    el.v2SummaryMissing.replaceChildren(...plainList('summary__list',
+      sum.missingData.map((m) => m.plain || m.code), 'Aucune donnée manquante au cutoff.').childNodes);
+    const groups = Object.keys(V2_DEPENDENCY_LABELS).map((category) => [category,
+      sum.blockingDependencies.filter((dep) => dep.category === category)]).filter(([, deps]) => deps.length);
+    el.v2SummaryDeps.replaceChildren(...(groups.length ? groups.map(([category, deps]) => {
+      const box = node('details', 'dep', undefined, { 'data-category': category });
+      box.appendChild(node('summary', 'dep__head', `${V2_DEPENDENCY_LABELS[category]} (${deps.length})`));
+      const ul = node('ul', 'dep__list');
+      for (const dep of deps) {
+        const li = node('li', 'dep__item');
+        li.appendChild(node('span', 'dep__plain', dep.plain || dep.code));
+        li.appendChild(node('span', 'dep__code', `${dep.code}${isList(dep.stages) && dep.stages.length
+          ? ` · ${dep.stages.map(label).join(', ')}` : ''}`));
+        ul.appendChild(li);
+      }
+      box.appendChild(ul);
+      return box;
+    }) : [node('p', 'v2__empty', 'Aucune dépendance : la chaîne n\'a pas été évaluée.')]));
+  }
+
   function renderWhy(view) {
     const why = view.holdRationale;
     if (view.chain.outcome !== 'COMPLETED') {
@@ -1273,22 +1353,38 @@ let pollTimer = null;
       return;
     }
     el.v2Why.hidden = false;
-    const first = why.firstBlockedStage ? label(why.firstBlockedStage) : 'aucun';
-    setText(el.v2WhyLead, `Premier étage bloquant : ${first}. `
-      + `${why.inheritedReasonCount} motif(s) hérité(s) de l'amont ; causes à lever :`);
+    const first = why.firstBlockedStage ? label(why.firstBlockedStage) : null;
+    setText(el.v2WhyLead, first
+      ? `La chaîne s'arrête à ${first}, premier étage bloqué ; les étages suivants héritent de ce blocage `
+        + `(${why.inheritedReasonCount} motif(s) hérité(s) de l'amont).`
+      : 'Aucun étage ne s\'abstient, mais aucune décision positive n\'est approuvée : HOLD par construction.');
+    const steps = why.rootCauses.filter((c) => has(V2_LIFT_VERBS, c.category))
+      .map((c) => V2_LIFT_VERBS[c.category](c.codes.length));
+    setText(el.v2WhyLift, steps.length ? `Pour lever le HOLD, il faudrait : ${steps.join(' ; ')}.` : '');
+    el.v2WhyLift.hidden = steps.length === 0;
     const items = [];
+    const opened = new Set([...el.v2WhyList.querySelectorAll('details[open]')].map((d) => d.getAttribute('data-category')));
+    const card = (category, title, reasons, stages) => {
+      const wrap = node('details', 'why', undefined, { 'data-category': category });
+      wrap.open = opened.has(category);
+      const head = node('summary', 'why__head');
+      head.appendChild(node('span', 'why__cat', title));
+      head.appendChild(node('span', 'why__count', String(reasons.length)));
+      wrap.appendChild(head);
+      wrap.appendChild(plainList('why__plain', [...new Set(reasons.map((r) => r.plain || label(r.code)))], '—'));
+      wrap.appendChild(node('p', 'why__codes', reasons.map((r) => label(r.code)).join(' · ')));
+      if (stages) wrap.appendChild(node('p', 'why__stages', `Étages : ${stages.map(label).join(', ')}`));
+      return wrap;
+    };
     for (const cause of why.rootCauses) {
-      const wrap = node('div', 'why', undefined, { 'data-category': cause.category });
-      wrap.appendChild(node('dt', 'why__cat', `${V2_BLOCKER_LABELS[cause.category]} — ${V2_BLOCKER_ACTIONS[cause.category]}`));
-      wrap.appendChild(node('dd', 'why__codes', cause.codes.map(label).join(' · ')));
-      wrap.appendChild(node('dd', 'why__stages', `Étages : ${cause.stages.map(label).join(', ')}`));
-      items.push(wrap);
+      const reasons = cause.codes.map((code, i) => ({ code,
+        plain: cause.reasons[i] && cause.reasons[i].code === code ? cause.reasons[i].plain : null }));
+      items.push(card(cause.category, `${V2_BLOCKER_LABELS[cause.category]} — ${V2_BLOCKER_ACTIONS[cause.category]}`,
+        reasons, cause.stages));
     }
     if (why.unclassifiedCodes.length) {
-      const wrap = node('div', 'why', undefined, { 'data-category': 'UNCLASSIFIED' });
-      wrap.appendChild(node('dt', 'why__cat', 'NON CLASSÉ — motif inconnu de ce terminal'));
-      wrap.appendChild(node('dd', 'why__codes', why.unclassifiedCodes.map(label).join(' · ')));
-      items.push(wrap);
+      items.push(card('UNCLASSIFIED', 'NON CLASSÉ — motif inconnu de ce terminal',
+        why.unclassifiedCodes.map((code) => ({ code, plain: null })), null));
     }
     el.v2WhyList.replaceChildren(...items);
   }
@@ -1298,23 +1394,32 @@ let pollTimer = null;
       el.v2Stages.replaceChildren(node('li', 'v2__empty', 'Aucun étage : entrée rejetée avant la chaîne.'));
       return;
     }
+    // Un rafraîchissement garde les étages que le lecteur a dépliés.
+    const opened = new Set([...el.v2Stages.querySelectorAll('details[open]')]
+      .map((box) => box.parentElement.getAttribute('data-stage')));
+    const all = el.v2StagesToggle.getAttribute('aria-pressed') === 'true';
     el.v2Stages.replaceChildren(fragmentOf(view.stages, (st) => {
-      const li = node('li', 'stage', undefined, { 'data-capability': st.capability, 'data-state': st.state });
-      const head = node('div', 'stage__head');
+      const li = node('li', 'stage', undefined, { 'data-capability': st.capability, 'data-state': st.state, 'data-stage': st.stage });
+      const box = node('details', 'stage__box');
+      box.open = all || opened.has(st.stage);
+      const head = node('summary', 'stage__head');
       head.appendChild(node('span', 'stage__name', label(st.stage)));
       head.appendChild(node('span', 'stage__state', st.state));
+      head.appendChild(node('span', 'stage__count', st.reasons.length ? `${st.reasons.length} motif(s)` : 'aucun motif'));
       head.appendChild(node('span', 'stage__cap', V2_CAPABILITY_LABELS[st.capability]));
-      li.appendChild(head);
+      box.appendChild(head);
       const reasons = node('ul', 'stage__reasons');
       for (const r of st.reasons) {
         const category = r && has(V2_BLOCKER_LABELS, r.category) ? r.category : 'UNCLASSIFIED';
         const item = node('li', 'reason', undefined, { 'data-category': category });
         item.appendChild(node('span', 'reason__cat', V2_BLOCKER_LABELS[category] || 'NON CLASSÉ'));
         item.appendChild(node('span', 'reason__code', (r && r.code) || '?'));
+        if (r && isText(r.plain)) item.appendChild(node('span', 'reason__plain', r.plain));
         reasons.appendChild(item);
       }
-      if (st.reasons.length) li.appendChild(reasons);
-      li.appendChild(node('div', 'stage__version', `${st.schemaVersion || '?'} · ${st.algorithmVersion || '?'}`));
+      if (st.reasons.length) box.appendChild(reasons);
+      box.appendChild(node('div', 'stage__version', `${st.schemaVersion || '?'} · ${st.algorithmVersion || '?'}`));
+      li.appendChild(box);
       return li;
     }));
   }
@@ -1330,8 +1435,10 @@ let pollTimer = null;
     const historical = temporal.classification === 'HISTORICAL';
     setAttr(el.v2Origin, 'data-state', 'simulated');
     setText(el.v2Origin, originText(view.origin));
-    setChainMode(historical ? 'historical' : 'simulated',
-      `${originText(view.origin)}${historical ? ` · HISTORIQUE (cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)})` : ''} · HOLD`);
+    const when = historical ? 'HISTORIQUE' : temporal.classification === 'UNKNOWN' ? 'CUTOFF INCONNU' : 'CUTOFF À LA GÉNÉRATION';
+    setChainMode(historical ? 'historical' : 'simulated', `SIMULATION · ${when}`,
+      `${originText(view.origin)} · ${historical ? `HISTORIQUE — cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)}` : when}`
+        + ' · PAS UNE ANALYSE RÉELLE');
 
     if (chain.outcome === 'REJECTED') {
       const r = chain.rejection || {};
@@ -1346,6 +1453,7 @@ let pollTimer = null;
       v2Status('hold', 'HOLD — EXÉCUTION INTERDITE',
         `Simulation locale, pas une analyse de marché réelle. Aucune décision positive approuvée${findings ? ` ; ${findings} entrée(s) rendue(s) plus restrictive(s)` : ''}.`);
     }
+    renderSummary(view);
     renderWhy(view);
 
     setText(el.v2ChainState, chain.chainState);
@@ -1367,7 +1475,7 @@ let pollTimer = null;
         const tr = v2Row([
           node('td', 'v2__field', String(f.field || '?').toUpperCase()),
           node('td', 'ta-r num', isNum(f.value) ? String(f.value) : 'N/A'),
-          node('td', 'v2__state-cell', f.statusAtCutoff === 'LIVE' ? 'LIVE AU CUTOFF' : f.statusAtCutoff),
+          node('td', 'v2__state-cell', f.statusAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF' : f.statusAtCutoff),
           node('td', 'ta-r num', isNum(f.ageSecondsAtCutoff) ? fmtAge(f.ageSecondsAtCutoff) : 'N/A'),
           node('td', 'num', isText(f.observedAt) ? f.observedAt.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'N/A'),
           node('td', '', f.source || 'N/A'),
@@ -1432,6 +1540,29 @@ let pollTimer = null;
     setText(el.v2Observability, obs.state
       ? `${obs.state} · corrélation ${obs.correlationId || 'absente'} · déploiement ${obs.deploymentId || 'absent'}`
       : 'N/A');
+  }
+
+  /**
+   * Navigation interne de l'espace CHAÎNE V2 : défilement vers une section
+   * sans toucher à l'ancre (#chaine reste l'adresse de l'espace), et
+   * dépliage de tous les étages en un clic.
+   */
+  function initChainNavigation() {
+    for (const link of el.wsChain.querySelectorAll('.v2nav__link')) {
+      link.addEventListener('click', () => {
+        const target = document.getElementById(link.getAttribute('data-target'));
+        if (!target || target.hidden) return;
+        if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'start' });
+        target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+      });
+    }
+    el.v2StagesToggle.addEventListener('click', () => {
+      const open = el.v2StagesToggle.getAttribute('aria-pressed') !== 'true';
+      for (const box of el.v2Stages.querySelectorAll('details')) box.open = open;
+      el.v2StagesToggle.setAttribute('aria-pressed', String(open));
+      setText(el.v2StagesToggle, open ? 'TOUT REPLIER' : 'TOUT DÉPLIER');
+    });
   }
 
   /* Scénario de simulation choisi ; null = l'entrée du serveur local. */
@@ -1575,6 +1706,8 @@ let pollTimer = null;
 
     setMarketMode(DEMO_MODE ? 'demo' : 'connecting');
     initWorkspaces();
+
+    initChainNavigation();
 
     /* La vue V2 est indépendante du flux V1 : elle est lue dans les deux modes. */
     loadScenarios();

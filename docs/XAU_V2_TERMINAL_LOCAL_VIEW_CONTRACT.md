@@ -9,11 +9,12 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 
 Frozen versions:
 
-- `xau.terminal-local-view.v2`;
-- `terminal-local-view-2.0.0`.
+- `xau.terminal-local-view.v3`;
+- `terminal-local-view-3.0.0`.
 
-Version 2 (TV-1) adds `temporal` and `holdRationale`. The terminal accepts
-only v2.
+Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
+`summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
+on every root cause. The terminal accepts only v3.
 
 ## What the view contains
 
@@ -44,6 +45,21 @@ only v2.
   category (every reason that is not `UPSTREAM`, distinct codes in stage
   order, with their stages). Inherited (`UPSTREAM`) reasons are counted.
   Unclassified codes are listed.
+
+- `summary`, derived only from the rest of the view, for a first reading:
+  - `decision` `HOLD` and `execution` `FORBIDDEN`, always;
+  - `status`: `BLOCKED`, `INPUT_REJECTED` or `INTEGRITY_VIOLATED`, with a
+    one-sentence `headline` and the blocked / total stage counts;
+  - `mainReasons`: the root-cause categories, most codes first;
+  - `missingData`: market fields not fresh at the cutoff, then `DATA`
+    reasons (optional-field codes are not repeated when fields are listed),
+    or the input errors of a rejected input;
+  - `blockingDependencies`: every `BUSINESS_DECISION`, `AUTHORIZATION` and
+    `ENVIRONMENT` root cause, with the stages that report it;
+  - `missingAcceptanceEvidence`: undeclared E2E-0 evidence flags.
+- `REASON_CODE_PLAIN_FR` gives each classified code one French sentence.
+  A test keeps its keys equal to the classified codes and forbids raw codes
+  and trade words in it. An unknown code has `plain: null`.
 
 - `horizons` (status and direction of H1–H5), `acceptance` (state and the
   eleven E2E-0 evidence flags *as declared in the chain input*) and
@@ -84,7 +100,19 @@ data:
 | `LIVE` | real V1 feed whose freshness is within the threshold, nothing else |
 
 The decision always reads `HOLD — EXÉCUTION INTERDITE`. A market field that
-was `LIVE` at a simulated cutoff is shown as `LIVE AU CUTOFF`, never as `LIVE`.
+was `LIVE` at a simulated cutoff is shown as `FRAIS AU CUTOFF`: the word
+`LIVE` never appears in the CHAÎNE V2 workspace. A `LÉGENDE` in the bar
+defines every label. Inside the workspace, a sticky navigation bar keeps the
+full nature of the view visible (origin, `HISTORIQUE` and cutoff age, `PAS
+UNE ANALYSE RÉELLE`) and links to each section without changing the address.
+
+The workspace reads top-down: status, decision summary (state, main
+reasons, missing data, blocking dependencies), facts, why HOLD (one plain
+sentence of what stops the chain and what would lift it, then one folded
+card per category with the plain reasons, codes and stages), stages (folded,
+with reason counts; `TOUT DÉPLIER` opens them all). Every reason code stays
+in the page; a refresh keeps what the reader unfolded. Below 900 px the page
+is the only vertical scroller.
 
 In V1 demo mode:
 - the price badge reads `DÉMO`, never `LIVE`;
@@ -130,9 +158,11 @@ stay empty, so the V1 panels run in labelled demo mode.
 ## Layout check in a browser
 
 CI has no browser. `scripts/check_terminal_layout.mjs` checks the terminal in
-headless Chromium at 320, 390, 1024, 1280 and 1440 px, in both workspaces. It
-reports clipped content, content overflowing the viewport and text below WCAG
-AA. It needs `XAU_PLAYWRIGHT` (path to `playwright-core`) and `XAU_CHROMIUM`,
+headless Chromium at 320, 390, 1024, 1280 and 1440 px, in both workspaces,
+with every section unfolded and on the `market-unavailable` and
+`invalid-input` scenarios. It reports clipped content, content overflowing
+the viewport, text below WCAG AA and, below 900 px, any nested vertical
+scroller. It needs `XAU_PLAYWRIGHT` (path to `playwright-core`) and `XAU_CHROMIUM`,
 neither of which is a project dependency. `tests/test_terminal_contrast.mjs`
 keeps the palette's contrast in CI.
 

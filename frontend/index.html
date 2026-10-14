@@ -104,6 +104,17 @@
     <span class="mode" id="mode-v2" data-mode="unavailable"><span class="mode__key">CHAÎNE V2</span><span class="mode__val" id="mode-v2-val">INDISPONIBLE</span></span>
     <span class="mode" data-mode="hold"><span class="mode__key">DÉCISION</span><span class="mode__val">HOLD — EXÉCUTION INTERDITE</span></span>
   </div>
+  <details class="legend" id="nature-legend">
+    <summary class="legend__toggle">LÉGENDE</summary>
+    <dl class="legend__list">
+      <div><dt>DÉMO</dt><dd>Valeurs synthétiques générées par le navigateur. Aucune donnée de marché.</dd></div>
+      <div><dt>SIMULATION</dt><dd>Moteurs V2 exécutés sur une fixture, un fichier ou un scénario local. Jamais une analyse de marché réelle.</dd></div>
+      <div><dt>HISTORIQUE</dt><dd>Le cutoff de la vue est antérieur de plus de 360 s à sa génération : elle décrit le passé.</dd></div>
+      <div><dt>FRAIS AU CUTOFF</dt><dd>Dans une simulation, le champ était dans son seuil de fraîcheur à l'instant du cutoff. Ce n'est pas un flux en direct.</dd></div>
+      <div><dt>LIVE</dt><dd>Uniquement un flux de marché réel reçu dans son seuil de fraîcheur. Jamais une simulation.</dd></div>
+      <div><dt>HOLD</dt><dd>Aucune décision positive n'est approuvée ; l'exécution est interdite dans tous les cas.</dd></div>
+    </dl>
+  </details>
 </nav>
 
 <main class="workspaces">
@@ -305,6 +316,20 @@
 -->
 <div class="workspace workspace--chain" id="ws-chain" role="tabpanel" aria-labelledby="tab-chain" hidden>
 
+  <!-- Navigation interne : un seul défilement, accès direct à chaque section.
+       La nature des données reste visible pendant le défilement. -->
+  <nav class="v2nav" aria-label="Sections de la chaîne V2">
+    <span class="v2nav__links">
+      <button type="button" class="v2nav__link" data-target="v2-sec-summary">SYNTHÈSE</button>
+      <button type="button" class="v2nav__link" data-target="v2-sec-why">POURQUOI HOLD</button>
+      <button type="button" class="v2nav__link" data-target="v2-sec-stages">ÉTAGES</button>
+      <button type="button" class="v2nav__link" data-target="v2-sec-market">MARCHÉ</button>
+      <button type="button" class="v2nav__link" data-target="v2-sec-readiness">HORIZONS · RECETTE</button>
+      <button type="button" class="v2nav__link" data-target="v2-sec-caps">CAPACITÉS</button>
+    </span>
+    <span class="v2nav__nature" id="v2-nav-nature" data-mode="unavailable">INDISPONIBLE</span>
+  </nav>
+
   <section class="panel panel--chain" aria-labelledby="p5-title">
     <div class="panel__head">
       <h2 class="panel__title" id="p5-title">CHAÎNE DÉCISIONNELLE V2</h2>
@@ -323,6 +348,25 @@
         <span class="v2__detail" id="v2-detail">Aucun runtime V2 déployé.</span>
       </div>
 
+      <section class="summary" id="v2-sec-summary" aria-labelledby="v2-summary-title" hidden>
+        <h3 class="v2__subtitle v2__subtitle--first" id="v2-summary-title">SYNTHÈSE DÉCISIONNELLE</h3>
+        <p class="summary__headline" id="v2-summary-headline">—</p>
+        <div class="summary__grid">
+          <div class="summary__col">
+            <h4 class="summary__key">RAISONS PRINCIPALES</h4>
+            <ul class="summary__list" id="v2-summary-reasons"></ul>
+          </div>
+          <div class="summary__col">
+            <h4 class="summary__key">DONNÉES MANQUANTES</h4>
+            <ul class="summary__list" id="v2-summary-missing"></ul>
+          </div>
+          <div class="summary__col">
+            <h4 class="summary__key">DÉPENDANCES BLOQUANTES</h4>
+            <div class="summary__deps" id="v2-summary-deps"></div>
+          </div>
+        </div>
+      </section>
+
       <dl class="v2__facts">
         <div><dt>ÉTAT</dt><dd id="v2-chain-state">—</dd></div>
         <div><dt>EXÉCUTION</dt><dd id="v2-execution">—</dd></div>
@@ -333,13 +377,17 @@
         <div class="v2__facts-wide"><dt>EMPREINTE DE REJEU</dt><dd class="num" id="v2-digest">—</dd></div>
       </dl>
 
-      <h3 class="v2__subtitle">POURQUOI HOLD</h3>
+      <h3 class="v2__subtitle" id="v2-sec-why">POURQUOI HOLD</h3>
       <div class="v2__why" id="v2-why" hidden>
         <p class="v2__why-lead" id="v2-why-lead"></p>
-        <dl class="v2__why-list" id="v2-why-list"></dl>
+        <p class="v2__why-lift" id="v2-why-lift"></p>
+        <div class="v2__why-list" id="v2-why-list"></div>
       </div>
 
-      <h3 class="v2__subtitle">ÉTAGES — ÉTAT, CAPACITÉ ET MOTIFS</h3>
+      <div class="v2__subhead" id="v2-sec-stages">
+        <h3 class="v2__subtitle">ÉTAGES — ÉTAT, CAPACITÉ ET MOTIFS</h3>
+        <button type="button" class="v2__toggle" id="v2-stages-toggle" aria-pressed="false">TOUT DÉPLIER</button>
+      </div>
       <ol class="stages" id="v2-stages">
         <li class="v2__empty">—</li>
       </ol>
@@ -347,7 +395,7 @@
   </section>
 
   <div class="workspace__side">
-    <section class="panel panel--evidence" aria-labelledby="p6-title">
+    <section class="panel panel--evidence" id="v2-sec-market" aria-labelledby="p6-title">
       <div class="panel__head">
         <h2 class="panel__title" id="p6-title">MARCHÉ AU CUTOFF</h2>
         <span class="panel__meta" id="v2-market-state">—</span>
@@ -364,6 +412,7 @@
             </tbody>
           </table>
         </div>
+        <p class="v2__legend" id="v2-market-legend">FRAIS AU CUTOFF : le champ était dans son seuil de fraîcheur à l'instant du cutoff simulé. Ce n'est pas un flux en direct.</p>
         <dl class="v2__facts v2__facts--stack">
           <div><dt>REJEU MARCHÉ</dt><dd id="v2-replay">—</dd></div>
           <div><dt>POSITIONNEMENT</dt><dd id="v2-positioning">—</dd></div>
@@ -373,7 +422,7 @@
       </div>
     </section>
 
-    <section class="panel panel--readiness" aria-labelledby="p8-title">
+    <section class="panel panel--readiness" id="v2-sec-readiness" aria-labelledby="p8-title">
       <div class="panel__head">
         <h2 class="panel__title" id="p8-title">HORIZONS, RECETTE, OBSERVABILITÉ</h2>
         <span class="panel__meta" id="v2-acceptance-state">—</span>
@@ -389,7 +438,7 @@
       </div>
     </section>
 
-    <section class="panel panel--capabilities" aria-labelledby="p7-title">
+    <section class="panel panel--capabilities" id="v2-sec-caps" aria-labelledby="p7-title">
       <div class="panel__head">
         <h2 class="panel__title" id="p7-title">MATRICE DES CAPACITÉS</h2>
       </div>

@@ -20,8 +20,8 @@ import {
   type DecisionChainStage,
 } from './dry_run.js';
 
-export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v2' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-2.0.0' as const;
+export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v3' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-3.0.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -139,6 +139,110 @@ export const REASON_CODE_CATEGORY: Readonly<Record<string, BlockerCategory>> = {
 };
 
 /**
+ * What each reason code means, in plain French, for a reader who does not
+ * know the gate. Presentation only: it never changes a category or a state.
+ */
+export const REASON_CODE_PLAIN_FR: Readonly<Record<string, string>> = {
+  SOURCE_SNAPSHOT_UNAVAILABLE: 'Aucun instantané de marché n\'a été fourni.',
+  INVALID_KNOWLEDGE_CUTOFF: 'L\'heure de cutoff est illisible.',
+  CAPTURED_AT_MISMATCH: 'L\'heure de capture du marché contredit ses observations.',
+  INVALID_FIELD_CONTRACT: 'Un champ de marché ne respecte pas son contrat.',
+  OBSERVATION_AFTER_KNOWLEDGE_CUTOFF: 'Une observation de marché est postérieure au cutoff (anticipation interdite).',
+  SPOT_NOT_LIVE: 'Le prix spot n\'était pas frais au cutoff.',
+  BOOK_INVERTED: 'Le bid dépasse l\'ask : carnet incohérent.',
+  OPTIONAL_FIELD_UNAVAILABLE: 'Un indicateur de marché secondaire manque.',
+  OPTIONAL_FIELD_STALE: 'Un indicateur de marché secondaire est périmé.',
+  HISTORICAL_REPLAY_UNAVAILABLE: 'Aucun stockage ne permet de rejouer le marché à ce cutoff.',
+  NO_POSITIONING_EVIDENCE: 'Aucune preuve de positionnement n\'a été fournie.',
+  INVALID_EVIDENCE_SHAPE: 'Une preuve de positionnement est mal formée.',
+  INVALID_EVIDENCE_VALUE: 'Une preuve de positionnement porte une valeur invalide.',
+  EVIDENCE_AFTER_KNOWLEDGE_CUTOFF: 'Une preuve de positionnement est postérieure au cutoff.',
+  DUPLICATE_EVIDENCE_KEY: 'Une preuve de positionnement est en double.',
+  METHODOLOGY_NOT_APPROVED: 'La méthode de lecture du positionnement n\'est pas approuvée.',
+  MARKET_PRICING_VERSION_MISMATCH: 'Version du prix de marché incohérente entre étages.',
+  POSITIONING_VERSION_MISMATCH: 'Version du positionnement incohérente entre étages.',
+  UPSTREAM_CUTOFF_MISMATCH: 'Les étages amont n\'ont pas le même cutoff.',
+  MARKET_PRICING_ABSTAINED: 'Le prix de marché s\'est abstenu en amont.',
+  MARKET_PRICING_DEGRADED: 'Le prix de marché est dégradé en amont.',
+  POSITIONING_EVIDENCE_ABSTAINED: 'Les preuves de positionnement se sont abstenues en amont.',
+  POSITIONING_SIGNAL_UNAVAILABLE: 'Aucun signal de positionnement n\'existe en amont.',
+  REGIME_METHODOLOGY_NOT_APPROVED: 'La méthode de détection du régime n\'est pas approuvée.',
+  EVENT_IMPACT_VERSION_MISMATCH: 'Version de l\'impact des événements incohérente.',
+  GOLD_TRANSMISSION_VERSION_MISMATCH: 'Version de la transmission vers l\'or incohérente.',
+  REGIME_VERSION_MISMATCH: 'Version du régime incohérente.',
+  HORIZON_CUTOFF_MISMATCH: 'Les entrées des horizons n\'ont pas le même cutoff.',
+  EVENT_IMPACT_INSUFFICIENT: 'L\'impact des événements est insuffisant en amont.',
+  GOLD_TRANSMISSION_INSUFFICIENT: 'La transmission vers l\'or est insuffisante en amont.',
+  MARKET_PRICING_NOT_AVAILABLE: 'Le prix de marché n\'est pas disponible en amont.',
+  REGIME_UNAVAILABLE: 'Le régime n\'est pas disponible en amont.',
+  HORIZON_METHODOLOGY_NOT_APPROVED: 'La méthode de synthèse des horizons H1–H5 n\'est pas approuvée.',
+  HORIZON_VERSION_MISMATCH: 'Version des horizons incohérente.',
+  HORIZON_SET_MISMATCH: 'L\'ensemble des horizons H1–H5 est incomplet ou différent.',
+  HORIZON_NOT_READY: 'Les horizons ne sont pas prêts en amont.',
+  PROVIDER_NOT_AUTHORIZED: 'Aucun fournisseur d\'IA n\'est autorisé pour le comité.',
+  COST_NOT_AUTHORIZED: 'Aucun budget d\'appel au fournisseur n\'est autorisé.',
+  COMMITTEE_V2_METHOD_NOT_APPROVED: 'La méthode du comité IA V2 n\'est pas approuvée.',
+  COMMITTEE_VERSION_MISMATCH: 'Version du comité incohérente.',
+  COMMITTEE_CUTOFF_MISMATCH: 'Le comité n\'a pas le même cutoff que la chaîne.',
+  COMMITTEE_NOT_READY: 'Le comité n\'est pas prêt en amont.',
+  COMMITTEE_PROVIDER_NOT_COMPLETED: 'Le comité n\'a obtenu aucune réponse du fournisseur.',
+  EVIDENCE_GRAPH_UNAVAILABLE: 'Le graphe de preuves n\'a pas été fourni.',
+  PRE_PM_METHOD_NOT_APPROVED: 'La méthode de risque avant gérant n\'est pas approuvée.',
+  PRE_PM_VERSION_MISMATCH: 'Version du risque avant gérant incohérente.',
+  PRE_PM_CUTOFF_MISMATCH: 'Le risque avant gérant n\'a pas le même cutoff.',
+  PRE_PM_NOT_READY: 'Le risque avant gérant n\'est pas prêt en amont.',
+  PORTFOLIO_POLICY_NOT_APPROVED: 'La politique de portefeuille n\'est pas approuvée.',
+  PORTFOLIO_STATE_UNAVAILABLE: 'Aucun état de portefeuille n\'est disponible.',
+  PORTFOLIO_METHOD_NOT_APPROVED: 'La méthode du gérant de portefeuille n\'est pas approuvée.',
+  PORTFOLIO_VERSION_MISMATCH: 'Version du portefeuille incohérente.',
+  PORTFOLIO_CUTOFF_MISMATCH: 'Le portefeuille n\'a pas le même cutoff.',
+  PORTFOLIO_NOT_READY: 'Le portefeuille n\'est pas prêt en amont.',
+  RISK_POLICY_NOT_APPROVED: 'La politique de risque final n\'est pas approuvée.',
+  BROKER_CONSTRAINTS_UNAVAILABLE: 'Les contraintes du courtier ne sont pas disponibles.',
+  FINAL_RISK_METHOD_NOT_APPROVED: 'La méthode de risque final n\'est pas approuvée.',
+  FINAL_RISK_VERSION_MISMATCH: 'Version du risque final incohérente.',
+  FINAL_RISK_CUTOFF_MISMATCH: 'Le risque final n\'a pas le même cutoff.',
+  FINAL_RISK_NOT_READY: 'Le risque final n\'est pas prêt en amont.',
+  EXECUTION_NOT_AUTHORIZED: 'Aucune exécution n\'est autorisée.',
+  BROKER_NOT_CONNECTED: 'Aucun courtier n\'est connecté.',
+  ACTION_METHOD_NOT_APPROVED: 'La méthode de décision d\'action n\'est pas approuvée.',
+  ACTION_VERSION_MISMATCH: 'Version de l\'action incohérente.',
+  ACTION_CUTOFF_MISMATCH: 'L\'action n\'a pas le même cutoff.',
+  ACTION_NOT_ABSTAINING: 'L\'action ne s\'abstient pas : sortie interdite.',
+  RUNTIME_CORRELATION_UNAVAILABLE: 'Aucune corrélation avec un runtime réel.',
+  DEPLOYMENT_NOT_PROVEN: 'Aucun déploiement n\'est prouvé.',
+  COMMAND_CENTER_RUNTIME_NOT_APPROVED: 'Le runtime du centre de commande n\'est pas approuvé.',
+  COMMAND_CENTER_VERSION_MISMATCH: 'Version du centre de commande incohérente.',
+  COMMAND_CENTER_CUTOFF_MISMATCH: 'Le centre de commande n\'a pas le même cutoff.',
+  COMMAND_CENTER_NOT_ACTIONABLE: 'Le centre de commande ne propose aucune action en amont.',
+  ALERT_POLICY_NOT_APPROVED: 'La politique d\'alerte n\'est pas approuvée.',
+  DELIVERY_NOT_AUTHORIZED: 'Aucune livraison d\'alerte n\'est autorisée.',
+  RECIPIENT_POLICY_UNAVAILABLE: 'Aucune politique de destinataires n\'est définie.',
+  ALERT_HORIZON_NOT_APPROVED: 'Aucun horizon d\'alerte n\'est approuvé.',
+  ALERT_METHOD_NOT_APPROVED: 'La méthode d\'alerte n\'est pas approuvée.',
+  ALERT_VERSION_MISMATCH: 'Version des alertes incohérente.',
+  ALERT_CUTOFF_MISMATCH: 'Les alertes n\'ont pas le même cutoff.',
+  ALERT_NOT_DELIVERABLE: 'Aucune alerte n\'est livrable en amont.',
+  REQUIRED_EVIDENCE_MISSING: 'Des preuves de recette obligatoires manquent.',
+  E2E_ACCEPTANCE_RUN_NOT_AUTHORIZED: 'Aucune recette de bout en bout n\'est autorisée.',
+};
+
+/** What each blocker category means, in plain French. */
+export const BLOCKER_CATEGORY_PLAIN_FR: Readonly<Record<BlockerCategory, string>> = {
+  INTEGRITY: 'Incohérences internes à corriger',
+  DATA: 'Données manquantes, périmées ou invalides',
+  UPSTREAM: 'Conséquences d\'un étage amont',
+  BUSINESS_DECISION: 'Méthodes ou politiques non approuvées',
+  AUTHORIZATION: 'Autorisations non accordées',
+  ENVIRONMENT: 'Runtime, déploiement ou connexions inexistants',
+};
+
+const MARKET_STATUS_PLAIN_FR: Readonly<Record<string, string>> = {
+  UNAVAILABLE: 'indisponible au cutoff',
+  STALE: 'périmé au cutoff',
+};
+
+/**
  * OPERATIONAL_LOCAL: runs locally and is tested; nothing simulated.
  * SIMULATED: runs locally on fixture or local-file input, never live data.
  * BLOCKED: the stage abstains; its reasons name the blockers.
@@ -152,6 +256,8 @@ export interface TerminalReason {
   readonly code: string;
   /** null when a code is not classified: shown, never silently dropped. */
   readonly category: BlockerCategory | null;
+  /** Plain-French meaning; null for a code this view does not know. */
+  readonly plain: string | null;
 }
 
 export interface TerminalStageView {
@@ -186,7 +292,40 @@ export interface TerminalRootCause {
   readonly category: BlockerCategory;
   /** Distinct codes in stage order. */
   readonly codes: readonly string[];
+  /** The same codes with their plain-French meaning. */
+  readonly reasons: readonly { readonly code: string; readonly plain: string | null }[];
   readonly stages: readonly DecisionChainStage[];
+}
+
+/**
+ * Decision summary for a first reading: the overall state, the main
+ * reasons for the HOLD, the missing data and the blocking dependencies.
+ * Derived only from the rest of the view; it never adds a decision.
+ */
+export interface TerminalDecisionSummary {
+  readonly decision: 'HOLD';
+  readonly execution: 'FORBIDDEN';
+  /** BLOCKED: stages abstain; INPUT_REJECTED: no stage ran; INTEGRITY_VIOLATED: a defect. */
+  readonly status: 'BLOCKED' | 'INPUT_REJECTED' | 'INTEGRITY_VIOLATED';
+  readonly headline: string;
+  readonly stageCount: number;
+  readonly blockedStageCount: number;
+  /** Root-cause categories, most codes first. */
+  readonly mainReasons: readonly { readonly category: BlockerCategory; readonly count: number; readonly plain: string }[];
+  /** Market fields not fresh at the cutoff, DATA reasons, or input errors. */
+  readonly missingData: readonly {
+    readonly kind: 'MARKET_FIELD' | 'DATA_REASON' | 'INPUT_ERROR';
+    readonly code: string;
+    readonly plain: string;
+  }[];
+  /** Approvals, authorizations and environments the chain waits on. */
+  readonly blockingDependencies: readonly {
+    readonly category: 'BUSINESS_DECISION' | 'AUTHORIZATION' | 'ENVIRONMENT';
+    readonly code: string;
+    readonly plain: string;
+    readonly stages: readonly DecisionChainStage[];
+  }[];
+  readonly missingAcceptanceEvidence: number;
 }
 
 /**
@@ -212,6 +351,7 @@ export interface TerminalView {
     readonly currentWindowSeconds: number;
   };
   readonly holdRationale: TerminalHoldRationale;
+  readonly summary: TerminalDecisionSummary;
   readonly chain: {
     readonly outcome: 'COMPLETED' | 'REJECTED';
     readonly schemaVersion: string;
@@ -261,10 +401,15 @@ const BLOCKER_ORDER: readonly BlockerCategory[] = [
   'INTEGRITY', 'DATA', 'UPSTREAM', 'BUSINESS_DECISION', 'AUTHORIZATION', 'ENVIRONMENT',
 ];
 
+const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);
+const plainOf = (code: string): string | null => (own(REASON_CODE_PLAIN_FR, code) ? REASON_CODE_PLAIN_FR[code] : null);
+const stageLabel = (stage: string) => stage.replace(/_/g, ' ');
+
 function classify(codes: readonly string[]): { reasons: TerminalReason[]; blockers: BlockerCategory[] } {
   const reasons = codes.map((code) => ({
     code,
-    category: Object.prototype.hasOwnProperty.call(REASON_CODE_CATEGORY, code) ? REASON_CODE_CATEGORY[code] : null,
+    category: own(REASON_CODE_CATEGORY, code) ? REASON_CODE_CATEGORY[code] : null,
+    plain: plainOf(code),
   }));
   const present = new Set(reasons.map((reason) => reason.category));
   return { reasons, blockers: BLOCKER_ORDER.filter((category) => present.has(category)) };
@@ -354,10 +499,70 @@ function holdRationaleOf(stages: readonly TerminalStageView[]): TerminalHoldRati
   }
   return {
     firstBlockedStage: stages.find((stage) => stage.capability === 'BLOCKED')?.stage ?? null,
-    rootCauses: BLOCKER_ORDER.filter((category) => groups.has(category))
-      .map((category) => ({ category, codes: groups.get(category)!.codes, stages: groups.get(category)!.stages })),
+    rootCauses: BLOCKER_ORDER.filter((category) => groups.has(category)).map((category) => {
+      const { codes, stages: causeStages } = groups.get(category)!;
+      return { category, codes, reasons: codes.map((code) => ({ code, plain: plainOf(code) })), stages: causeStages };
+    }),
     inheritedReasonCount,
     unclassifiedCodes: unclassified,
+  };
+}
+
+const DEPENDENCY_CATEGORIES = ['BUSINESS_DECISION', 'AUTHORIZATION', 'ENVIRONMENT'] as const;
+const OPTIONAL_FIELD_CODES = new Set(['OPTIONAL_FIELD_UNAVAILABLE', 'OPTIONAL_FIELD_STALE']);
+
+function summaryOf(
+  stages: readonly TerminalStageView[],
+  rationale: TerminalHoldRationale,
+  integrityViolated: boolean,
+  fields: readonly TerminalMarketFieldView[],
+  evidence: readonly { readonly declared: boolean }[],
+): TerminalDecisionSummary {
+  const blocked = stages.filter((stage) => stage.capability === 'BLOCKED').length;
+  const mainReasons = rationale.rootCauses
+    .map((cause) => ({ category: cause.category, count: cause.codes.length, plain: BLOCKER_CATEGORY_PLAIN_FR[cause.category] }))
+    .sort((a, b) => b.count - a.count || BLOCKER_ORDER.indexOf(a.category) - BLOCKER_ORDER.indexOf(b.category));
+  const missingData: TerminalDecisionSummary['missingData'][number][] = fields
+    .filter((field) => field.statusAtCutoff !== 'LIVE')
+    .map((field) => ({
+      kind: 'MARKET_FIELD' as const,
+      code: field.field,
+      plain: `${field.field.toUpperCase()} ${MARKET_STATUS_PLAIN_FR[field.statusAtCutoff] ?? `${field.statusAtCutoff} au cutoff`}.`,
+    }));
+  // An optional-field reason only repeats the fields already listed.
+  const listed = missingData.length > 0;
+  for (const cause of rationale.rootCauses.filter((c) => c.category === 'DATA')) {
+    for (const reason of cause.reasons) {
+      if (listed && OPTIONAL_FIELD_CODES.has(reason.code)) continue;
+      missingData.push({ kind: 'DATA_REASON', code: reason.code, plain: reason.plain ?? reason.code });
+    }
+  }
+  const blockingDependencies: TerminalDecisionSummary['blockingDependencies'][number][] = [];
+  for (const category of DEPENDENCY_CATEGORIES) {
+    for (const code of rationale.rootCauses.find((cause) => cause.category === category)?.codes ?? []) {
+      blockingDependencies.push({
+        category,
+        code,
+        plain: plainOf(code) ?? code,
+        stages: stages.filter((stage) => stage.reasons.some((reason) => reason.code === code)).map((stage) => stage.stage),
+      });
+    }
+  }
+  const first = rationale.firstBlockedStage;
+  return {
+    decision: 'HOLD',
+    execution: 'FORBIDDEN',
+    status: integrityViolated ? 'INTEGRITY_VIOLATED' : 'BLOCKED',
+    headline: integrityViolated
+      ? 'HOLD : une incohérence interne rend la chaîne inexploitable.'
+      : `HOLD : ${blocked} étage(s) sur ${stages.length} bloqué(s)${first ? `, le premier à ${stageLabel(first)}` : ''}. `
+        + 'Aucune décision positive n\'est approuvée.',
+    stageCount: stages.length,
+    blockedStageCount: blocked,
+    mainReasons,
+    missingData,
+    blockingDependencies,
+    missingAcceptanceEvidence: evidence.filter((item) => !item.declared).length,
   };
 }
 
@@ -382,6 +587,20 @@ export function buildTerminalView(
       ...base,
       temporal: temporalOf(null, generatedAt),
       holdRationale: { firstBlockedStage: null, rootCauses: [], inheritedReasonCount: 0, unclassifiedCodes: [] },
+      summary: {
+        decision: 'HOLD',
+        execution: 'FORBIDDEN',
+        status: 'INPUT_REJECTED',
+        headline: 'HOLD : l\'entrée a été rejetée ; aucun étage de la chaîne n\'a été évalué.',
+        stageCount: 0,
+        blockedStageCount: 0,
+        mainReasons: [],
+        missingData: outcome.inputErrors.map((error) => ({
+          kind: 'INPUT_ERROR' as const, code: errorText(error), plain: `Entrée invalide : ${errorText(error)}.`,
+        })),
+        blockingDependencies: [],
+        missingAcceptanceEvidence: 0,
+      },
       chain: {
         outcome: 'REJECTED',
         schemaVersion: outcome.schemaVersion,
@@ -429,10 +648,22 @@ export function buildTerminalView(
 
   const pricing = result.stages.marketPricing;
   const positioning = result.stages.positioning;
+  const holdRationale = holdRationaleOf(stages);
+  const fields: TerminalMarketFieldView[] = Object.entries(pricing.fields).map(([field, value]) => ({
+    field,
+    role: value.role,
+    value: value.value,
+    statusAtCutoff: value.status,
+    observedAt: value.observedAt,
+    ageSecondsAtCutoff: value.ageSeconds,
+    source: value.source,
+  }));
+  const evidence = Object.entries(result.stages.acceptance.evidence).map(([key, declared]) => ({ key, declared: declared === true }));
   return {
     ...base,
     temporal: temporalOf(result.knowledgeCutoff, generatedAt),
-    holdRationale: holdRationaleOf(stages),
+    holdRationale,
+    summary: summaryOf(stages, holdRationale, result.integrity !== 'CONSISTENT', fields, evidence),
     chain: {
       outcome: 'COMPLETED',
       schemaVersion: result.schemaVersion,
@@ -451,15 +682,7 @@ export function buildTerminalView(
       state: pricing.state,
       observedThrough: pricing.observedThrough,
       replay: { mode: pricing.replay.mode, reproducible: pricing.replay.reproducible, reason: pricing.replay.reason },
-      fields: Object.entries(pricing.fields).map(([field, value]) => ({
-        field,
-        role: value.role,
-        value: value.value,
-        statusAtCutoff: value.status,
-        observedAt: value.observedAt,
-        ageSecondsAtCutoff: value.ageSeconds,
-        source: value.source,
-      })),
+      fields,
     },
     positioning: {
       evidenceState: positioning.evidenceState,
@@ -472,7 +695,7 @@ export function buildTerminalView(
     acceptance: {
       state: result.stages.acceptance.acceptanceState,
       productionReadiness: result.stages.acceptance.productionReadiness,
-      evidence: Object.entries(result.stages.acceptance.evidence).map(([key, declared]) => ({ key, declared: declared === true })),
+      evidence,
     },
     observability: {
       state: result.stages.commandCenter.observability.state,

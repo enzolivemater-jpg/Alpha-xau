@@ -62,7 +62,7 @@ assert.notEqual(contentSecurityPolicy(served.replace("POLL_INTERVAL_MS: 5000", "
 response = await fetch(`${base}${VIEW_PATH}`);
 assert.equal(response.status, 200);
 const view = await response.json();
-assert.equal(view.schemaVersion, 'xau.terminal-local-view.v2');
+assert.equal(view.schemaVersion, 'xau.terminal-local-view.v3');
 assert.equal(view.temporal.classification, 'HISTORICAL', 'the golden fixture is in the past');
 assert.equal(view.chain.chainState, 'HOLD');
 assert.equal(view.chain.execution, 'FORBIDDEN');
@@ -191,17 +191,46 @@ assert.equal(text(d, 'v2-integrity'), 'CONSISTENT');
 assert.equal(text(d, 'v2-cutoff'), '2026-10-01T14:15:00.000Z');
 assert.equal(text(d, 'v2-digest'), view.chain.digest, 'full digest shown');
 assert.match(text(d, 'v2-cutoff-age'), /^\d+ (s|min|h|j) — HISTORIQUE$/);
-// Why HOLD: first blocking stage and root causes by category.
+// Decision summary: overall state, main reasons, missing data, blocking dependencies.
+const sum = view.summary;
+assert.equal(d.getElementById('v2-sec-summary').hidden, false);
+assert.equal(d.getElementById('v2-sec-summary').getAttribute('data-status'), 'BLOCKED');
+assert.equal(text(d, 'v2-summary-headline'), sum.headline);
+const listText = (id) => [...d.querySelectorAll(`#${id} li`)].map((li) => li.textContent);
+assert.deepEqual(listText('v2-summary-reasons'), [...sum.mainReasons.map((r) => `${r.count} — ${r.plain}`),
+  '11/11 preuves de recette manquantes']);
+assert.deepEqual(listText('v2-summary-missing'), ['DXY indisponible au cutoff.', "Le graphe de preuves n'a pas été fourni."]);
+const deps = [...d.querySelectorAll('#v2-summary-deps .dep')];
+assert.deepEqual(deps.map((g) => g.querySelector('.dep__head').textContent), ['BUSINESS_DECISION', 'AUTHORIZATION', 'ENVIRONMENT']
+  .map((c) => `${{ BUSINESS_DECISION: 'APPROBATIONS MÉTIER', AUTHORIZATION: 'AUTORISATIONS', ENVIRONMENT: 'ENVIRONNEMENT' }[c]} (${
+    sum.blockingDependencies.filter((x) => x.category === c).length})`));
+assert.equal(d.querySelectorAll('#v2-summary-deps .dep__item').length, sum.blockingDependencies.length, 'every dependency reachable');
+assert.match(d.querySelector('#v2-summary-deps [data-category="AUTHORIZATION"]').textContent,
+  /Aucune exécution n'est autorisée\.EXECUTION_NOT_AUTHORIZED · ACTION/);
+// Why HOLD: a plain summary first, technical codes one click away, nothing dropped.
 assert.equal(d.getElementById('v2-why').hidden, false);
-assert.match(text(d, 'v2-why-lead'), /^Premier étage bloquant : HORIZON SYNTHESIS\. \d+ motif\(s\) hérité\(s\) de l'amont/);
+assert.match(text(d, 'v2-why-lead'), /^La chaîne s'arrête à HORIZON SYNTHESIS, premier étage bloqué ; .*\(\d+ motif\(s\) hérité\(s\) de l'amont\)\.$/);
+assert.match(text(d, 'v2-why-lift'), /^Pour lever le HOLD, il faudrait : fournir ou corriger 2 donnée\(s\) ; approuver \d+ méthode\(s\) ou politique\(s\) ; accorder \d+ autorisation\(s\) ; mettre en place \d+ élément\(s\) d'environnement/);
 const why = [...d.querySelectorAll('#v2-why-list .why')];
 assert.deepEqual(why.map((w) => w.getAttribute('data-category')), view.holdRationale.rootCauses.map((c) => c.category));
+assert.ok(why.every((w) => w.tagName === 'DETAILS' && !w.open), 'causes start folded');
 const auth = why.find((w) => w.getAttribute('data-category') === 'AUTHORIZATION');
 assert.match(auth.querySelector('.why__cat').textContent, /^AUTORISATION — autorisation explicite requise$/);
+assert.equal(auth.querySelector('.why__count').textContent, String(view.holdRationale.rootCauses.find((c) => c.category === 'AUTHORIZATION').codes.length));
 assert.match(auth.querySelector('.why__codes').textContent, /EXECUTION NOT AUTHORIZED/);
+assert.ok([...auth.querySelectorAll('.why__plain li')].some((li) => li.textContent === "Aucune exécution n'est autorisée."));
+// Every reason code of every stage is still in the page, in plain text and as a code.
+for (const st of view.stages) {
+  for (const r of st.reasons) {
+    assert.ok(d.getElementById('v2-stages').textContent.includes(r.code), r.code);
+    if (r.category !== 'UPSTREAM') assert.ok(d.getElementById('v2-why-list').textContent.includes(r.plain), r.code);
+  }
+}
 // Stage cards.
 const stages = [...d.querySelectorAll('#v2-stages .stage')];
 assert.equal(stages.length, 12);
+assert.ok(stages.every((st) => !st.querySelector('details').open), 'stages start folded');
+assert.equal(stages[8].querySelector('.stage__count').textContent, '4 motif(s)');
 const stage = (i, sel) => stages[i].querySelector(sel).textContent;
 assert.equal(stage(0, '.stage__name'), 'MARKET PRICING');
 assert.equal(stage(0, '.stage__state'), 'DEGRADED');
@@ -209,19 +238,23 @@ assert.equal(stage(0, '.stage__cap'), 'SIMULÉ');
 assert.equal(stage(8, '.stage__name'), 'ACTION');
 assert.equal(stages[8].getAttribute('data-capability'), 'BLOCKED');
 const actionReasons = [...stages[8].querySelectorAll('.reason')].map((r) =>
-  [r.getAttribute('data-category'), r.querySelector('.reason__cat').textContent, r.querySelector('.reason__code').textContent]);
+  [r.getAttribute('data-category'), r.querySelector('.reason__cat').textContent, r.querySelector('.reason__code').textContent,
+    r.querySelector('.reason__plain').textContent]);
 assert.deepEqual(actionReasons, [
-  ['UPSTREAM', 'AMONT', 'FINAL_RISK_NOT_READY'],
-  ['AUTHORIZATION', 'AUTORISATION', 'EXECUTION_NOT_AUTHORIZED'],
-  ['ENVIRONMENT', 'ENVIRONNEMENT', 'BROKER_NOT_CONNECTED'],
-  ['BUSINESS_DECISION', 'DÉCISION MÉTIER', 'ACTION_METHOD_NOT_APPROVED'],
+  ['UPSTREAM', 'AMONT', 'FINAL_RISK_NOT_READY', "Le risque final n'est pas prêt en amont."],
+  ['AUTHORIZATION', 'AUTORISATION', 'EXECUTION_NOT_AUTHORIZED', "Aucune exécution n'est autorisée."],
+  ['ENVIRONMENT', 'ENVIRONNEMENT', 'BROKER_NOT_CONNECTED', "Aucun courtier n'est connecté."],
+  ['BUSINESS_DECISION', 'DÉCISION MÉTIER', 'ACTION_METHOD_NOT_APPROVED', "La méthode de décision d'action n'est pas approuvée."],
 ]);
 assert.match(stage(8, '.stage__version'), /^xau\.action-abstention\.v1 · action-abstention-gate-1\.0\.0$/);
-// Market at the cutoff: a LIVE field of a simulation is labelled as such.
+// Market at the cutoff: a field fresh at a simulated cutoff is FRAIS AU CUTOFF, never LIVE.
 const marketRows = [...d.querySelectorAll('#v2-market tr')];
 assert.equal(marketRows.length, 8);
 assert.deepEqual([...marketRows[0].cells].map((c) => c.textContent),
-  ['SPOT', '3900', 'LIVE AU CUTOFF', '60 s', '2026-10-01 14:14:00Z', 'twelve_data']);
+  ['SPOT', '3900', 'FRAIS AU CUTOFF', '60 s', '2026-10-01 14:14:00Z', 'twelve_data']);
+assert.match(text(d, 'v2-market-legend'), /^FRAIS AU CUTOFF : .*cutoff simulé\. Ce n'est pas un flux en direct\.$/);
+// The word LIVE appears nowhere in the simulated workspace.
+assert.doesNotMatch(d.getElementById('ws-chain').textContent, /\bLIVE\b/);
 assert.deepEqual([...marketRows[3].cells].map((c) => c.textContent), ['DXY', 'N/A', 'UNAVAILABLE', 'N/A', 'N/A', 'N/A']);
 assert.equal([...marketRows[4].cells][3].textContent, '14 h');
 assert.ok(marketRows.every((r) => r.cells[2].textContent !== 'LIVE'), 'no bare LIVE in a simulation');
@@ -241,9 +274,18 @@ assert.match(text(d, 'v2-capability-count'), /OPÉRATIONNEL LOCAL 3 · SIMULÉ \
 assert.equal(d.getElementById('mode-v1').getAttribute('data-mode'), 'demo');
 assert.equal(text(d, 'mode-v1-val'), 'DÉMO — VALEURS SYNTHÉTIQUES');
 assert.equal(d.getElementById('mode-v2').getAttribute('data-mode'), 'historical');
-assert.match(text(d, 'mode-v2-val'), /^SIMULATION — FIXTURE · HISTORIQUE \(cutoff il y a \d+ (s|min|h|j)\) · HOLD$/);
+assert.equal(text(d, 'mode-v2-val'), 'SIMULATION · HISTORIQUE');
+// Inside the workspace, the full nature stays visible while scrolling.
+assert.equal(d.getElementById('v2-nav-nature').getAttribute('data-mode'), 'historical');
+assert.match(text(d, 'v2-nav-nature'), /^SIMULATION — FIXTURE · HISTORIQUE — cutoff il y a \d+ (s|min|h|j) · PAS UNE ANALYSE RÉELLE$/);
+// The legend defines every label, and LIVE only as a real feed.
+const legend = Object.fromEntries([...d.querySelectorAll('#nature-legend dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent]));
+assert.deepEqual(Object.keys(legend), ['DÉMO', 'SIMULATION', 'HISTORIQUE', 'FRAIS AU CUTOFF', 'LIVE', 'HOLD']);
+assert.match(legend.LIVE, /flux de marché réel.*Jamais une simulation/);
+assert.match(legend['FRAIS AU CUTOFF'], /Ce n'est pas un flux en direct/);
+assert.match(legend.SIMULATION, /Jamais une analyse de marché réelle/);
 assert.equal(text(d, 'tab-chain-state'), 'HOLD');
-assert.ok(!/\bLIVE\b/.test(text(d, 'mode-v1-val') + text(d, 'mode-v2-val')));
+assert.ok(!/\bLIVE\b/.test(text(d, 'mode-v1-val') + text(d, 'mode-v2-val') + text(d, 'v2-nav-nature')));
 assert.equal(text(d, 'macro-meta'), 'DÉMO — VALEURS SYNTHÉTIQUES');
 assert.equal(text(d, 'conviction-grade'), '', 'no duplicated N/A');
 // Horizons, acceptance manifest, observability.
@@ -285,6 +327,15 @@ const mutations = [
   ['unknown capability status', (v) => { v.capabilities[0].status = 'LIVE'; }],
   ['unknown stage capability', (v) => { v.stages[8].capability = 'EXECUTABLE'; }],
   ['stages missing', (v) => { delete v.stages; }],
+  ['previous v2 view', (v) => { v.schemaVersion = 'xau.terminal-local-view.v2'; delete v.summary; }],
+  ['summary missing', (v) => { delete v.summary; }],
+  ['summary not HOLD', (v) => { v.summary.decision = 'BUY'; }],
+  ['summary execution allowed', (v) => { v.summary.execution = 'ALLOWED'; }],
+  ['unknown summary status', (v) => { v.summary.status = 'READY'; }],
+  ['unknown main reason', (v) => { v.summary.mainReasons[0].category = 'NONE'; }],
+  ['unknown missing-data kind', (v) => { v.summary.missingData[0].kind = 'GUESS'; }],
+  ['dependency of another kind', (v) => { v.summary.blockingDependencies[0].category = 'DATA'; }],
+  ['root cause without reasons', (v) => { delete v.holdRationale.rootCauses[0].reasons; }],
   ['null view', () => null],
 ];
 for (const [name, mutate] of mutations) {
@@ -296,6 +347,8 @@ for (const [name, mutate] of mutations) {
   assert.equal(text(d, 'v2-state'), 'VUE V2 REFUSÉE', name);
   assert.equal(d.querySelectorAll('#v2-stages .stage').length, 0, name);
   assert.equal(d.getElementById('v2-why').hidden, true, name);
+  assert.equal(d.getElementById('v2-sec-summary').hidden, true, name);
+  assert.equal(text(d, 'v2-nav-nature'), 'VUE V2 REFUSÉE', name);
   assert.equal(d.getElementById('mode-v2').getAttribute('data-mode'), 'refused', name);
   assert.equal(text(d, 'tab-chain-state'), 'REFUSÉE', name);
   assert.equal(text(d, 'v2-chain-state'), '—', name);
@@ -303,7 +356,27 @@ for (const [name, mutate] of mutations) {
   assert.equal(text(d, 'v2-capabilities').trim(), 'Matrice indisponible sans vue V2.', name);
   dom.window.close();
 }
-console.log(`PASS ${mutations.length} non-conforming views are refused whole`);
+// A refused view replaces a valid one entirely: nothing of the previous view stays on screen.
+{
+  let body = structuredClone(view);
+  dom = boot({ ...LOCAL, V2_SCENARIOS_URL: '/s.json' }, (url) => (String(url) === '/s.json'
+    ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([{ id: 'golden', label: 'g' }]) })
+    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(structuredClone(body)) })));
+  await settle();
+  d = dom.window.document;
+  assert.equal(d.getElementById('v2-sec-summary').hidden, false);
+  body = structuredClone(view);
+  body.summary.decision = 'BUY';
+  d.getElementById('v2-scenario').value = 'golden';
+  d.getElementById('v2-scenario').dispatchEvent(new dom.window.Event('change'));
+  await settle();
+  assert.equal(text(d, 'v2-state'), 'VUE V2 REFUSÉE');
+  assert.equal(d.getElementById('v2-sec-summary').hidden, true, 'previous summary hidden');
+  assert.equal(d.getElementById('v2-why').hidden, true, 'previous rationale hidden');
+  assert.equal(d.querySelectorAll('#v2-stages .stage, #v2-market tr[data-status]').length, 0, 'previous stages and fields removed');
+  dom.window.close();
+}
+console.log(`PASS ${mutations.length} non-conforming views are refused whole, including after a valid one`);
 
 // --- Only the latest requested view is shown, whatever the arrival order.
 {
@@ -340,6 +413,8 @@ hostile.stages[0].reasons[0].code = '<img src=x onerror="window.__pwned=1">';
 hostile.capabilities[0].detail = '<script>window.__pwned=1</script>';
 hostile.holdRationale.rootCauses[0].codes[0] = '<img src=y onerror="window.__pwned=2">';
 hostile.market.fields[0].source = '<b>twelve</b>';
+hostile.summary.headline = '<img src=z onerror="window.__pwned=3">';
+hostile.summary.blockingDependencies[0].plain = '<script>window.__pwned=4</script>';
 dom = boot(LOCAL, serveView(hostile));
 await settle();
 d = dom.window.document;
@@ -347,6 +422,7 @@ assert.equal(dom.window.__pwned, undefined);
 assert.equal(d.querySelectorAll('#ws-chain img, #ws-chain script, #ws-chain b').length, 0);
 assert.match(d.querySelector('#v2-why-list .why__codes').textContent, /<img src=y/);
 assert.match(d.querySelector('#v2-stages .reason__code').textContent, /<img src=x/);
+assert.match(text(d, 'v2-summary-headline'), /<img src=z/);
 dom.window.close();
 console.log('PASS view strings are rendered as text only');
 
@@ -474,10 +550,77 @@ select.dispatchEvent(new dom.window.Event('change'));
 await settle(400);
 assert.equal(text(d, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
 assert.doesNotMatch(text(d, 'v2-why-list'), /EXECUTION NOT AUTHORIZED|PROVIDER NOT AUTHORIZED/);
-assert.match(text(d, 'mode-v2-val'), /^SIMULATION — SCÉNARIO EVERYTHING-GRANTED · HISTORIQUE/);
+assert.match(text(d, 'v2-nav-nature'), /^SIMULATION — SCÉNARIO EVERYTHING-GRANTED · HISTORIQUE/);
 // Every evidence declared by the simulation, still not accepted.
 assert.equal(text(d, 'v2-acceptance-state'), 'NOT_ACCEPTED · 11/11 DÉCLARÉES');
 assert.equal(text(d, 'v2-observability'), 'CONTRACT_ONLY · corrélation corr-test-1 · déploiement deploy-test-1');
+// Degraded scenarios: the summary names what is missing and where the chain stops.
+select.value = 'market-unavailable';
+select.dispatchEvent(new dom.window.Event('change'));
+await settle(400);
+assert.match(text(d, 'v2-summary-headline'), /le premier à MARKET PRICING\./);
+assert.equal(d.querySelectorAll('#v2-summary-missing li').length, 10, 'eight fields, the snapshot and the evidence graph');
+assert.ok(listText('v2-summary-missing').includes("Aucun instantané de marché n'a été fourni."));
+assert.ok([...d.querySelectorAll('#v2-market tr')].every((r) => r.cells[2].textContent === 'UNAVAILABLE'));
+select.value = 'lookahead';
+select.dispatchEvent(new dom.window.Event('change'));
+await settle(400);
+assert.ok(listText('v2-summary-missing').includes('Une observation de marché est postérieure au cutoff (anticipation interdite).'));
+select.value = 'invalid-input';
+select.dispatchEvent(new dom.window.Event('change'));
+await settle(400);
+assert.equal(d.getElementById('v2-sec-summary').getAttribute('data-status'), 'INPUT_REJECTED');
+assert.deepEqual(listText('v2-summary-missing'), ['Entrée invalide : unexpectedKey: UNKNOWN_KEY.']);
+assert.equal(text(d, 'v2-summary-deps'), "Aucune dépendance : la chaîne n'a pas été évaluée.");
+assert.equal(d.getElementById('v2-why').hidden, true);
 dom.window.close();
 await close(live.server);
-console.log('PASS terminal against the real local server renders the golden HOLD chain');
+console.log('PASS terminal against the real local server: golden HOLD chain, degraded and rejected scenarios summarized');
+
+// --- Navigation inside the chain workspace: no hash change, folded state kept across refreshes.
+{
+  let body = structuredClone(view);
+  const list = [{ id: 'golden', label: 'g' }];
+  const dom4 = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/#chaine' });
+  dom4.window.fetch = (url) => {
+    const u = String(url);
+    if (u === '/s.json') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(list) });
+    if (u.startsWith(VIEW_PATH)) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(structuredClone(body)) });
+    return Promise.reject(new Error(`unexpected fetch ${url}`));
+  };
+  dom4.window.ALPHA_XAU_CONFIG = { ...LOCAL, V2_SCENARIOS_URL: '/s.json' };
+  const boot4 = dom4.window.document.createElement('script');
+  boot4.textContent = js;
+  dom4.window.document.body.appendChild(boot4);
+  await settle(100);
+  const d4 = dom4.window.document;
+  const scrolled = [];
+  dom4.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this.id); };
+  const targets = [...d4.querySelectorAll('.v2nav__link')].map((b) => b.getAttribute('data-target'));
+  assert.deepEqual(targets, ['v2-sec-summary', 'v2-sec-why', 'v2-sec-stages', 'v2-sec-market', 'v2-sec-readiness', 'v2-sec-caps']);
+  for (const id of targets) assert.ok(d4.getElementById(id), id);
+  for (const b of d4.querySelectorAll('.v2nav__link')) b.click();
+  assert.deepEqual(scrolled, targets);
+  assert.equal(dom4.window.location.hash, '#chaine', 'section links leave the workspace address alone');
+  assert.equal(d4.getElementById('ws-chain').hidden, false);
+  // Fold / unfold all stages, and keep the reader's choice across a refresh.
+  const toggle = d4.getElementById('v2-stages-toggle');
+  toggle.click();
+  assert.ok([...d4.querySelectorAll('#v2-stages details')].every((x) => x.open));
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(toggle.textContent, 'TOUT REPLIER');
+  toggle.click();
+  assert.ok([...d4.querySelectorAll('#v2-stages details')].every((x) => !x.open));
+  d4.querySelector('#v2-stages [data-stage="ACTION"] details').open = true;
+  d4.querySelector('#v2-why-list [data-category="ENVIRONMENT"]').open = true;
+  body = structuredClone(view);
+  body.generatedAt = '2026-10-14T21:43:00.000Z';
+  d4.getElementById('v2-scenario').value = 'golden';
+  d4.getElementById('v2-scenario').dispatchEvent(new dom4.window.Event('change'));
+  await settle(100);
+  assert.equal(text(d4, 'v2-generated'), '21:43 UTC', 'the view was re-rendered');
+  assert.deepEqual([...d4.querySelectorAll('#v2-stages details[open]')].map((x) => x.parentElement.getAttribute('data-stage')), ['ACTION']);
+  assert.deepEqual([...d4.querySelectorAll('#v2-why-list details[open]')].map((x) => x.getAttribute('data-category')), ['ENVIRONMENT']);
+  dom4.window.close();
+}
+console.log('PASS chain navigation: section links scroll without changing the address; folded state survives a refresh');
