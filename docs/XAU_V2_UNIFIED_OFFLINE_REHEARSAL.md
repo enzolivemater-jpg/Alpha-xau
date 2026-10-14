@@ -34,3 +34,20 @@
 This integration PR is a **test harness, not an authorized merge candidate**. The source PRs #106–#122 and #123–#126 still need individual delta review and de-duplication. No cherry-pick of the obsolete ten-stage implementation over the selected canonical file. Any permanent choice of schema, receipt v2 semantics, temporal precision or rendering semantics requires its own review and approval.
 
 **DO NOT MERGE, DEPLOY, APPLY MIGRATIONS, CHANGE `main`, EXECUTE REC-1, ACTIVATE PROVIDERS, SEND ALERTS OR TRADE.**
+
+## Central version registry for this combined, unmerged experiment
+
+These are explicitly **separate** schema identities. Each exact version string
+belongs to only one module and does not imply runtime approval.
+
+| Module | Schema version | Algorithm version |
+| --- | --- | --- |
+| TIME-0 | `xau.temporal-instant.v1` | `strict-gregorian-nanoseconds-1.0.0` |
+| EVIDENCE-0 | `xau.evidence-manifest.v1` | `evidence-structural-cutoff-gate-1.0.0` |
+| OBS-0 v2 | `xau.offline-audit-receipt.v2` | `canonical-chain-hold-receipt-2.0.0` |
+| UI-0 | `xau.institutional-advisory-ui.v1` | `institutional-offline-hold-projection-1.0.0` |
+| TR-0 | `xau.offline-advisory-transport.v1` | `offline-canonical-readonly-transport-1.0.0` |
+| Combined harness | `xau.unified-offline-rehearsal.v1` | `unified-readonly-cross-contract-1.0.0` |
+
+The old CHAIN-0 `runDecisionChainDryRun(input)` ten-stage shape and OBS-0
+`xau.offline-audit-receipt.v1` are not accepted by these v2 adapters.

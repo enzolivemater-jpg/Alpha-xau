@@ -398,9 +398,22 @@ for (const file of closure) {
 const backendFiles = spawnSync('git', ['ls-files', 'backend'], { cwd: ROOT, encoding: 'utf8' })
   .stdout.split('\n').filter((file) => file.endsWith('.ts') && !file.startsWith('backend/decision_chain/'));
 assert.ok(backendFiles.length > 40);
+// Only the dedicated, pure audit/rehearsal consumers may import the canonical
+// chain. ARCH-1B separately proves that legacy Worker, cron and Committee
+// cannot reach any of them, directly or transitively.
+const AUDITED_OFFLINE_CONSUMERS = new Set([
+  'backend/observability/offline_receipt.ts',
+  'backend/observability/unified_rehearsal.ts',
+]);
 for (const file of backendFiles) {
-  assert.doesNotMatch(readFileSync(path.join(ROOT, file), 'utf8'), /decision_chain\//, `${file} imports CHAIN-0`);
+  const content = readFileSync(path.join(ROOT, file), 'utf8');
+  if (AUDITED_OFFLINE_CONSUMERS.has(file)) {
+    assert.match(content, /from ['"]\.\.\/decision_chain\/dry_run\.js['"]/, `${file} uses canonical CHAIN-0`);
+  } else {
+    assert.doesNotMatch(content, /decision_chain\//, `${file} may not import CHAIN-0`);
+  }
 }
+for (const consumer of AUDITED_OFFLINE_CONSUMERS) assert.ok(backendFiles.includes(consumer));
 
 // --- 11. Static guards on source and documentation.
 const source = readFileSync(path.join(ROOT, 'backend', 'decision_chain', 'dry_run.ts'), 'utf8');
