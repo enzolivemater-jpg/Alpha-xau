@@ -4,6 +4,7 @@ import {
   PRE_PM_ALGORITHM_VERSION,
   PRE_PM_SCHEMA_VERSION,
 } from '../risk_engine/pre_pm_contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const PORTFOLIO_MANAGER_SCHEMA_VERSION = 'xau.portfolio-manager-gate.v1' as const;
 export const PORTFOLIO_MANAGER_ALGORITHM_VERSION = 'portfolio-manager-dependency-gate-1.0.0' as const;
@@ -42,15 +43,13 @@ export interface PortfolioManagerGateEnvelope {
   readonly knowledgeCutoff: string;
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 /** PM-0 never invents a portfolio policy, recommendation, allocation or size. */
 export function buildPortfolioManagerGate(
   input: PortfolioManagerGateInput,
   knowledgeCutoff: string,
 ): PortfolioManagerGateEnvelope {
   const reasons = new Set<PortfolioManagerReasonCode>();
-  if (!TIMESTAMP.test(knowledgeCutoff) || !Number.isFinite(Date.parse(knowledgeCutoff))) {
+  if (!isStrictTimestamp(knowledgeCutoff)) {
     reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   }
   if (input.prePm.schemaVersion !== PRE_PM_SCHEMA_VERSION

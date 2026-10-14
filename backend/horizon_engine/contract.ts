@@ -11,6 +11,7 @@ import {
   POSITIONING_SCHEMA_VERSION,
 } from '../positioning_engine/evidence_contract.js';
 import { REGIME_ALGORITHM_VERSION, REGIME_SCHEMA_VERSION } from '../regime_engine/contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const HORIZON_SCHEMA_VERSION = 'xau.horizon-synthesis.v1' as const;
 export const HORIZON_ALGORITHM_VERSION = 'horizon-dependency-gate-1.0.0' as const;
@@ -81,15 +82,13 @@ export interface HorizonSynthesisEnvelope {
   readonly scenarios: readonly HorizonScenarioAbstention[];
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 /** Validates upstream identity/cutoff and returns five explicit abstentions. */
 export function buildHorizonSynthesisContract(
   input: HorizonContractInput,
   knowledgeCutoff: string,
 ): HorizonSynthesisEnvelope {
   const reasons = new Set<HorizonReasonCode>();
-  if (!TIMESTAMP.test(knowledgeCutoff) || !Number.isFinite(Date.parse(knowledgeCutoff))) {
+  if (!isStrictTimestamp(knowledgeCutoff)) {
     reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   }
   const cutoffs = [
