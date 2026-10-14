@@ -15,7 +15,10 @@ At this snapshot, main = ec9cde542d6b51b68391462ee8fa474e650b389f. All architect
 | OBS calendar correction | #118 | Started from old #107. Forward-port only strict cutoff validation and new tests onto the latest hardened #110 lineage |
 | Governance | #114 | Completion board is historical; distinguish verified encrypted backup from unproven isolated restore |
 | Agent proposal | #104 | Inactive configuration only; no production permissions or branch-protection changes activated |
-| Combined CI experiments | #115, #117 | NEVER MERGE these composite branches; they contain overlapping source histories |
+| Shared temporal contracts | #120 TIME-0 | Pure Gregorian/UTC parser; independent review before replacing any existing module timestamp validator |
+| Temporal composite rehearsal | #121 | NEVER MERGE; forward-ports #120 into hardened OBS-0, EVIDENCE-0, UI-0 and tests all boundaries without source runtime changes |
+| Methodology research gates | #122 METH-0 | Documentation and tests only. Eight stages remain UNAPPROVED; no invented signal, threshold, provider or risk policy |
+| Combined CI experiments | #115, #117, #121 | NEVER MERGE these composite branches; they contain overlapping source histories |
 
 Other unrelated open PRs (#96, #100) remain outside this approval scope.
 
@@ -29,9 +32,9 @@ The composite #117 rehearsal found that copying the older OBS-0 file from #118 w
 2. Compare any unpublished local CHAIN-0 dry-run variant before integration, avoiding duplicate orchestrators.
 3. Review #105, #109 and #113 guards first. A new path from Worker/cron/legacy Committee to decision-only V2 requires a separate architecture review, not disabling a failed guard.
 4. Reconcile #106 → #107 → #108 → #110 → #111 in dependency order. Keep every version, cutoff and anti-spoof test. Forward-port only the #118 calendar validation after the hardened OBS-0 state.
-5. Review EVIDENCE-0, then UI-0 and TR-0. A structurally valid offline packet is still UNVERIFIED, NOT_CONNECTED, HOLD / ABSTAIN / FORBIDDEN.
-6. Re-run exact-commit TypeScript, negative regression and combined CI. Verify fake authority, deployment/correlation IDs, bad dates, order injection, alert delivery, future evidence and downstream terminal abstention stay rejected.
-7. Only separate explicit human authorization permits individual source PR merges. Do NOT merge #115/#117 or infer deployment, production access or broker permissions from passing CI.
+5. Review TIME-0 (#120), then EVIDENCE-0, UI-0 and TR-0. Use #121 only as proof of the integration hypothesis, not as merge code. A structurally valid offline packet is still UNVERIFIED, NOT_CONNECTED, HOLD / ABSTAIN / FORBIDDEN.
+6. Independently review METH-0 (#122) research requirements; no positive market methodology may be enabled without Human Gate approval. Re-run exact-commit TypeScript, negative regression and combined CI. Verify fake authority, deployment/correlation IDs, bad dates, order injection, alert delivery, future evidence and downstream terminal abstention stay rejected.
+7. Only separate explicit human authorization permits individual source PR merges. Do NOT merge #115/#117/#121 or infer deployment, production access or broker permissions from passing CI.
 8. REC-1 isolated restore, production migrations, source/vintage attestation, staging, positive market methods, risk/portfolio policies and live operational acceptance remain independent Human Gates.
 
 ## Stop conditions
