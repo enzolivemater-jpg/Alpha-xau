@@ -71,6 +71,7 @@ const TEST_FILES = [
   'tests/test_event_impact_shadow_orchestrator.mjs',
   'tests/test_event_impact_shadow_runtime.mjs',
   'tests/test_event_membership_reassign_contract.mjs',
+  'tests/test_event_plan_aggregation.mjs',
   'tests/test_event_membership_supersession_contract.mjs',
   'tests/test_event_rpc_contract.mjs',
   'tests/test_event_schema_contract.mjs',

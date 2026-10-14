@@ -121,7 +121,10 @@ Event Impact and Gold Transmission processors emit one plan per event
 version, each with its own cutoff. CHAIN-0 accepts a chain-level summary
 (`algorithmVersion`, `status`, `knowledgeCutoff`) and lets S-0 reject version
 or cutoff drift. The rule that aggregates per-event plans into that summary
-at a chain cutoff is not defined here and requires review.
+at a chain cutoff is not defined here. EIA-0
+(`docs/XAU_V2_EVENT_PLAN_AGGREGATION_CONTRACT.md`) decides only the
+all-insufficient case and leaves the positive combination and the event set
+open for review.
 
 ## Scope
 
