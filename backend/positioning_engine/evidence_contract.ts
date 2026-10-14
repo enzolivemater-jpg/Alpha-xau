@@ -51,6 +51,9 @@ const UNITS = new Set<PositioningUnit>(['CONTRACTS', 'PERCENT', 'RATIO', 'INDEX'
 const CODE = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 const INSTRUMENT = /^[A-Z0-9][A-Z0-9_.:/-]{0,31}$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+// Same identity rules as the P-1 schema CHECKs, so P-0 accepts only evidence
+// that can be persisted.
+const REVISION = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/;
 
 function timestampMs(value: string): number | null {
   return parseStrictTimestamp(value);
@@ -114,10 +117,11 @@ function validShape(value: PositioningEvidenceInput): boolean {
     && isCivilDate(value.periodEnd)
     && publishedNotAfterObserved(value)
     && typeof value.artifactId === 'string'
+    && value.artifactId.trim() === value.artifactId
     && value.artifactId.length > 0
     && value.artifactId.length <= 256
     && (value.revision === null
-      || (typeof value.revision === 'string' && value.revision.length > 0 && value.revision.length <= 64));
+      || (typeof value.revision === 'string' && REVISION.test(value.revision)));
 }
 
 /**

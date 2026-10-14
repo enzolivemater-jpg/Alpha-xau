@@ -87,6 +87,19 @@ assert.ok(retainedBeforePublication.reasonCodes.includes('INVALID_EVIDENCE_SHAPE
 assert.deepEqual(retainedBeforePublication.evidence, []);
 assert.equal(mod.buildPositioningEvidenceEnvelope(
   [{ ...base, observedAt: base.publishedAt }], cutoff).evidenceState, 'EVIDENCE_READY');
+// Identity rules match the P-1 schema CHECKs: nothing P-0 accepts is unpersistable.
+for (const forged of [
+  { revision: 'rev 1' }, { revision: ' r1' }, { revision: 'r1\u001f' }, { revision: '-r1' },
+  { revision: 'r'.repeat(65) }, { artifactId: ' sha256:test-artifact' }, { artifactId: 'sha256:x\n' },
+]) {
+  const envelope = mod.buildPositioningEvidenceEnvelope([{ ...base, ...forged }], cutoff);
+  assert.ok(envelope.reasonCodes.includes('INVALID_EVIDENCE_SHAPE'), JSON.stringify(forged));
+  assert.deepEqual(envelope.evidence, []);
+}
+for (const accepted of [{ revision: 'r1' }, { revision: '2026-09-29:v2' }, { revision: 'r'.repeat(64) }]) {
+  assert.equal(mod.buildPositioningEvidenceEnvelope([{ ...base, ...accepted }], cutoff).evidenceState,
+    'EVIDENCE_READY', JSON.stringify(accepted));
+}
 assert.doesNotThrow(() => mod.buildPositioningEvidenceEnvelope([{}], cutoff));
 assert.deepEqual(mod.buildPositioningEvidenceEnvelope([{}], cutoff).evidence, []);
 
