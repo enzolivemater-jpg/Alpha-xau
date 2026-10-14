@@ -308,6 +308,23 @@ assert.equal(d.querySelectorAll('#scenario-tree .scen').length, 0);
 assert.ok(!/SETUP VALIDE|APPROUVÉ/.test(d.querySelector('main').textContent + d.querySelector('footer').textContent),
   'no positive V1 decision in demo');
 assert.ok([...d.querySelectorAll('#news-stream .stream__title')].every((n) => n.textContent.startsWith('[DÉMO] ')));
+
+const demoNews = [...d.querySelectorAll('#news-stream .stream__item')];
+assert.equal(demoNews.length, 3, 'three purely illustrative rows');
+for (const row of demoNews) {
+  assert.equal(row.getAttribute('data-class'), 'demo', 'fictional events cannot claim CATALYST/MAJOR');
+  assert.equal(row.querySelector('[data-field="classification"]').textContent, 'DÉMO');
+  assert.equal(row.querySelector('[data-field="score"]').textContent, 'NON ÉVALUÉ');
+  assert.equal(row.querySelector('[data-field="time"]').textContent, 'HEURE FICTIVE');
+  const impact = row.querySelector('[data-field="impact"]');
+  assert.equal(impact.textContent, 'OR — NON ÉVALUÉ (DÉMO)');
+  assert.equal(impact.getAttribute('data-dir'), 'unavailable', 'no bullish/bearish demo cue');
+  assert.doesNotMatch(row.textContent, /\b(HAUSSIER|BAISSIER|CATALYST|MAJOR)\b/);
+}
+const demoSource = js.slice(js.indexOf('function startDemo()'), js.indexOf('13. HORLOGE ET DÉMARRAGE'));
+assert.doesNotMatch(demoSource, /gold_direction_impact:\s*'(bullish|bearish)'/);
+assert.doesNotMatch(demoSource, /news_score:\s*[0-9]/);
+
 dom.window.close();
 console.log('PASS terminal renders the HOLD chain, provenance per field and the capability matrix');
 

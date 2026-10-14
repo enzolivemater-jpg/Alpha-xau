@@ -454,7 +454,7 @@
       const node = el.tplNews.content.firstElementChild.cloneNode(true);
       const klass = String(row.classification || 'noise').toLowerCase();
 
-      node.setAttribute('data-class', klass);
+      node.setAttribute('data-class', DEMO_MODE ? 'demo' : klass);
       /* Signale visuellement uniquement ce qui n'avait jamais été affiché. */
       if (!state.seenNewsIds.has(row.id)) {
         node.classList.add('stream__item--new');
@@ -462,12 +462,12 @@
       }
 
       const chip = node.querySelector('[data-field="classification"]');
-      setText(chip, klass === 'critical' ? 'CATALYST' : klass === 'major' ? 'MAJOR' : 'NOISE');
-      setAttr(chip, 'data-class', klass);
+      setText(chip, DEMO_MODE ? 'DÉMO' : klass === 'critical' ? 'CATALYST' : klass === 'major' ? 'MAJOR' : 'NOISE');
+      setAttr(chip, 'data-class', DEMO_MODE ? 'demo' : klass);
 
       setText(node.querySelector('[data-field="score"]'),
-        isNum(row.news_score) ? `${row.news_score.toFixed(1)}/100` : 'N/A');
-      setText(node.querySelector('[data-field="time"]'), fmtTimeUTC(row.ts));
+        DEMO_MODE ? 'NON ÉVALUÉ' : isNum(row.news_score) ? `${row.news_score.toFixed(1)}/100` : 'N/A');
+      setText(node.querySelector('[data-field="time"]'), DEMO_MODE ? 'HEURE FICTIVE' : fmtTimeUTC(row.ts));
       setText(node.querySelector('[data-field="title"]'), row.title);
       setText(node.querySelector('[data-field="region"]'), row.region);
       setText(node.querySelector('[data-field="category"]'),
@@ -475,8 +475,8 @@
 
       const impact = node.querySelector('[data-field="impact"]');
       const dir = String(row.gold_direction_impact || 'neutral');
-      setText(impact, `OR ${dir === 'bullish' ? '▲ HAUSSIER' : dir === 'bearish' ? '▼ BAISSIER' : '— NEUTRE'}`);
-      setAttr(impact, 'data-dir', dir);
+      setText(impact, DEMO_MODE ? 'OR — NON ÉVALUÉ (DÉMO)' : `OR ${dir === 'bullish' ? '▲ HAUSSIER' : dir === 'bearish' ? '▼ BAISSIER' : '— NEUTRE'}`);
+      setAttr(impact, 'data-dir', DEMO_MODE ? 'unavailable' : dir);
 
       fragment.appendChild(node);
     }
@@ -1664,18 +1664,18 @@ let pollTimer = null;
 
     renderNews([
       {
-        id: 'demo-1', title: '[DÉMO] Fed maintient ses taux et signale une pause prolongée face à une inflation sous-jacente persistante',
-        news_score: 86.2, classification: 'critical', gold_direction_impact: 'bullish',
+        id: 'demo-1', title: '[DÉMO] Événement monétaire fictif — aucun communiqué officiel',
+        news_score: null, classification: 'noise', gold_direction_impact: null,
         region: 'US', category: 'monetary_policy', ts: new Date(Date.now() - 6e5).toISOString(),
       },
       {
-        id: 'demo-2', title: '[DÉMO] CPI américain ressort à 3.4% contre 3.1% attendu',
-        news_score: 74.5, classification: 'major', gold_direction_impact: 'bullish',
+        id: 'demo-2', title: '[DÉMO] Indicateur d'inflation fictif — aucune donnée officielle',
+        news_score: null, classification: 'noise', gold_direction_impact: null,
         region: 'US', category: 'inflation', ts: new Date(Date.now() - 24e5).toISOString(),
       },
       {
-        id: 'demo-3', title: '[DÉMO] Tensions renforcées autour du détroit d\'Ormuz après un incident naval',
-        news_score: 68.9, classification: 'major', gold_direction_impact: 'bullish',
+        id: 'demo-3', title: '[DÉMO] Événement géopolitique fictif — aucune actualité vérifiée',
+        news_score: null, classification: 'noise', gold_direction_impact: null,
         region: 'MENA', category: 'geopolitics', ts: new Date(Date.now() - 42e5).toISOString(),
       },
     ]);

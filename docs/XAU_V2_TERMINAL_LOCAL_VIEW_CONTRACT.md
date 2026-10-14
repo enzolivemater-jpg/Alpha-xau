@@ -177,3 +177,7 @@ TV-0 does not authorize:
 Module: `backend/decision_chain/terminal_view.ts`, inside the CHAIN-0
 containment (no runtime module imports it). Tests:
 `tests/test_terminal_view.mjs`, `tests/test_terminal_local.mjs`.
+
+## TV-2 demo news trust boundary (2026-10-14)
+
+In the local terminal with no configured historical V1 backend, demonstration news is **illustrative only**: fictional headlines, fictional time labels, no news score, no CATALYST/MAJOR classification and **no bullish/bearish or neutral gold-impact claim**. The UI displays `DÉMO`, `NON ÉVALUÉ` and `OR — NON ÉVALUÉ (DÉMO)`; it must not imply source authentication or methodology approval. The non-demo V1 rendering logic and the independent V2 HOLD/ABSTAIN/FORBIDDEN contract are unchanged. `tests/test_terminal_local.mjs` enforces the display and fixture properties in jsdom. No live source, broker, execution, alert, deployment, migration or REC-1 permission is implied.
