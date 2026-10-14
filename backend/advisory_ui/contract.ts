@@ -11,6 +11,7 @@ import {
   ACCEPTANCE_ALGORITHM_VERSION, ACCEPTANCE_EVIDENCE_KEYS, ACCEPTANCE_SCHEMA_VERSION,
 } from '../acceptance_engine/contract.js';
 import { HORIZONS } from '../horizon_engine/contract.js';
+import { isStrictTimestamp } from '../shared/temporal_contract.js';
 
 export const ADVISORY_UI_SCHEMA_VERSION = 'xau.institutional-advisory-ui.v1' as const;
 export const ADVISORY_UI_ALGORITHM_VERSION = 'institutional-offline-hold-projection-1.0.0' as const;
@@ -62,28 +63,6 @@ const reasons = (value: unknown, mandatory: string): boolean =>
   && value.every((reason: unknown) => typeof reason === 'string' && /^[A-Z][A-Z0-9_]{0,95}$/.test(reason))
   && new Set(value).size === value.length;
 
-// Strict offset-aware calendar validation, with no clock or Date parsing.
-function validCutoff(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/.exec(value);
-  if (!match) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = Number(match[6]);
-  if (year === 0 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return false;
-  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const monthDays = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  if (day < 1 || day > monthDays[month - 1]) return false;
-  if (match[7] !== 'Z') {
-    const tzHour = Number(match[7].slice(1, 3));
-    const tzMinute = Number(match[7].slice(4, 6));
-    if (tzHour > 14 || tzMinute > 59 || (tzHour === 14 && tzMinute !== 0)) return false;
-  }
-  return true;
-}
 
 const CC_FIELDS = [
   'schemaVersion', 'algorithmVersion', 'mode', 'systemState', 'banner',
@@ -161,7 +140,7 @@ export function buildInstitutionalAdvisoryUi(
   claimedKnowledgeCutoff: unknown,
 ): AdvisoryUiViewModel {
   const codes: AdvisoryUiReason[] = [];
-  const valid = validCutoff(claimedKnowledgeCutoff);
+  const valid = isStrictTimestamp(claimedKnowledgeCutoff);
   const cutoff = valid ? claimedKnowledgeCutoff : null;
   if (!valid) codes.push('INVALID_CLAIMED_CUTOFF');
   if (!isObject(input) || !exactFields(input, ['commandCenter', 'alerts', 'acceptance'])) {
