@@ -6,7 +6,7 @@
  * It never reads a clock, database, network, environment variable or provider.
  */
 
-import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const MARKET_PRICING_AS_OF_SCHEMA_VERSION = 'xau.market-pricing-as-of.v1' as const;
 export const MARKET_PRICING_AS_OF_ALGORITHM_VERSION = 'market-pricing-as-of-selector-1.0.0' as const;
@@ -164,7 +164,7 @@ export function selectMarketPricingAsOf(
       reasons.add('INVALID_CANDIDATE_HISTORY');
       continue;
     }
-    if (observedMs > ingestedMs) reasons.add('OBSERVATION_AFTER_INGESTION');
+    if (isStrictlyAfter(candidate.observedAt, candidate.ingestedAt)) reasons.add('OBSERVATION_AFTER_INGESTION');
     parsed.push({ ...candidate, observedMs, ingestedMs });
   }
 
@@ -184,11 +184,11 @@ export function selectMarketPricingAsOf(
   let excludedAfterCutoffCount = 0;
   if (cutoffMs !== null) {
     for (const candidate of unique) {
-      if (candidate.ingestedMs > cutoffMs) {
+      if (isStrictlyAfter(candidate.ingestedAt, knowledgeCutoff)) {
         excludedAfterCutoffCount += 1;
         continue;
       }
-      if (candidate.observedMs > cutoffMs) {
+      if (isStrictlyAfter(candidate.observedAt, knowledgeCutoff)) {
         reasons.add('LOOKAHEAD_CANDIDATE');
         continue;
       }

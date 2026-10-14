@@ -87,7 +87,7 @@ import {
   type PrePmContractInput,
   type PrePmEnvelope,
 } from '../risk_engine/pre_pm_contract.js';
-import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const DECISION_CHAIN_SCHEMA_VERSION = 'xau.decision-chain-dry-run.v1' as const;
 export const DECISION_CHAIN_ALGORITHM_VERSION = 'decision-chain-dry-run-1.0.0' as const;
@@ -432,6 +432,7 @@ const FRESHNESS_RANK: Readonly<Record<Freshness, number>> = { LIVE: 0, STALE: 1,
 function fieldAtCutoff(
   name: DecisionChainMarketField,
   field: MarketField,
+  knowledgeCutoff: string,
   cutoffMs: number | null,
   findings: DecisionChainInputFinding[],
 ): MarketField {
@@ -449,7 +450,7 @@ function fieldAtCutoff(
   }
   const observedMs = parseStrictTimestamp(field.observedAt);
   // Invalid or look-ahead timestamps are rejected by MP-0 itself.
-  if (cutoffMs === null || observedMs === null || observedMs > cutoffMs) return field;
+  if (cutoffMs === null || observedMs === null || isStrictlyAfter(field.observedAt, knowledgeCutoff)) return field;
   const ageSeconds = Math.floor((cutoffMs - observedMs) / 1000);
   const freshness = classifyFreshness(ageSeconds, rule);
   // The age reported downstream is always the age at the cutoff.
@@ -469,7 +470,7 @@ function snapshotAtCutoff(
 ): MarketSnapshot {
   const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
   const fields = Object.fromEntries(DECISION_CHAIN_MARKET_FIELDS.map((name) => [
-    name, fieldAtCutoff(name, snapshot[name], cutoffMs, findings),
+    name, fieldAtCutoff(name, snapshot[name], knowledgeCutoff, cutoffMs, findings),
   ])) as Record<DecisionChainMarketField, MarketField>;
   return { ...snapshot, ...fields };
 }

@@ -1,6 +1,6 @@
 /** Provider-independent Positioning P-0 evidence contract. No signal inference. */
 
-import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const POSITIONING_SCHEMA_VERSION = 'xau.positioning-evidence.v1' as const;
 export const POSITIONING_ALGORITHM_VERSION = 'positioning-evidence-normalizer-1.0.0' as const;
@@ -102,9 +102,8 @@ function compareEvidence(a: PositioningEvidenceInput, b: PositioningEvidenceInpu
 
 /** Same invariant as the persistence schema: evidence is retained after publication. */
 function publishedNotAfterObserved(value: PositioningEvidenceInput): boolean {
-  const published = timestampMs(value.publishedAt);
-  const observed = timestampMs(value.observedAt);
-  return published !== null && observed !== null && published <= observed;
+  return timestampMs(value.publishedAt) !== null && timestampMs(value.observedAt) !== null
+    && !isStrictlyAfter(value.publishedAt, value.observedAt);
 }
 
 function validShape(value: PositioningEvidenceInput): boolean {
@@ -158,8 +157,8 @@ export function buildPositioningEvidenceEnvelope(
     const publishedMs = timestampMs(input.publishedAt);
     const observedMs = timestampMs(input.observedAt);
     if (observedMs !== null) observedTimes.push(observedMs);
-    if (cutoffMs !== null && ((publishedMs !== null && publishedMs > cutoffMs)
-      || (observedMs !== null && observedMs > cutoffMs))) {
+    if (cutoffMs !== null && ((publishedMs !== null && isStrictlyAfter(input.publishedAt, knowledgeCutoff))
+      || (observedMs !== null && isStrictlyAfter(input.observedAt, knowledgeCutoff)))) {
       reasons.add('EVIDENCE_AFTER_KNOWLEDGE_CUTOFF');
     }
   }

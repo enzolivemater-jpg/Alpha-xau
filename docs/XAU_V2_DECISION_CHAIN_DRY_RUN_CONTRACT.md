@@ -50,6 +50,14 @@ before it reaches a gate and recorded in `inputFindings` as
 restrictive. Fixing the gates themselves requires new gate versions and is a
 separate, reviewed change.
 
+"After the cutoff" is exact to the nanosecond in MP-0, MP-1, P-0 and
+CHAIN-0. `Date.parse` keeps only milliseconds, so an observation stamped
+`14:15:00.0005Z` used to compare equal to a `14:15:00Z` cutoff and count as
+known; PostgreSQL timestamps carry microseconds. The same exact comparison
+applies to MP-1's observation/ingestion order and P-0's publication/observation
+order. The change only excludes evidence: no previously excluded value
+becomes eligible.
+
 Market freshness is re-derived at the knowledge cutoff, not trusted from the
 caller. For each market value, CHAIN-0 computes its age at the cutoff (the
 `ageSeconds` passed to MP-0 is always that age) and

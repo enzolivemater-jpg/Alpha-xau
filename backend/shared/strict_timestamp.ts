@@ -33,3 +33,22 @@ export function parseStrictTimestamp(value: unknown): number | null {
 export function isStrictTimestamp(value: unknown): value is string {
   return parseStrictTimestamp(value) !== null;
 }
+
+/**
+ * Exact instant in nanoseconds since the epoch, or null. `Date.parse` keeps
+ * only milliseconds, so `14:15:00.0005Z` would compare equal to a
+ * `14:15:00Z` cutoff; every "after the cutoff" test compares this value.
+ */
+export function parseStrictTimestampNanos(value: unknown): bigint | null {
+  const milliseconds = parseStrictTimestamp(value);
+  if (milliseconds === null) return null;
+  const fraction = /\.(\d+)/.exec(value as string)?.[1] ?? '';
+  return BigInt(milliseconds) * 1_000_000n + BigInt(fraction.slice(3).padEnd(6, '0'));
+}
+
+/** True when both timestamps are valid and `value` is strictly after `reference`. */
+export function isStrictlyAfter(value: unknown, reference: unknown): boolean {
+  const a = parseStrictTimestampNanos(value);
+  const b = parseStrictTimestampNanos(reference);
+  return a !== null && b !== null && a > b;
+}

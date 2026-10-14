@@ -7,7 +7,7 @@
  */
 
 import type { MarketField, MarketSnapshot } from './types.js';
-import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const MARKET_PRICING_SCHEMA_VERSION = 'xau.market-pricing-snapshot.v1' as const;
 export const MARKET_PRICING_ALGORITHM_VERSION = 'market-pricing-envelope-1.0.0' as const;
@@ -104,7 +104,7 @@ export function buildInstitutionalMarketPricingSnapshot(
     const observedMs = parseExplicitTimestamp(field.observedAt);
     if (observedMs !== null) {
       observed.push(observedMs);
-      if (cutoffMs !== null && observedMs > cutoffMs) {
+      if (cutoffMs !== null && isStrictlyAfter(field.observedAt, knowledgeCutoff)) {
         reasons.add('OBSERVATION_AFTER_KNOWLEDGE_CUTOFF');
       }
     }
