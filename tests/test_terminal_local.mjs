@@ -176,6 +176,37 @@ try {
 }
 console.log('PASS local input files: malformed, mis-shaped and stale inputs all stay HOLD');
 
+// --- --archive: the server replays a local archive, optionally pinned to its digest.
+{
+  const archiveFile = new URL('./fixtures/market_evidence_archive_synthetic.json', import.meta.url).pathname;
+  const pinned = archiveView.marketEvidence.archiveDigest;
+  const scratch = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'terminal-archive-'));
+  try {
+    writeFileSync(path.join(scratch, 'broken.json'), '{not json');
+    for (const [name, options, status, mp0] of [
+      ['pinned', { archiveFile, archiveDigest: pinned }, 'VERIFIED', 'DEGRADED'],
+      ['unpinned', { archiveFile }, 'VERIFIED', 'DEGRADED'],
+      ['wrong pin', { archiveFile, archiveDigest: `sha256:${'0'.repeat(64)}` }, 'INVALID', 'ABSTAIN'],
+      ['broken file', { archiveFile: path.join(scratch, 'broken.json') }, 'INVALID', 'ABSTAIN'],
+      // Four days on, the spot has expired: INCOMPLETE replay and MP-0 abstains.
+      ['cutoff outside coverage', { archiveFile, cutoff: '2026-10-05T00:00:00.000Z' }, 'INCOMPLETE', 'ABSTAIN'],
+    ]) {
+      const local = await listen(options);
+      const v = await (await fetch(`${local.base}${VIEW_PATH}`)).json();
+      await close(local.server);
+      assert.equal(v.origin.kind, 'LOCAL_MARKET_ARCHIVE', name);
+      assert.equal(v.marketEvidence.status, status, name);
+      assert.equal(v.marketEvidence.pinnedDigest, options.archiveDigest ?? null, name);
+      assert.equal(v.chain.chainState, 'HOLD', name);
+      assert.equal(v.chain.execution, 'FORBIDDEN', name);
+      assert.equal(v.stages[0].state, mp0, name);
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+console.log('PASS --archive: pinned, unpinned, wrong pin, broken file and out-of-coverage cutoff all stay HOLD');
+
 // --- Terminal rendering.
 function boot(config, fetchImpl) {
   const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/' });
