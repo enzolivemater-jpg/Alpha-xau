@@ -1,7 +1,7 @@
-import { JSDOM } from '/home/claude/alpha-xau/node_modules/jsdom/lib/api.js';
+import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
-const html=readFileSync('/home/claude/alpha-xau/frontend/index.html','utf8');
-const js=readFileSync('/home/claude/alpha-xau/frontend/js/dashboard.js','utf8');
+const html=readFileSync(new URL('../frontend/index.html', import.meta.url),'utf8');
+const js=readFileSync(new URL('../frontend/js/dashboard.js', import.meta.url),'utf8');
 function boot(cfg,fetchImpl){
   const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,url:'https://x.github.io/'});
   dom.window.fetch=fetchImpl;
