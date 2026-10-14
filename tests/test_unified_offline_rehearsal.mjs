@@ -96,6 +96,10 @@ const invalid = await bridge.runUnifiedOfflineRehearsal(input({
   knowledgeCutoff: '2026-02-30T14:15:00.000Z',
 }));
 assert.equal(invalid.terminal.chain.chainState, 'HOLD');
+assert.equal(invalid.outcome, 'REJECTED', 'malformed cutoff must stop the chain at preflight');
+assert.equal(invalid.terminal.chain.outcome, 'REJECTED');
+assert.equal(invalid.receipt, null, 'invalid preflight must not create a receipt');
+assert.equal(invalid.terminal.chain.digest, null, 'invalid preflight must not mint any fingerprint');
 assert.equal(invalid.advisory.execution, 'FORBIDDEN');
 assert.equal(invalid.evidence.structuralStatus, 'REJECTED');
 assert.ok(invalid.evidence.reasonCodes.includes('INVALID_KNOWLEDGE_CUTOFF'));
