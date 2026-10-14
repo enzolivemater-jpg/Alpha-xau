@@ -51,3 +51,34 @@ belongs to only one module and does not imply runtime approval.
 
 The old CHAIN-0 `runDecisionChainDryRun(input)` ten-stage shape and OBS-0
 `xau.offline-audit-receipt.v1` are not accepted by these v2 adapters.
+
+
+## LOCAL-ORIGIN-1 — defensive metadata boundary (additive draft)
+
+The TypeScript `UnifiedOfflineInput.origin` type is not an authentication boundary:
+JSON/JS callers can provide an arbitrary `kind` (for example `PRODUCTION`),
+misleading terminal labels, accessors or a forged generation timestamp.
+The integration harness now constrains **the display metadata only**:
+
+- `kind` must be `GOLDEN_FIXTURE`, `LOCAL_INPUT_FILE` or `LOCAL_SCENARIO`.
+- `label` must be an own data property with a short safe identifier;
+  the visible label is always prefixed `SIMULATED:`.
+- Unknown shapes, unexpected keys, accessors and proxy descriptor failures
+  fall back to `LOCAL_SCENARIO / SIMULATED:unverified-local-origin`.
+- `generatedAt` is caller supplied and remains **unverified**. Invalid civil
+  timestamps become `INVALID_LOCAL_TIMESTAMP`; the temporal classification
+  becomes `UNKNOWN`, never a fabricated current time.
+- No live source, attestation, signature, broker API or production permission is
+  introduced. The accepted `GOLDEN_FIXTURE` kind denotes a local test fixture,
+  **not** an independent proof that the input bytes are authentic.
+
+`tests/test_unified_origin_boundary.mjs` is registered in deterministic CI
+and verifies display-origin spoofing, arbitrary HTML-like labels, pathological
+label length, poisoned getters, proxy descriptor failure and invalid dates.
+The change affects only the new offline integration harness, not the
+legacy Worker or the standalone TV-2 terminal server. The latter retains its
+own origin handling and must be reviewed independently before any exposure
+to untrusted callers.
+
+**Review dependency:** #127 (single canonical twelve-stage rehearsal).
+This change is non-mergeable by default and requires a separate human gate.
