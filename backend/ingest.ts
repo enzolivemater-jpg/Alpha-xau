@@ -628,6 +628,9 @@ function cleanText(raw: string | null | undefined, maxLength: number): string | 
     .replace(/\[\+\d+\s*chars?\]/gi, ' ')
     // Caractères de contrôle et zero-width.
     .replace(/[\u0000-\u001f\u007f\u200b-\u200f\ufeff]/g, ' ')
+    // Demi-paire de substitution isolée (déjà présente dans le JSON source) :
+    // un seul article la portant ferait échouer l'insertion du lot entier.
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 

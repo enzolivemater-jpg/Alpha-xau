@@ -331,7 +331,8 @@ results.parse_timestamp = Object.fromEntries([
 }));
 
 // cleanText() réel : seules les valeurs scalaires Unicode sont décodées.
-results.clean_text = ['caf&#233;', 'a&#55296;b', 'a&#57343;b', 'x&#1114111;y', 'x&#1114112;y', 'n&#0;m'].map((raw) => {
+results.clean_text = ['caf&#233;', 'a&#55296;b', 'a&#57343;b', 'x&#1114111;y', 'x&#1114112;y', 'n&#0;m',
+  'raw\\uD800high', 'raw\\uDC00low', 'pair \\u{1F4C8} ok'].map((raw) => {
   const text = cleanText(raw, 200);
   return { raw, text, wellFormed: text === null || text.isWellFormed() };
 });
@@ -428,6 +429,9 @@ console.log('--- cleanText : jamais de chaîne UTF-16 mal formée ---');
   t('demi-paire basse isolée -> espace', r['a&#57343;b'].text === 'a b' && r['a&#57343;b'].wellFormed);
   t('U+10FFFF (dernière valeur valide) décodée', r['x&#1114111;y'].text === 'x\u{10FFFF}y');
   t('au-delà de U+10FFFF -> espace', r['x&#1114112;y'].text === 'x y');
+  t('demi-paire isolée déjà présente dans la source -> espace',
+    r['raw\uD800high'].text === 'raw high' && r['raw\uDC00low'].text === 'raw low');
+  t('paire de substitution complète conservée', r['pair \u{1F4C8} ok'].text === 'pair \u{1F4C8} ok');
   t('toutes les sorties sont bien formées', output.clean_text.every((c) => c.wellFormed));
 }
 
