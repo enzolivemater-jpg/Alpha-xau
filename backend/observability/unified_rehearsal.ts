@@ -114,7 +114,7 @@ export function fingerprintFromAcceptedReceipt(receipt: OfflineAuditReceipt | nu
       || !Array.isArray(receipt.problems)
       || receipt.problems.length !== 0
       || typeof receipt.fingerprint !== 'string'
-      || !/^[0-9a-f]{64}$/.test(receipt.fingerprint)) {
+      || !/^sha256:[0-9a-f]{64}$/.test(receipt.fingerprint)) {
     return null;
   }
   return receipt.fingerprint;
