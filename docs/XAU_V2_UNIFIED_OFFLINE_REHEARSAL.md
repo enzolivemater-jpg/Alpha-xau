@@ -43,7 +43,7 @@ belongs to only one module and does not imply runtime approval.
 | Module | Schema version | Algorithm version |
 | --- | --- | --- |
 | TIME-0 | `xau.temporal-instant.v1` | `strict-gregorian-nanoseconds-1.0.0` |
-| EVIDENCE-0 | `xau.evidence-manifest.v1` | `evidence-structural-cutoff-gate-1.0.0` |
+| EVIDENCE-0 | `xau.evidence-manifest.v1` | `evidence-structural-cutoff-gate-1.0.1` |
 | OBS-0 v2 | `xau.offline-audit-receipt.v2` | `canonical-chain-hold-receipt-2.0.0` |
 | UI-0 | `xau.institutional-advisory-ui.v1` | `institutional-offline-hold-projection-1.0.0` |
 | TR-0 | `xau.offline-advisory-transport.v1` | `offline-canonical-readonly-transport-1.0.0` |
@@ -82,3 +82,5 @@ to untrusted callers.
 
 **Review dependency:** #127 (single canonical twelve-stage rehearsal).
 This change is non-mergeable by default and requires a separate human gate.
+
+> Draft successor security patch EVIDENCE-0 uses a 256-claim atomic limit and own-data descriptors. See `docs/XAU_V2_EVIDENCE_0_STRUCTURAL_MANIFEST.md`; no source attestation or runtime activation follows.
