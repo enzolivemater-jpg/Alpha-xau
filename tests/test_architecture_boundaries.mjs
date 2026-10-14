@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file) => readFileSync(path.join(root, file), 'utf8');
@@ -112,4 +113,114 @@ assert.match(worker,
 // treated as actual implemented modules.
 assert.ok(existsSync(path.join(root, 'docs/XAU_V2_ARCHITECTURE_BASELINE.md')));
 assert.ok(existsSync(path.join(root, 'docs/XAU_V2_DECISION_CHAIN_CONTRACT.md')));
+
+// ARCH-1B: no indirect path from legacy runtime entrypoints to V2 decision
+// authority. Do not confuse shared upstream market/pricing adapters with
+// downstream institutional gates; only decision-only modules are forbidden.
+const legacyRuntimeRoots = [
+  'backend/worker.ts',
+  'backend/ingest.ts',
+  'backend/ai_engine/committee_orchestrator.ts',
+];
+const prohibitedRuntimeReachability = new Set([
+  ...dependencyEdges.map(([consumer]) => consumer),
+  // Optional future contract roots are protected by *path* even when their
+  // unmerged branches are not present on main.
+  'backend/decision_chain/dry_run.ts',
+  'backend/observability/offline_receipt.ts',
+  'backend/observability/evidence_manifest.ts',
+  'backend/advisory_ui/contract.ts',
+  'backend/advisory_ui/transport_contract.ts',
+]);
+
+function staticModuleSpecifiers(code, filename) {
+  const ast = ts.createSourceFile(filename, code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+  const imported = [];
+  const issues = [];
+  function walk(node) {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+        imported.push(node.moduleSpecifier.text);
+      } else if (node.moduleSpecifier) {
+        issues.push('INVALID_STATIC_SPECIFIER');
+      }
+    }
+    if (ts.isCallExpression(node)) {
+      const dynamic = node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require');
+      if (dynamic) {
+        const specifier = node.arguments[0];
+        if (specifier && ts.isStringLiteral(specifier)) imported.push(specifier.text);
+        else issues.push('NON_LITERAL_DYNAMIC_MODULE');
+      }
+    }
+    ts.forEachChild(node, walk);
+  }
+  walk(ast);
+  return { imported, issues };
+}
+function resolveRuntimeImport(origin, specifier, known) {
+  if (!specifier.startsWith('.')) return null; // host/bare runtime dependency
+  const base = path.posix.normalize(path.posix.join(path.posix.dirname(origin), specifier));
+  const candidates = base.endsWith('.js') ? [base.slice(0, -3) + '.ts', base]
+    : base.endsWith('.ts') ? [base] : [base + '.ts', base + '.js', base + '/index.ts'];
+  return candidates.find((name) => known(name)) ?? candidates[0];
+}
+function runtimeReachability(roots, lookup, exists) {
+  const queue = [...roots];
+  const visited = new Set();
+  const violations = new Set();
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (visited.has(file)) continue;
+    visited.add(file);
+    if (prohibitedRuntimeReachability.has(file)) {
+      violations.add('V2_REACHED:' + file);
+      continue;
+    }
+    const code = lookup(file);
+    if (code === null) {
+      violations.add('MISSING_RUNTIME_SOURCE:' + file);
+      continue;
+    }
+    const { imported, issues } = staticModuleSpecifiers(code, file);
+    for (const issue of issues) violations.add(issue + ':' + file);
+    for (const specifier of imported) {
+      const target = resolveRuntimeImport(file, specifier, exists);
+      if (target !== null && !visited.has(target)) queue.push(target);
+    }
+  }
+  return { visited: [...visited].sort(), violations: [...violations].sort() };
+}
+const actualGraph = runtimeReachability(
+  legacyRuntimeRoots,
+  (file) => existsSync(path.join(root, file)) ? read(file) : null,
+  (file) => existsSync(path.join(root, file)),
+);
+assert.deepEqual(actualGraph.violations, [],
+  'Legacy runtime must have no transitive import path into V2-only decision gates');
+
+function mockGraph(files) {
+  return runtimeReachability(
+    ['backend/worker.ts'],
+    (filename) => files[filename] ?? null,
+    (filename) => Object.hasOwn(files, filename),
+  );
+}
+assert.deepEqual(mockGraph({
+  'backend/worker.ts': "import './runtime.js';",
+  'backend/runtime.ts': 'export const ok = true;',
+}).violations, []);
+assert.ok(mockGraph({
+  'backend/worker.ts': "import './runtime.js';",
+  'backend/runtime.ts': "export * from './decision_chain/dry_run.js';",
+}).violations.includes('V2_REACHED:backend/decision_chain/dry_run.ts'));
+assert.ok(mockGraph({
+  'backend/worker.ts': "const x = import('./advisory_ui/transport_contract.js');",
+}).violations.includes('V2_REACHED:backend/advisory_ui/transport_contract.ts'));
+assert.ok(mockGraph({
+  'backend/worker.ts': 'const x = import(someVariable);',
+}).violations.includes('NON_LITERAL_DYNAMIC_MODULE:backend/worker.ts'));
+console.log('ARCH-1B legacy transitive runtime guard: PASS (' + actualGraph.visited.length + ' modules)');
+
 console.log('ARCH-1 topology and legacy runtime separation: PASS');
