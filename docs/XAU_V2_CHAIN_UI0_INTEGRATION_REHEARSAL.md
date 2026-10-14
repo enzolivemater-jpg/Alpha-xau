@@ -19,3 +19,7 @@ No new network code, HTTP route, cron hook, UI binding, storage read/write, back
 Review independent PRs in dependency order before considering any integration. No automatic merge, even if Quality Gate is green.
 
 The calendar inconsistency between OBS-0 `Date.parse` normalization and strict UI-0 validation is exercised explicitly: February 30 produces `OBS: REJECTED/fingerprint=null` and `UI: INVALID_CLAIMED_CUTOFF`. OBS-0 strict validation is proposed independently in PR #118 and must be reviewed before integration.
+
+## Compatibility correction discovered by composite CI
+
+A naive whole-file copy of the earlier OBS-0 calendar patch removed later OBS-0 spoof defenses. The combined CI correctly rejected this regression. The final experiment therefore uses the fully hardened OBS-0 implementation from PR #115 and applies **only** the strict calendar predicate from PR #118, preserving the full prior adversarial receipt corpus. Any final integration must follow this same forward-port/rebase sequence rather than replacing the newer observability module with an old branch snapshot.
