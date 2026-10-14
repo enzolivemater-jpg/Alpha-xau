@@ -1503,17 +1503,22 @@ function scoreArticle(
  * indépendantes, la base restant l'autorité finale.
  *
  * En cas de doublon, l'exemplaire retenu est celui de la source la plus
- * fiable, puis le plus complet.
+ * fiable, puis le plus complet. Un titre trop court pour une clé fiable est
+ * écarté et compté dans `discarded` : fetched = unique + duplicates + discarded.
  */
 function deduplicate(
   articles: readonly NormalizedArticle[],
   registry: SourceRegistry,
-): { unique: NormalizedArticle[]; duplicates: number } {
+): { unique: NormalizedArticle[]; duplicates: number; discarded: number } {
   const best = new Map<string, NormalizedArticle>();
   let duplicates = 0;
+  let discarded = 0;
 
   for (const article of articles) {
-    if (article.dedupKey.length < 8) continue; // Titre trop court pour être fiable.
+    if (article.dedupKey.length < 8) { // Titre trop court pour être fiable.
+      discarded++;
+      continue;
+    }
 
     const existing = best.get(article.dedupKey);
     if (!existing) {
@@ -1530,7 +1535,7 @@ function deduplicate(
     if (currentScore > existingScore) best.set(article.dedupKey, article);
   }
 
-  return { unique: [...best.values()], duplicates };
+  return { unique: [...best.values()], duplicates, discarded };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2650,7 +2655,7 @@ export async function runIngestion(
     if (!ofacRaw.ok) errors.push(`ofac: ${providers.ofac.error}`);
 
     const fetched = gdelt.articles.length + newsapi.articles.length;
-    const { unique, duplicates } = deduplicate([...gdelt.articles, ...newsapi.articles], registry);
+    const { unique, duplicates, discarded } = deduplicate([...gdelt.articles, ...newsapi.articles], registry);
 
     // Scoring. Les articles non pertinents pour XAUUSD sont rejetés ici.
     const scored: ScoredEvent[] = [];
@@ -2658,10 +2663,11 @@ export async function runIngestion(
       const event = scoreArticle(article, registry, runId);
       if (event) scored.push(event);
     }
-    const rejected = unique.length - scored.length;
+    // Un titre écarté avant scoring est un article rejeté, pas un article perdu.
+    const rejected = unique.length - scored.length + discarded;
 
     log.info('Scoring terminé', {
-      fetched, duplicates, rejected, scored: scored.length,
+      fetched, duplicates, rejected, discarded, scored: scored.length,
     });
 
     // Persistance par lots : une insertion unique de 300 lignes dépasserait
