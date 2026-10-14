@@ -339,7 +339,17 @@ const VALID_PUBLICATION_PRECISIONS: ReadonlySet<string> = new Set(['timestamp', 
 const VALID_QUALITY_STATES: ReadonlySet<string> = new Set(['VALID', 'DEGRADED', 'UNVERIFIED']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** NUL ou demi-paire de substitution isolée : PostgreSQL rejette ce texte. */
+const UNSTORABLE_TEXT = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function hasUnstorableText(input: RawNewsObservationInput): boolean {
+  return Object.values(input).some((value) => (typeof value === 'string' && UNSTORABLE_TEXT.test(value))
+    || (Array.isArray(value) && value.some((item) => typeof item === 'string' && UNSTORABLE_TEXT.test(item))));
+}
+
 export function normalizeRawNewsObservation(input: RawNewsObservationInput): NormalizeResult {
+  // Rejet explicite plutôt qu'une erreur d'écriture opaque côté base.
+  if (hasUnstorableText(input)) return { ok: false, reason: 'text_not_storable' };
   // TypeScript n'est pas une validation runtime : un appelant dynamique
   // (ou mal typé) peut fournir une valeur hors union. Vérifié AVANT tout
   // usage, notamment avant resolvePublication().
