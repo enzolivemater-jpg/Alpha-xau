@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -10,11 +10,15 @@ const source = readFileSync(path.join(root, 'backend/observability/evidence_mani
 const dir = mkdtempSync(path.join(tmpdir(), 'xau-evidence-0-'));
 let build;
 try {
-  const js = ts.transpileModule(source, {
+  const compile = (text) => ts.transpileModule(text, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const modulePath = path.join(dir, 'manifest.mjs');
-  writeFileSync(modulePath, js);
+  }).outputText.replaceAll('../shared/temporal_contract.js', '../shared/temporal_contract.mjs');
+  const modulePath = path.join(dir, 'observability', 'evidence_manifest.mjs');
+  mkdirSync(path.join(dir, 'observability'), { recursive: true });
+  mkdirSync(path.join(dir, 'shared'), { recursive: true });
+  const temporal = readFileSync(path.join(root, 'backend/shared/temporal_contract.ts'), 'utf8');
+  writeFileSync(path.join(dir, 'shared', 'temporal_contract.mjs'), compile(temporal));
+  writeFileSync(modulePath, compile(source));
   ({ buildEvidenceEligibilityManifest: build } = await import(pathToFileURL(modulePath).href));
 } finally {
   rmSync(dir, { recursive: true, force: true });
@@ -74,6 +78,9 @@ const checks = [
     ...good, firstIngestedAt: '2026-10-13T12:29:00.000Z',
   }], ['CHRONOLOGY_INVALID']],
   ['invalid leap day', [{ ...good, publishedAt: '2026-02-29T12:00:00Z' }], ['INVALID_CLAIM_TIMESTAMP']],
+  ['invalid offset', [{ ...good, publishedAt: '2026-10-13T12:30:00+14:01' }], ['INVALID_CLAIM_TIMESTAMP']],
+  ['unknown negative zero offset', [{ ...good, publishedAt: '2026-10-13T12:30:00-00:00' }], ['INVALID_CLAIM_TIMESTAMP']],
+  ['leap century date', [{ ...good, publishedAt: '1900-02-29T12:30:00Z' }], ['INVALID_CLAIM_TIMESTAMP']],
   ['nanosecond timestamp rejected', [{
     ...good, publishedAt: '2026-10-13T12:30:00.000000001Z',
   }], ['INVALID_CLAIM_TIMESTAMP']],
