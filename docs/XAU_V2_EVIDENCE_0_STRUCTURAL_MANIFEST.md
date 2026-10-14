@@ -87,3 +87,28 @@ be supported by proofs, not inferred from this structurally valid input.
 
 **No REC-1 interaction, provider cost, migration, runtime, deploy,
 alert delivery, broker connection, order or trade is authorized.**
+
+
+## EVIDENCE-0 bounded untrusted input amendment (draft)
+
+Algorithm: `evidence-structural-cutoff-gate-1.0.1`; schema remains
+`xau.evidence-manifest.v1` with the existing `INVALID_CLAIM_SHAPE` rejection.
+This is a patch to input validation, not an evidence trust upgrade.
+
+- At most **256** claims in one structural batch. A larger batch is rejected
+  **in full** before iteration; no sample, truncation, partial manifest or
+  positive claim is emitted.
+- Each claim must contain exactly the nine own, enumerable, data properties
+  of the contract. Accessor properties are rejected without invoking getters.
+  Descriptor retrieval failures are rejected.
+- Inputs must be plain data from a trusted JSON-parsing boundary before
+  crossing into a runtime. JavaScript Proxy traps cannot be made safe by
+  validation running in the same realm; this remains a pure offline guard,
+  **not** an untrusted-code sandbox.
+- A bounded but otherwise coherent batch remains `UNVERIFIED` and has
+  `authorization=NONE`, with permanent
+  `SOURCE_ATTESTATION_UNAVAILABLE`.
+
+Deterministic coverage: 256 duplicates, 257-item atomic rejection,
+getter-bearing claims and throwing Proxy descriptors. No source authority
+or production permission is inferred from passing these tests.
