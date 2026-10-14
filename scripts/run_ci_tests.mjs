@@ -57,6 +57,7 @@ const TEST_FILES = [
   'tests/test_institutional_transitive_imports.mjs',
   'tests/test_evidence_manifest_contract.mjs',
   'tests/test_temporal_contract.mjs',
+  'tests/test_cross_temporal_boundary.mjs',
   'tests/test_advisory_ui_0_contract.mjs',
   'tests/test_advisory_transport_contract.mjs',
   'tests/test_unified_offline_rehearsal.mjs',
