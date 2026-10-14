@@ -28,3 +28,16 @@ authorization and a retention/audit policy before any live claim.
 This is a stacked follow-up to CHAIN-0. Do not merge until that PR and
 all REC-1 Human Gates have been reviewed. There is no HTTP, cron,
 database, provider, broker, notification or production integration.
+
+## Explicit calendar validation (OBS-0 strict-cutoff follow-up)
+
+The checksum verifier rejects non-existent civil dates, non-leap February 29,
+invalid hour/minute/second, missing timezone, and out-of-range UTC offsets
+without using JavaScript Date.parse normalization. E.g. 2026-02-30 is invalid
+even though Date.parse normalizes it to a March timestamp in Node.
+
+The check uses the provided cutoff only; no runtime clock, provider or data
+source is consulted. A calendar-valid timestamp is still just an offline
+caller claim, **not** proof of source release/vintage admissibility, no-lookahead,
+or production state. A rejected cutoff yields `CUTOFF_INVALID`,
+`verification=REJECTED`, `fingerprint=null`.
