@@ -5,6 +5,8 @@
  * trading decision is possible. Even a structurally coherent claim remains
  * UNVERIFIED until separately reviewed official-source validation exists.
  */
+import { parseStrictInstant } from '../shared/temporal_contract.js';
+
 export const EVIDENCE_MANIFEST_SCHEMA_VERSION = 'xau.evidence-manifest.v1' as const;
 export const EVIDENCE_MANIFEST_ALGORITHM_VERSION = 'evidence-structural-cutoff-gate-1.0.0' as const;
 
@@ -66,18 +68,8 @@ const SHA256 = /^[0-9a-f]{64}$/;
 /* Millisecond precision only; greater precision may not be safely compared
  * by JS Date.parse, so nine-digit timestamps are rejected rather than rounded.
  */
-const RFC3339_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
-
-function instant(value: unknown): number | null {
-  if (typeof value !== 'string' || !RFC3339_MS.test(value)) return null;
-  const year = Number(value.slice(0, 4));
-  const month = Number(value.slice(5, 7));
-  const day = Number(value.slice(8, 10));
-  const civil = new Date(Date.UTC(year, month - 1, day));
-  if (civil.getUTCFullYear() !== year || civil.getUTCMonth() + 1 !== month
-      || civil.getUTCDate() !== day) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+function instant(value: unknown): bigint | null {
+  return parseStrictInstant(value, 3)?.epochNanoseconds ?? null;
 }
 
 function exactShape(value: unknown): value is Record<keyof EvidenceClaim, unknown> {
