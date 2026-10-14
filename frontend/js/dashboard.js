@@ -34,6 +34,8 @@
     POLL_INTERVAL_MS: 5000,
     ANALYSIS_INTERVAL_MS: 60000,
     STALE_THRESHOLD_S: 60,
+    V2_VIEW_URL: '',
+    V2_SCENARIOS_URL: '',
   }, window.ALPHA_XAU_CONFIG || {});
 
   const RUNTIME = {
@@ -137,6 +139,7 @@
     driversList: $('drivers-list'),
 
     macroRows: $('macro-rows'),
+    macroMeta: $('macro-meta'),
 
     newsStream: $('news-stream'),
     newsCount: $('news-count'),
@@ -155,6 +158,63 @@
 
     tplNews: $('tpl-news-item'),
     tplScenario: $('tpl-scenario'),
+
+    tabMarket: $('tab-market'),
+    tabChain: $('tab-chain'),
+    tabChainState: $('tab-chain-state'),
+    wsMarket: $('ws-market'),
+    wsChain: $('ws-chain'),
+    modeV1: $('mode-v1'),
+    modeV1Val: $('mode-v1-val'),
+    modeV2: $('mode-v2'),
+    modeV2Val: $('mode-v2-val'),
+
+    v2Origin: $('v2-origin'),
+    v2ScenarioWrap: $('v2-scenario-wrap'),
+    v2Scenario: $('v2-scenario'),
+    v2Status: $('v2-status'),
+    v2State: $('v2-state'),
+    v2Detail: $('v2-detail'),
+    v2NavNature: $('v2-nav-nature'),
+    v2Summary: $('v2-sec-summary'),
+    v2SummaryHeadline: $('v2-summary-headline'),
+    v2SummaryReasons: $('v2-summary-reasons'),
+    v2SummaryMissing: $('v2-summary-missing'),
+    v2SummaryDeps: $('v2-summary-deps'),
+    v2StagesToggle: $('v2-stages-toggle'),
+    v2Why: $('v2-why'),
+    v2WhyLead: $('v2-why-lead'),
+    v2WhyLift: $('v2-why-lift'),
+    v2WhyList: $('v2-why-list'),
+    v2ChainState: $('v2-chain-state'),
+    v2Execution: $('v2-execution'),
+    v2Integrity: $('v2-integrity'),
+    v2Cutoff: $('v2-cutoff'),
+    v2CutoffAge: $('v2-cutoff-age'),
+    v2Digest: $('v2-digest'),
+    v2Generated: $('v2-generated'),
+    v2Stages: $('v2-stages'),
+    v2Market: $('v2-market'),
+    v2MarketState: $('v2-market-state'),
+    v2Replay: $('v2-replay'),
+    v2Positioning: $('v2-positioning'),
+    v2PositioningThrough: $('v2-positioning-through'),
+    v2PositioningSources: $('v2-positioning-sources'),
+    v2Capabilities: $('v2-capabilities'),
+    v2Mev: $('v2-mev'),
+    v2MevStatus: $('v2-mev-status'),
+    v2MevArchive: $('v2-mev-archive'),
+    v2MevCoverage: $('v2-mev-coverage'),
+    v2MevDigest: $('v2-mev-digest'),
+    v2MevReplay: $('v2-mev-replay'),
+    v2MevReasons: $('v2-mev-reasons'),
+    v2MevAudit: $('v2-mev-audit'),
+    v2MevObs: $('v2-mev-obs'),
+    v2Horizons: $('v2-horizons'),
+    v2Evidence: $('v2-evidence'),
+    v2AcceptanceState: $('v2-acceptance-state'),
+    v2Observability: $('v2-observability'),
+    v2CapabilityCount: $('v2-capability-count'),
   };
 
   /** Écrit du texte sans jamais interpréter de HTML : les titres de news
@@ -299,15 +359,23 @@
 
     /* Fraîcheur : staleness_seconds vient de la vue v_market_latest. */
     const staleness = isNum(tick.staleness_seconds) ? tick.staleness_seconds : null;
-    if (staleness === null) {
+    if (DEMO_MODE) {
+      // Un prix de démonstration n'a pas de fraîcheur : il n'est jamais LIVE.
+      setAttr(el.priceFreshness, 'data-state', 'demo');
+      setText(el.priceFreshness, 'DÉMO');
+      setMarketMode('demo');
+    } else if (staleness === null) {
       setAttr(el.priceFreshness, 'data-state', 'unknown');
       setText(el.priceFreshness, 'FRAÎCHEUR N/A');
+      setMarketMode('unknown');
     } else if (staleness <= CONFIG.STALE_THRESHOLD_S) {
       setAttr(el.priceFreshness, 'data-state', 'live');
       setText(el.priceFreshness, `LIVE ${staleness}s`);
+      setMarketMode('live', staleness);
     } else {
       setAttr(el.priceFreshness, 'data-state', 'stale');
       setText(el.priceFreshness, `STALE ${staleness}s`);
+      setMarketMode('stale', staleness);
     }
 
     setText(el.commandUpdated, fmtTimeUTC(tick.ts) + ' UTC');
@@ -318,6 +386,11 @@
     for (const t of ticks) bySymbol[t.symbol] = t;
 
     const gold = bySymbol['XAUUSD'];
+
+    /* Provenance de la matrice : jamais une valeur sans dire d'où et de quand. */
+    setText(el.macroMeta, DEMO_MODE ? 'DÉMO — VALEURS SYNTHÉTIQUES'
+      : gold && gold.ts ? `TICK ${fmtTimeUTC(gold.ts)} UTC${isNum(gold.staleness_seconds) ? ` · ${gold.staleness_seconds}s` : ''}`
+        : 'HORODATAGE N/A');
 
     /* Les drivers macro sont estampillés sur le tick de l'or (colonnes
        dxy_value, real_yield…). On retombe sur les instruments dédiés
@@ -640,6 +713,25 @@
     /* La donnée affichée devient suspecte dès que le flux est rompu. */
     setAttr(el.priceFreshness, 'data-state', 'offline');
     setText(el.priceFreshness, 'FLUX ROMPU');
+    setMarketMode('offline');
+  }
+
+  /**
+   * Nature des données marché, toujours visible. LIVE n'est affiché que pour
+   * un flux réel dont la fraîcheur est dans le seuil ; tout le reste le dit.
+   */
+  const MARKET_MODES = {
+    demo: 'DÉMO — VALEURS SYNTHÉTIQUES',
+    live: 'LIVE',
+    stale: 'PÉRIMÉ',
+    offline: 'FLUX ROMPU',
+    unknown: 'FRAÎCHEUR INCONNUE',
+    connecting: 'CONNEXION…',
+  };
+
+  function setMarketMode(mode, staleness) {
+    setAttr(el.modeV1, 'data-mode', mode);
+    setText(el.modeV1Val, isNum(staleness) ? `${MARKET_MODES[mode]} ${staleness}s` : MARKET_MODES[mode]);
   }
 
   function clearError() {
@@ -754,7 +846,7 @@
     setText(el.aiBias, 'N/A');
     setAttr(el.aiBias, 'data-dir', 'neutral');
     setText(el.convictionValue, 'N/A');
-    setText(el.convictionGrade, 'N/A');
+    el.convictionGrade.textContent = '';
     el.convictionBar.style.width = '0%';
     setText(el.marketRegime, 'N/A');
     setText(el.executionStatus, state === 'NO_DATA' ? 'AUCUNE ANALYSE' : state);
@@ -980,6 +1072,645 @@ let pollTimer = null;
   }
 
   /* ======================================================================
+     11 bis. ESPACES DE TRAVAIL
+     ====================================================================== */
+
+  const WORKSPACE_KEY = 'alpha-xau.workspace';
+
+  /** Onglets accessibles : flèches gauche/droite, Début/Fin, ancre #chaine. */
+  function selectWorkspace(name, focus) {
+    const chain = name === 'chain';
+    el.wsMarket.hidden = chain;
+    el.wsChain.hidden = !chain;
+    for (const [tab, selected] of [[el.tabMarket, !chain], [el.tabChain, chain]]) {
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    }
+    if (focus) (chain ? el.tabChain : el.tabMarket).focus();
+    try { window.localStorage.setItem(WORKSPACE_KEY, chain ? 'chain' : 'market'); } catch { /* stockage indisponible */ }
+  }
+
+  function initWorkspaces() {
+    let initial = window.location.hash === '#chaine' ? 'chain' : 'market';
+    if (initial === 'market' && window.location.hash !== '#marche') {
+      try { if (window.localStorage.getItem(WORKSPACE_KEY) === 'chain') initial = 'chain'; } catch { /* idem */ }
+    }
+    selectWorkspace(initial, false);
+    el.tabMarket.addEventListener('click', () => selectWorkspace('market', false));
+    el.tabChain.addEventListener('click', () => selectWorkspace('chain', false));
+    for (const tab of [el.tabMarket, el.tabChain]) {
+      tab.addEventListener('keydown', (event) => {
+        const key = event.key;
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
+        event.preventDefault();
+        const toChain = key === 'End' || ((key === 'ArrowRight' || key === 'ArrowLeft') && tab === el.tabMarket);
+        selectWorkspace(toChain ? 'chain' : 'market', true);
+      });
+    }
+  }
+
+  /* ======================================================================
+     11 ter. CHAÎNE DÉCISIONNELLE V2 (VUE LOCALE CHAIN-0)
+     ====================================================================== */
+
+  const V2_SCHEMA_VERSION = 'xau.terminal-local-view.v4';
+
+  const V2_CAPABILITY_LABELS = {
+    OPERATIONAL_LOCAL: 'OPÉRATIONNEL LOCAL',
+    SIMULATED: 'SIMULÉ',
+    BLOCKED: 'BLOQUÉ',
+    NOT_VALIDATED: 'NON VALIDÉ',
+  };
+
+  const V2_BLOCKER_LABELS = {
+    DATA: 'DONNÉES',
+    UPSTREAM: 'AMONT',
+    INTEGRITY: 'INTÉGRITÉ',
+    BUSINESS_DECISION: 'DÉCISION MÉTIER',
+    AUTHORIZATION: 'AUTORISATION',
+    ENVIRONMENT: 'ENVIRONNEMENT',
+  };
+
+  /* Ce qu'il faut pour lever chaque type de blocage. */
+  const V2_BLOCKER_ACTIONS = {
+    INTEGRITY: 'défaut technique à corriger',
+    DATA: 'données à fournir ou à corriger',
+    BUSINESS_DECISION: 'méthode ou politique à approuver',
+    AUTHORIZATION: 'autorisation explicite requise',
+    ENVIRONMENT: 'runtime, déploiement ou connexion inexistants',
+  };
+
+  /* Dépendances bloquantes, regroupées par ce qu'il faut obtenir. */
+  const V2_DEPENDENCY_LABELS = {
+    BUSINESS_DECISION: 'APPROBATIONS MÉTIER',
+    AUTHORIZATION: 'AUTORISATIONS',
+    ENVIRONMENT: 'ENVIRONNEMENT',
+  };
+
+  /* Verbe de la phrase « pour lever le HOLD, il faudrait … ». */
+  const V2_LIFT_VERBS = {
+    INTEGRITY: (n) => `corriger ${n} incohérence(s) interne(s)`,
+    DATA: (n) => `fournir ou corriger ${n} donnée(s)`,
+    BUSINESS_DECISION: (n) => `approuver ${n} méthode(s) ou politique(s)`,
+    AUTHORIZATION: (n) => `accorder ${n} autorisation(s)`,
+    ENVIRONMENT: (n) => `mettre en place ${n} élément(s) d'environnement (runtime, déploiement, connexion)`,
+  };
+
+  const V2_SUMMARY_STATUS = ['BLOCKED', 'INPUT_REJECTED', 'INTEGRITY_VIOLATED'];
+  const V2_MISSING_KINDS = ['MARKET_FIELD', 'DATA_REASON', 'INPUT_ERROR'];
+
+  const V2_ORIGIN_LABELS = {
+    GOLDEN_FIXTURE: 'SIMULATION — FIXTURE',
+    LOCAL_INPUT_FILE: 'SIMULATION — FICHIER LOCAL',
+    LOCAL_SCENARIO: 'SIMULATION — SCÉNARIO',
+    LOCAL_MARKET_ARCHIVE: 'ARCHIVE DE MARCHÉ LOCALE',
+  };
+
+  /* DATA-1 : nature des données de marché rejouées. Jamais LIVE. */
+  const V2_EVIDENCE_NATURE = {
+    SIMULATION: 'ARCHIVE SYNTHÉTIQUE',
+    HISTORICAL_VERIFIED: 'HISTORIQUE VÉRIFIÉ',
+    HISTORICAL_UNVERIFIED: 'HISTORIQUE NON VÉRIFIÉ',
+  };
+  const V2_EVIDENCE_STATUS = { VERIFIED: 'REJEU VÉRIFIÉ', INCOMPLETE: 'REJEU INCOMPLET', INVALID: 'ARCHIVE REJETÉE' };
+  const V2_RAW_STATES = { RAW_VERIFIED: 'BRUT RELU', RAW_DIGEST_ONLY: 'EMPREINTE SEULE', RAW_UNKNOWN: 'BRUT INCONNU' };
+
+  /** Libellé d'origine ; un scénario est nommé par son identifiant. */
+  const originText = (origin) => (origin.kind === 'LOCAL_SCENARIO' && isText(origin.label)
+    ? `${V2_ORIGIN_LABELS[origin.kind]} ${origin.label.toUpperCase()}` : V2_ORIGIN_LABELS[origin.kind]);
+
+  const V2_TEMPORAL = ['HISTORICAL', 'AT_GENERATION', 'UNKNOWN'];
+
+  /* Manifeste E2E-0 : ce qu'il faut prouver avant toute production. */
+  const V2_EVIDENCE_LABELS = {
+    restorableRecoveryPoint: 'Point de restauration vérifié',
+    productionMigrationsApplied: 'Migrations de production appliquées',
+    officialBundleLiveProven: 'Bundle officiel prouvé en direct',
+    runtimeDeploymentProven: 'Déploiement runtime prouvé',
+    providerPoliciesApproved: 'Politiques fournisseurs approuvées',
+    semanticMethodsApproved: 'Méthodes sémantiques approuvées',
+    portfolioRiskPoliciesApproved: 'Politiques portefeuille et risque approuvées',
+    alertDeliveryPolicyApproved: 'Politique de livraison des alertes approuvée',
+    goldenPathReplayProven: 'Rejeu du chemin de référence prouvé',
+    incidentRecoveryProven: 'Reprise après incident prouvée',
+    executionAuthorityApproved: 'Autorité d\'exécution approuvée',
+  };
+
+  const isList = Array.isArray;
+  const isText = (v) => typeof v === 'string' && v.length > 0;
+  const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  const label = (code) => String(code).replace(/_/g, ' ');
+
+  /**
+   * Garde-fou client : la vue doit dire HOLD, exécution interdite, simulée,
+   * avec des statuts connus. Toute autre affirmation est refusée en bloc :
+   * le terminal n'affiche jamais une partie d'une vue non conforme.
+   */
+  function v2Problem(view) {
+    if (!view || typeof view !== 'object') return 'vue absente';
+    if (view.schemaVersion !== V2_SCHEMA_VERSION) return `version inconnue (${String(view.schemaVersion)})`;
+    if (view.simulated !== true) return 'vue non marquée simulée';
+    if (!has(V2_ORIGIN_LABELS, view.origin && view.origin.kind)) return 'origine inconnue';
+    if (!view.temporal || !V2_TEMPORAL.includes(view.temporal.classification)) return 'classification temporelle inconnue';
+    const chain = view.chain;
+    if (!chain || chain.chainState !== 'HOLD') return 'état de chaîne différent de HOLD';
+    if (chain.execution !== 'FORBIDDEN') return 'exécution non interdite';
+    if (chain.outcome !== 'COMPLETED' && chain.outcome !== 'REJECTED') return 'issue inconnue';
+    if (!isList(view.stages) || !isList(view.capabilities) || !view.market || !isList(view.market.fields)
+        || !isList(view.horizons) || !view.acceptance || !isList(view.acceptance.evidence) || !view.observability) {
+      return 'structure incomplète';
+    }
+    const why = view.holdRationale;
+    if (!why || !isList(why.rootCauses) || !isList(why.unclassifiedCodes)) return 'justification du HOLD absente';
+    for (const c of why.rootCauses) {
+      if (!c || !has(V2_BLOCKER_LABELS, c.category) || !isList(c.codes) || !isList(c.stages)
+          || !isList(c.reasons)) return 'cause non conforme';
+    }
+    const sum = view.summary;
+    if (!sum || sum.decision !== 'HOLD' || sum.execution !== 'FORBIDDEN') return 'synthèse différente de HOLD';
+    if (!V2_SUMMARY_STATUS.includes(sum.status) || !isList(sum.mainReasons) || !isList(sum.missingData)
+        || !isList(sum.blockingDependencies)) return 'synthèse non conforme';
+    if (sum.mainReasons.some((r) => !r || !has(V2_BLOCKER_LABELS, r.category))
+        || sum.missingData.some((m) => !m || !V2_MISSING_KINDS.includes(m.kind))
+        || sum.blockingDependencies.some((dep) => !dep || !has(V2_DEPENDENCY_LABELS, dep.category))) {
+      return 'synthèse non conforme';
+    }
+    for (const c of view.capabilities) {
+      if (!c || !has(V2_CAPABILITY_LABELS, c.status) || !isList(c.blockers)) return 'capacité non conforme';
+    }
+    const mev = view.marketEvidence;
+    if (mev === undefined) return 'preuves de marché absentes';
+    if (mev !== null) {
+      if (!has(V2_EVIDENCE_STATUS, mev.status) || !has(V2_EVIDENCE_NATURE, mev.nature) || !isList(mev.observations)
+          || !isList(mev.reasonCodes) || mev.observations.some((o) => !o || !has(V2_RAW_STATES, o.raw))) {
+        return 'preuves de marché non conformes';
+      }
+      // Une affirmation forte doit porter toutes ses conditions.
+      if (mev.reproducible !== (mev.status === 'VERIFIED')) return 'reproductibilité incohérente';
+      if (mev.nature === 'SIMULATION' && mev.provenanceClass !== 'SYNTHETIC_FIXTURE') return 'nature de marché incohérente';
+      if (mev.nature !== 'SIMULATION' && mev.provenanceClass !== 'CAPTURED') return 'nature de marché incohérente';
+      if (mev.nature === 'HISTORICAL_VERIFIED' && (mev.status !== 'VERIFIED' || mev.observations.length === 0
+          || mev.observations.some((o) => o.raw !== 'RAW_VERIFIED'))) return 'historique vérifié non prouvé';
+    }
+    for (const h of view.horizons) {
+      // Une direction n'existe qu'avec une méthode approuvée ; il n'y en a aucune.
+      if (!h || h.status !== 'ABSTAIN' || h.direction !== 'UNAVAILABLE') return 'horizon non abstenu';
+    }
+    for (const st of view.stages) {
+      if (!st || !isText(st.stage) || !isText(st.state) || !isList(st.reasons)
+          || !has(V2_CAPABILITY_LABELS, st.capability)) {
+        return 'étage non conforme';
+      }
+    }
+    return null;
+  }
+
+  /** Construit un élément avec texte et attributs, jamais de HTML. */
+  function node(tag, className, text, attrs) {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text !== undefined) n.textContent = text == null || text === '' ? '—' : String(text);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+    return n;
+  }
+
+  function v2Row(cells) {
+    const tr = document.createElement('tr');
+    for (const cell of cells) tr.appendChild(cell);
+    return tr;
+  }
+
+  function v2EmptyRow(colspan, text) {
+    const td = node('td', 'v2__empty', text);
+    td.colSpan = colspan;
+    return v2Row([td]);
+  }
+
+  const v2Blockers = (list) => (isList(list) && list.length
+    ? list.map((b) => V2_BLOCKER_LABELS[b] || 'NON CLASSÉ').join(' · ') : '—');
+
+  /** Durée lisible d'un âge en secondes. */
+  function fmtAge(seconds) {
+    if (!isNum(seconds)) return 'N/A';
+    const sign = seconds < 0 ? '-' : '';
+    const s = Math.abs(seconds);
+    if (s < 120) return `${sign}${s} s`;
+    if (s < 7200) return `${sign}${Math.floor(s / 60)} min`;
+    if (s < 172800) return `${sign}${Math.floor(s / 3600)} h`;
+    return `${sign}${Math.floor(s / 86400)} j`;
+  }
+
+  function v2Status(stateName, title, detail) {
+    setAttr(el.v2Status, 'data-state', stateName);
+    setText(el.v2State, title);
+    setText(el.v2Detail, detail);
+  }
+
+  /** Nature de la vue : courte dans la barre commune, complète dans l'espace V2. */
+  function setChainMode(mode, text, full) {
+    setAttr(el.modeV2, 'data-mode', mode);
+    setText(el.modeV2Val, text);
+    setAttr(el.v2NavNature, 'data-mode', mode);
+    setText(el.v2NavNature, full || text);
+    setText(el.tabChainState, mode === 'unavailable' ? '—' : mode === 'refused' ? 'REFUSÉE' : 'HOLD');
+    setAttr(el.tabChainState, 'data-mode', mode);
+  }
+
+  /** Vue absente, illisible ou rejetée : rien d'autre n'est affiché. */
+  function renderV2Unavailable(stateName, title, detail) {
+    v2Status(stateName, title, detail);
+    setChainMode(stateName === 'unavailable' ? 'unavailable' : 'refused',
+      stateName === 'unavailable' ? 'INDISPONIBLE' : title);
+    setAttr(el.v2Origin, 'data-state', 'unknown');
+    setText(el.v2Origin, stateName === 'unavailable' ? 'AUCUN RUNTIME' : 'VUE REFUSÉE');
+    el.v2Why.hidden = true;
+    el.v2Summary.hidden = true;
+    el.v2Mev.hidden = true;
+    el.v2MevObs.replaceChildren();
+    for (const n of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2CutoffAge, el.v2Digest,
+      el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningThrough, el.v2PositioningSources, el.v2MarketState]) {
+      setText(n, '—');
+    }
+    setAttr(el.v2Digest, 'title', null);
+    el.v2Stages.replaceChildren(node('li', 'v2__empty', '—'));
+    el.v2Market.replaceChildren(v2EmptyRow(6, '—'));
+    el.v2Capabilities.replaceChildren(node('li', 'v2__empty', 'Matrice indisponible sans vue V2.'));
+    el.v2Horizons.replaceChildren(node('li', 'v2__empty', '—'));
+    el.v2Evidence.replaceChildren(node('li', 'v2__empty', '—'));
+    setText(el.v2AcceptanceState, '—');
+    setText(el.v2Observability, '—');
+    setText(el.v2CapabilityCount, '—');
+  }
+
+  /** Une liste de phrases ; l'élément vide garde la liste lisible. */
+  function plainList(className, items, empty) {
+    const ul = node('ul', className);
+    if (!items.length) ul.appendChild(node('li', 'v2__empty', empty));
+    for (const text of items) ul.appendChild(node('li', '', text));
+    return ul;
+  }
+
+  /** Synthèse décisionnelle : état global, raisons, données, dépendances. */
+  function renderSummary(view) {
+    const sum = view.summary;
+    el.v2Summary.hidden = false;
+    setAttr(el.v2Summary, 'data-status', sum.status);
+    setText(el.v2SummaryHeadline, sum.headline);
+    const reasons = sum.mainReasons.map((r) => `${r.count} — ${r.plain || V2_BLOCKER_LABELS[r.category]}`);
+    if (isNum(sum.missingAcceptanceEvidence) && sum.missingAcceptanceEvidence > 0) {
+      reasons.push(`${sum.missingAcceptanceEvidence}/${view.acceptance.evidence.length} preuves de recette manquantes`);
+    }
+    el.v2SummaryReasons.replaceChildren(...plainList('summary__list', reasons, 'Aucune cause racine.').childNodes);
+    el.v2SummaryMissing.replaceChildren(...plainList('summary__list',
+      sum.missingData.map((m) => m.plain || m.code), 'Aucune donnée manquante au cutoff.').childNodes);
+    const groups = Object.keys(V2_DEPENDENCY_LABELS).map((category) => [category,
+      sum.blockingDependencies.filter((dep) => dep.category === category)]).filter(([, deps]) => deps.length);
+    el.v2SummaryDeps.replaceChildren(...(groups.length ? groups.map(([category, deps]) => {
+      const box = node('details', 'dep', undefined, { 'data-category': category });
+      box.appendChild(node('summary', 'dep__head', `${V2_DEPENDENCY_LABELS[category]} (${deps.length})`));
+      const ul = node('ul', 'dep__list');
+      for (const dep of deps) {
+        const li = node('li', 'dep__item');
+        li.appendChild(node('span', 'dep__plain', dep.plain || dep.code));
+        li.appendChild(node('span', 'dep__code', `${dep.code}${isList(dep.stages) && dep.stages.length
+          ? ` · ${dep.stages.map(label).join(', ')}` : ''}`));
+        ul.appendChild(li);
+      }
+      box.appendChild(ul);
+      return box;
+    }) : [node('p', 'v2__empty', 'Aucune dépendance : la chaîne n\'a pas été évaluée.')]));
+  }
+
+  function renderWhy(view) {
+    const why = view.holdRationale;
+    if (view.chain.outcome !== 'COMPLETED') {
+      el.v2Why.hidden = true;
+      return;
+    }
+    el.v2Why.hidden = false;
+    const first = why.firstBlockedStage ? label(why.firstBlockedStage) : null;
+    setText(el.v2WhyLead, first
+      ? `La chaîne s'arrête à ${first}, premier étage bloqué ; les étages suivants héritent de ce blocage `
+        + `(${why.inheritedReasonCount} motif(s) hérité(s) de l'amont).`
+      : 'Aucun étage ne s\'abstient, mais aucune décision positive n\'est approuvée : HOLD par construction.');
+    const steps = why.rootCauses.filter((c) => has(V2_LIFT_VERBS, c.category))
+      .map((c) => V2_LIFT_VERBS[c.category](c.codes.length));
+    setText(el.v2WhyLift, steps.length ? `Pour lever le HOLD, il faudrait : ${steps.join(' ; ')}.` : '');
+    el.v2WhyLift.hidden = steps.length === 0;
+    const items = [];
+    const opened = new Set([...el.v2WhyList.querySelectorAll('details[open]')].map((d) => d.getAttribute('data-category')));
+    const card = (category, title, reasons, stages) => {
+      const wrap = node('details', 'why', undefined, { 'data-category': category });
+      wrap.open = opened.has(category);
+      const head = node('summary', 'why__head');
+      head.appendChild(node('span', 'why__cat', title));
+      head.appendChild(node('span', 'why__count', String(reasons.length)));
+      wrap.appendChild(head);
+      wrap.appendChild(plainList('why__plain', [...new Set(reasons.map((r) => r.plain || label(r.code)))], '—'));
+      wrap.appendChild(node('p', 'why__codes', reasons.map((r) => label(r.code)).join(' · ')));
+      if (stages) wrap.appendChild(node('p', 'why__stages', `Étages : ${stages.map(label).join(', ')}`));
+      return wrap;
+    };
+    for (const cause of why.rootCauses) {
+      const reasons = cause.codes.map((code, i) => ({ code,
+        plain: cause.reasons[i] && cause.reasons[i].code === code ? cause.reasons[i].plain : null }));
+      items.push(card(cause.category, `${V2_BLOCKER_LABELS[cause.category]} — ${V2_BLOCKER_ACTIONS[cause.category]}`,
+        reasons, cause.stages));
+    }
+    if (why.unclassifiedCodes.length) {
+      items.push(card('UNCLASSIFIED', 'NON CLASSÉ — motif inconnu de ce terminal',
+        why.unclassifiedCodes.map((code) => ({ code, plain: null })), null));
+    }
+    el.v2WhyList.replaceChildren(...items);
+  }
+
+  function renderStages(view) {
+    if (view.stages.length === 0) {
+      el.v2Stages.replaceChildren(node('li', 'v2__empty', 'Aucun étage : entrée rejetée avant la chaîne.'));
+      return;
+    }
+    // Un rafraîchissement garde les étages que le lecteur a dépliés.
+    const opened = new Set([...el.v2Stages.querySelectorAll('details[open]')]
+      .map((box) => box.parentElement.getAttribute('data-stage')));
+    const all = el.v2StagesToggle.getAttribute('aria-pressed') === 'true';
+    el.v2Stages.replaceChildren(fragmentOf(view.stages, (st) => {
+      const li = node('li', 'stage', undefined, { 'data-capability': st.capability, 'data-state': st.state, 'data-stage': st.stage });
+      const box = node('details', 'stage__box');
+      box.open = all || opened.has(st.stage);
+      const head = node('summary', 'stage__head');
+      head.appendChild(node('span', 'stage__name', label(st.stage)));
+      head.appendChild(node('span', 'stage__state', st.state));
+      head.appendChild(node('span', 'stage__count', st.reasons.length ? `${st.reasons.length} motif(s)` : 'aucun motif'));
+      head.appendChild(node('span', 'stage__cap', V2_CAPABILITY_LABELS[st.capability]));
+      box.appendChild(head);
+      const reasons = node('ul', 'stage__reasons');
+      for (const r of st.reasons) {
+        const category = r && has(V2_BLOCKER_LABELS, r.category) ? r.category : 'UNCLASSIFIED';
+        const item = node('li', 'reason', undefined, { 'data-category': category });
+        item.appendChild(node('span', 'reason__cat', V2_BLOCKER_LABELS[category] || 'NON CLASSÉ'));
+        item.appendChild(node('span', 'reason__code', (r && r.code) || '?'));
+        if (r && isText(r.plain)) item.appendChild(node('span', 'reason__plain', r.plain));
+        reasons.appendChild(item);
+      }
+      if (st.reasons.length) box.appendChild(reasons);
+      box.appendChild(node('div', 'stage__version', `${st.schemaVersion || '?'} · ${st.algorithmVersion || '?'}`));
+      li.appendChild(box);
+      return li;
+    }));
+  }
+
+  function renderV2(view) {
+    const problem = v2Problem(view);
+    if (problem) {
+      renderV2Unavailable('rejected', 'VUE V2 REFUSÉE', `Vue non conforme : ${problem}. Aucun état affiché.`);
+      return;
+    }
+    const chain = view.chain;
+    const temporal = view.temporal;
+    const historical = temporal.classification === 'HISTORICAL';
+    setAttr(el.v2Origin, 'data-state', 'simulated');
+    setText(el.v2Origin, originText(view.origin));
+    const when = historical ? 'HISTORIQUE' : temporal.classification === 'UNKNOWN' ? 'CUTOFF INCONNU' : 'CUTOFF À LA GÉNÉRATION';
+    const mev = view.marketEvidence;
+    // Données de marché rejouées : leur nature prime ; la chaîne reste un dry run.
+    const market = mev ? `${V2_EVIDENCE_NATURE[mev.nature]} · ${V2_EVIDENCE_STATUS[mev.status]}` : null;
+    setChainMode(historical ? 'historical' : 'simulated', market ? `${V2_EVIDENCE_NATURE[mev.nature]} · DRY RUN` : `SIMULATION · ${when}`,
+      `${originText(view.origin)} · ${market ? `${market} · ` : ''}`
+        + `${historical ? `HISTORIQUE — cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)}` : when}`
+        + ' · PAS UNE ANALYSE RÉELLE');
+
+    if (chain.outcome === 'REJECTED') {
+      const r = chain.rejection || {};
+      const errors = isList(r.inputErrors) ? r.inputErrors.slice(0, 4).join(' · ') : '';
+      v2Status('rejected', 'HOLD — ENTRÉE REJETÉE',
+        `Rejet à ${r.failedAt || 'étage inconnu'}${errors ? ` : ${errors}` : ''}${r.stageError ? ` — ${r.stageError}` : ''}`);
+    } else if (chain.integrity !== 'CONSISTENT') {
+      v2Status('rejected', 'HOLD — INTÉGRITÉ VIOLÉE',
+        `${isList(chain.violations) ? chain.violations.length : 0} violation(s) : la chaîne n'est pas exploitable.`);
+    } else {
+      const findings = isList(chain.inputFindings) ? chain.inputFindings.length : 0;
+      v2Status('hold', 'HOLD — EXÉCUTION INTERDITE',
+        `Simulation locale, pas une analyse de marché réelle. Aucune décision positive approuvée${findings ? ` ; ${findings} entrée(s) rendue(s) plus restrictive(s)` : ''}.`);
+    }
+    renderSummary(view);
+    renderWhy(view);
+
+    setText(el.v2ChainState, chain.chainState);
+    setText(el.v2Execution, 'INTERDITE');
+    setText(el.v2Integrity, chain.integrity || 'N/A');
+    setText(el.v2Cutoff, chain.knowledgeCutoff || 'N/A');
+    setText(el.v2CutoffAge, isNum(temporal.cutoffAgeSeconds)
+      ? `${fmtAge(temporal.cutoffAgeSeconds)}${historical ? ' — HISTORIQUE' : ''}` : 'N/A');
+    setText(el.v2Digest, isText(chain.digest) ? chain.digest : 'N/A');
+    setAttr(el.v2Digest, 'title', isText(chain.digest) ? chain.digest : null);
+    setText(el.v2Generated, isText(view.generatedAt) ? `${fmtTimeUTC(view.generatedAt)} UTC` : 'N/A');
+
+    renderStages(view);
+
+    setText(el.v2MarketState, view.market.state ? `MP-0 ${view.market.state}` : '—');
+    el.v2Market.replaceChildren(view.market.fields.length === 0
+      ? v2EmptyRow(6, 'Aucun champ de marché.')
+      : fragmentOf(view.market.fields, (f) => {
+        const tr = v2Row([
+          node('td', 'v2__field', String(f.field || '?').toUpperCase()),
+          node('td', 'ta-r num', isNum(f.value) ? String(f.value) : 'N/A'),
+          node('td', 'v2__state-cell', f.statusAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF' : f.statusAtCutoff),
+          node('td', 'ta-r num', isNum(f.ageSecondsAtCutoff) ? fmtAge(f.ageSecondsAtCutoff) : 'N/A'),
+          node('td', 'num', isText(f.observedAt) ? f.observedAt.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'N/A'),
+          node('td', '', f.source || 'N/A'),
+        ]);
+        tr.setAttribute('data-status', String(f.statusAtCutoff || 'UNKNOWN'));
+        return tr;
+      }));
+
+    const replay = view.market.replay;
+    setText(el.v2Replay, replay && isText(replay.mode)
+      ? `${replay.mode}${replay.reproducible === true ? ' — reproductible' : ` — non reproductible${isText(replay.reason) ? ` (${replay.reason})` : ''}`}`
+      : 'N/A');
+    const pos = view.positioning || {};
+    setText(el.v2Positioning, isText(pos.evidenceState)
+      ? `${pos.evidenceState} · ${isNum(pos.evidenceCount) ? pos.evidenceCount : 0} preuve(s) · signal ${pos.positioningState || 'N/A'}`
+      : 'N/A');
+    setText(el.v2PositioningThrough, isText(pos.observedThrough) ? pos.observedThrough : 'N/A');
+    setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length
+      ? pos.sourceAuthorities.join(' · ') : 'N/A');
+
+    renderReadiness(view);
+    renderMarketEvidence(view.marketEvidence);
+
+    const counts = {};
+    for (const c of view.capabilities) counts[c.status] = (counts[c.status] || 0) + 1;
+    setText(el.v2CapabilityCount, Object.keys(V2_CAPABILITY_LABELS)
+      .map((k) => `${V2_CAPABILITY_LABELS[k]} ${counts[k] || 0}`).join(' · '));
+    el.v2Capabilities.replaceChildren(fragmentOf(view.capabilities, (c) => {
+      const li = node('li', 'cap', undefined, { 'data-capability': c.status });
+      const head = node('div', 'cap__head');
+      head.appendChild(node('span', 'cap__id', label(c.id || '?')));
+      head.appendChild(node('span', 'cap__status', V2_CAPABILITY_LABELS[c.status]));
+      li.appendChild(head);
+      li.appendChild(node('p', 'cap__detail', c.detail));
+      li.appendChild(node('p', 'cap__blockers', `Blocages : ${v2Blockers(c.blockers)}`));
+      return li;
+    }));
+  }
+
+  const known = (v) => (isText(v) ? v : 'INCONNU');
+  const shortTime = (v) => (isText(v) ? v.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'INCONNU');
+
+  /** DATA-1 : provenance complète de chaque valeur retenue au cutoff. */
+  function renderMarketEvidence(mev) {
+    el.v2Mev.hidden = mev === null;
+    if (mev === null) {
+      el.v2MevObs.replaceChildren();
+      return;
+    }
+    setAttr(el.v2Mev, 'data-status', mev.status);
+    setAttr(el.v2Mev, 'data-nature', mev.nature);
+    setText(el.v2MevStatus, `${V2_EVIDENCE_STATUS[mev.status]} · ${V2_EVIDENCE_NATURE[mev.nature]} · `
+      + (mev.reproducible ? 'reproductible' : 'non reproductible'));
+    setText(el.v2MevArchive, `${known(mev.archiveId)} · ${known(mev.provenanceClass)} · ${mev.recordCount} enregistrement(s)`);
+    setText(el.v2MevCoverage, mev.coverage
+      ? `${shortTime(mev.coverage.from)} → ${shortTime(mev.coverage.to)} — ${mev.coverage.statement}` : 'NON DÉCLARÉE');
+    setText(el.v2MevDigest, `${known(mev.archiveDigest)}${mev.pinnedDigest ? ' (épinglée)' : ' (non épinglée)'}`);
+    setText(el.v2MevReplay, mev.replayDigest);
+    setText(el.v2MevReasons, mev.reasonCodes.length ? mev.reasonCodes.join(' · ') : 'aucun');
+    setText(el.v2MevAudit, `${mev.recordsIngestedAfterCutoff} enregistrement(s) ingéré(s) après le cutoff`
+      + `${isList(mev.correctedAfterCutoff) && mev.correctedAfterCutoff.length
+        ? ` ; corrigé(s) plus tard : ${mev.correctedAfterCutoff.map((f) => String(f).toUpperCase()).join(', ')}` : ''}`);
+    el.v2MevObs.replaceChildren(mev.observations.length === 0
+      ? node('li', 'v2__empty', 'Aucune observation retenue au cutoff.')
+      : fragmentOf(mev.observations, (o) => {
+        const li = node('li', 'mev__item', undefined, { 'data-raw': o.raw });
+        const head = node('div', 'mev__head');
+        head.appendChild(node('span', 'mev__field', String(o.field || '?').toUpperCase()));
+        head.appendChild(node('span', 'mev__value num', `${isNum(o.value) ? o.value : 'N/A'} ${known(o.unit)}`));
+        head.appendChild(node('span', 'mev__raw', V2_RAW_STATES[o.raw]));
+        li.appendChild(head);
+        const dl = node('dl', 'mev__facts');
+        for (const [k, v] of [
+          ['INSTRUMENT · TYPE', `${known(o.instrument)} · ${known(o.observationType)}`],
+          ['SOURCE · ID SOURCE', `${known(o.source)} · ${known(o.sourceRecordId)}`],
+          ['OBSERVÉ', shortTime(o.observedAt)],
+          ['PUBLIÉ', shortTime(o.publishedAt)],
+          ['INGÉRÉ', shortTime(o.ingestedAt)],
+          ['RÉVISION', `${known(o.revision)}${isText(o.supersedes) ? ` (corrige ${o.supersedes})` : ''}`],
+          ['FRAÎCHEUR AU CUTOFF', `${o.freshnessAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF' : known(o.freshnessAtCutoff)} · ${fmtAge(o.ageSecondsAtCutoff)}`],
+          ['EMPREINTE', known(o.recordDigest)],
+        ]) {
+          const row = node('div');
+          row.appendChild(node('dt', '', k));
+          row.appendChild(node('dd', '', v));
+          dl.appendChild(row);
+        }
+        li.appendChild(dl);
+        return li;
+      }));
+  }
+
+  function renderReadiness(view) {
+    el.v2Horizons.replaceChildren(view.horizons.length === 0
+      ? node('li', 'v2__empty', 'Aucun horizon : entrée rejetée.')
+      : fragmentOf(view.horizons, (h) => {
+        const li = node('li', 'horizon', undefined, { 'data-status': h.status });
+        li.appendChild(node('span', 'horizon__id', h.horizon));
+        li.appendChild(node('span', 'horizon__status', h.status));
+        li.appendChild(node('span', 'horizon__dir', 'aucune direction'));
+        return li;
+      }));
+    const acc = view.acceptance;
+    const declared = acc.evidence.filter((e) => e && e.declared === true).length;
+    setText(el.v2AcceptanceState, acc.state ? `${acc.state} · ${declared}/${acc.evidence.length} DÉCLARÉES` : '—');
+    el.v2Evidence.replaceChildren(acc.evidence.length === 0
+      ? node('li', 'v2__empty', 'Aucun manifeste : entrée rejetée.')
+      : fragmentOf(acc.evidence, (e) => {
+        const ok = e && e.declared === true;
+        const li = node('li', 'evidence__item', undefined, { 'data-declared': String(ok) });
+        li.appendChild(node('span', 'evidence__mark', ok ? 'DÉCLARÉE' : 'MANQUANTE'));
+        li.appendChild(node('span', 'evidence__label', V2_EVIDENCE_LABELS[e && e.key] || String(e && e.key)));
+        return li;
+      }));
+    const obs = view.observability;
+    setText(el.v2Observability, obs.state
+      ? `${obs.state} · corrélation ${obs.correlationId || 'absente'} · déploiement ${obs.deploymentId || 'absent'}`
+      : 'N/A');
+  }
+
+  /**
+   * Navigation interne de l'espace CHAÎNE V2 : défilement vers une section
+   * sans toucher à l'ancre (#chaine reste l'adresse de l'espace), et
+   * dépliage de tous les étages en un clic.
+   */
+  function initChainNavigation() {
+    for (const link of el.wsChain.querySelectorAll('.v2nav__link')) {
+      link.addEventListener('click', () => {
+        const target = document.getElementById(link.getAttribute('data-target'));
+        if (!target || target.hidden) return;
+        if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'start' });
+        target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+      });
+    }
+    el.v2StagesToggle.addEventListener('click', () => {
+      const open = el.v2StagesToggle.getAttribute('aria-pressed') !== 'true';
+      for (const box of el.v2Stages.querySelectorAll('details')) box.open = open;
+      el.v2StagesToggle.setAttribute('aria-pressed', String(open));
+      setText(el.v2StagesToggle, open ? 'TOUT REPLIER' : 'TOUT DÉPLIER');
+    });
+  }
+
+  /* Scénario de simulation choisi ; null = l'entrée du serveur local. */
+  let v2Scenario = null;
+  /* Seule la dernière réponse demandée est affichée. */
+  let v2Request = 0;
+
+  /** Liste des scénarios du serveur local ; absente, le sélecteur reste caché. */
+  async function loadScenarios() {
+    if (!CONFIG.V2_SCENARIOS_URL) return;
+    try {
+      const response = await fetch(CONFIG.V2_SCENARIOS_URL, { headers: { accept: 'application/json' } });
+      if (!response.ok) return;
+      const list = await response.json();
+      if (!isList(list)) return;
+      const options = [node('option', '', 'Entrée du serveur', { value: '' })];
+      for (const item of list) {
+        if (!item || !/^[a-z0-9-]{1,64}$/.test(String(item.id)) || !isText(item.label)) continue;
+        options.push(node('option', '', `${item.id} — ${item.label}`, { value: item.id }));
+      }
+      el.v2Scenario.replaceChildren(...options);
+      el.v2ScenarioWrap.hidden = options.length < 2;
+      el.v2Scenario.addEventListener('change', () => {
+        v2Scenario = el.v2Scenario.value || null;
+        refreshV2();
+      });
+    } catch { /* sans liste, l'entrée du serveur reste affichée */ }
+  }
+
+  async function refreshV2() {
+    if (!CONFIG.V2_VIEW_URL) {
+      renderV2Unavailable('unavailable', 'INDISPONIBLE',
+        'Aucun runtime V2 déployé. En local : npm run terminal:local');
+      return;
+    }
+    const request = ++v2Request;
+    const url = v2Scenario ? `${CONFIG.V2_VIEW_URL}?scenario=${encodeURIComponent(v2Scenario)}` : CONFIG.V2_VIEW_URL;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), RUNTIME.FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { headers: { accept: 'application/json' }, signal: controller.signal });
+      if (request !== v2Request) return;
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      if (request !== v2Request) return;
+      renderV2(body);
+    } catch (err) {
+      if (request !== v2Request) return;
+      renderV2Unavailable('error', 'VUE V2 INJOIGNABLE', `Serveur local injoignable — ${err.message}. HOLD conservé.`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /* ======================================================================
      12. MODE DÉMO
      ====================================================================== */
 
@@ -1026,47 +1757,26 @@ let pollTimer = null;
 
     renderNews([
       {
-        id: 'demo-1', title: 'Fed maintient ses taux et signale une pause prolongée face à une inflation sous-jacente persistante',
+        id: 'demo-1', title: '[DÉMO] Fed maintient ses taux et signale une pause prolongée face à une inflation sous-jacente persistante',
         news_score: 86.2, classification: 'critical', gold_direction_impact: 'bullish',
         region: 'US', category: 'monetary_policy', ts: new Date(Date.now() - 6e5).toISOString(),
       },
       {
-        id: 'demo-2', title: 'CPI américain ressort à 3.4% contre 3.1% attendu',
+        id: 'demo-2', title: '[DÉMO] CPI américain ressort à 3.4% contre 3.1% attendu',
         news_score: 74.5, classification: 'major', gold_direction_impact: 'bullish',
         region: 'US', category: 'inflation', ts: new Date(Date.now() - 24e5).toISOString(),
       },
       {
-        id: 'demo-3', title: 'Tensions renforcées autour du détroit d\'Ormuz après un incident naval',
+        id: 'demo-3', title: '[DÉMO] Tensions renforcées autour du détroit d\'Ormuz après un incident naval',
         news_score: 68.9, classification: 'major', gold_direction_impact: 'bullish',
         region: 'MENA', category: 'geopolitics', ts: new Date(Date.now() - 42e5).toISOString(),
       },
     ]);
 
-    const reason = 'Compression des taux réels, DXY plafonné sous sa résistance H4, structure H1 haussière intacte.';
-    renderAnalysis({
-      market_regime: 'risk_off',
-      overall_bias: 'bullish',
-      confidence: 72,
-      scenarios: {
-        H1: { direction: 'bullish', probability: 29, target: 3448.00, invalidation: 3396.50, activation_condition: 'Clôture H1 au-dessus de 3412.40 avec ATR H1 supérieur à sa moyenne 14.', confidence: 70, reasoning: reason },
-        H2: { direction: 'bullish', probability: 27, target: 3478.00, invalidation: 3388.00, activation_condition: 'Cassure de 3455.00 confirmée en clôture H4.', confidence: 65, reasoning: reason },
-        H3: { direction: 'neutral', probability: 17, target: 3415.00, invalidation: 3415.00, activation_condition: 'Maintien dans le range 3388.00-3455.00 sur trois séances.', confidence: 50, reasoning: 'Consolidation attendue avant le prochain cycle de données.' },
-        H4: { direction: 'bearish', probability: 13, target: 3290.00, invalidation: 3520.00, activation_condition: 'Rendement réel au-dessus de 2.05% pendant cinq séances consécutives.', confidence: 44, reasoning: 'Repricing hawkish si les taux réels repartent durablement à la hausse.' },
-        H5: { direction: 'bullish', probability: 14, target: 3520.00, invalidation: 3250.00, activation_condition: 'Clôture mensuelle au-dessus de 3480.00, soutenue par la diversification des réserves de change hors dollar.', confidence: 38, reasoning: 'Structurel : dette souveraine élevée et diversification des réserves des banques centrales, sur un horizon mensuel.' },
-      },
-      drivers: ['Compression des taux réels', 'Prime de risque géopolitique', 'Dollar plafonné'],
-      risks: ['Surprise hawkish de la Fed', 'Désescalade rapide au Moyen-Orient'],
-      invalidations: ['Perte de 3396.50 en clôture H1', 'Taux réels au-dessus de 2.05%'],
-      meta: {
-        analysis_id: null,
-        model_version: 'démonstration',
-        execution_status: 'VALID_SETUP',
-        risk_verdict: 'APPROVED_WITH_CONDITIONS',
-        spot_reference: 3412.40,
-        generated_at: new Date().toISOString(),
-        validation_errors: [],
-      },
-    });
+    /* Aucune analyse n'est fabriquée : un setup, un verdict ou des scénarios
+       inventés seraient lus comme une décision. Le mode démo montre l'état
+       honnête d'un terminal sans analyse. */
+    renderNoAnalysis('NO_DATA', 'MODE DÉMO — aucune analyse réelle. Aucun setup, verdict ni scénario n\'est simulé.');
   }
 
   /* ======================================================================
@@ -1086,6 +1796,16 @@ let pollTimer = null;
 
   function init() {
     startClock();
+
+    setMarketMode(DEMO_MODE ? 'demo' : 'connecting');
+    initWorkspaces();
+
+    initChainNavigation();
+
+    /* La vue V2 est indépendante du flux V1 : elle est lue dans les deux modes. */
+    loadScenarios();
+    refreshV2();
+    if (CONFIG.V2_VIEW_URL) setInterval(refreshV2, CONFIG.ANALYSIS_INTERVAL_MS);
 
     el.errorRetry.addEventListener('click', () => {
       clearError();
