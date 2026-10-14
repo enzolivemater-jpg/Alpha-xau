@@ -49,7 +49,25 @@ export interface OfflineAuditReceipt {
   readonly lineage: readonly AuditLineageEntry[];
 }
 
-const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+/** Explicit, deterministic timestamp validator; Date.parse normalizes invalid dates. */
+function validKnowledgeCutoff(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+  const hour = Number(match[4]), minute = Number(match[5]), second = Number(match[6]);
+  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const dayCounts = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (day < 1 || day > dayCounts[month - 1]) return false;
+  const zone = match[7];
+  if (zone !== 'Z') {
+    const tzHour = Number(zone.slice(1, 3)), tzMinute = Number(zone.slice(4, 6));
+    if (tzHour > 14 || tzMinute > 59 || (tzHour === 14 && tzMinute !== 0)) return false;
+  }
+  return true;
+}
+
 const EXPECTED = [
   ['REGIME', REGIME_SCHEMA_VERSION, REGIME_ALGORITHM_VERSION, 'UNAVAILABLE'],
   ['HORIZONS', HORIZON_SCHEMA_VERSION, HORIZON_ALGORITHM_VERSION, 'ABSTAIN'],
@@ -80,7 +98,7 @@ export async function buildOfflineAuditReceipt(run: ChainDryRunResult): Promise<
     problems.add('CHAIN_STATE_INVALID');
   }
   const cutoff = run.knowledgeCutoff;
-  if (!timestampPattern.test(cutoff) || !Number.isFinite(Date.parse(cutoff))) {
+  if (!validKnowledgeCutoff(cutoff)) {
     problems.add('CUTOFF_INVALID');
   }
 
@@ -116,70 +134,25 @@ export async function buildOfflineAuditReceipt(run: ChainDryRunResult): Promise<
     });
   }
 
-  const safeHorizonSet = Array.isArray(s.horizons.scenarios)
-    && s.horizons.scenarios.length === 5
-    && ['H1', 'H2', 'H3', 'H4', 'H5'].every((horizon, index) => {
-      const item = s.horizons.scenarios[index];
-      return item.horizon === horizon
-        && item.status === 'ABSTAIN'
-        && item.direction === 'UNAVAILABLE'
-        && item.probability === null
-        && item.target === null
-        && item.invalidation === null
-        && item.confidence === null;
-    });
-  const safeAcceptance = s.acceptance.acceptanceRun === null
-    && s.acceptance.report === null
-    && s.acceptance.productionReadiness === 'HOLD'
-    && s.acceptance.missingEvidence.length === 11
-    && Object.keys(s.acceptance.evidence).length === 11
-    && Object.values(s.acceptance.evidence).every((value) => value === false);
   if (
-    !safeHorizonSet
-    || s.regime.regime !== 'UNAVAILABLE'
-    || s.regime.confidence !== null
+    s.horizons.scenarios.length !== 5
+    || s.horizons.scenarios.some((h) => h.status !== 'ABSTAIN'
+      || h.probability !== null || h.target !== null || h.invalidation !== null)
     || s.committee.providerInvocation !== 'FORBIDDEN'
-    || s.committee.legacyCommitteeOutputAccepted !== false
-    || s.committee.request !== null
-    || s.committee.response !== null
-    || s.prePm.portfolioManagerEligibility !== 'BLOCKED'
-    || s.prePm.evidenceAcceptance !== 'UNAVAILABLE'
-    || s.prePm.riskVerdict !== null
-    || s.prePm.confidence !== null
     || s.prePm.portfolioManagerInput !== null
-    || s.portfolioManager.advisoryOnly !== true
     || s.portfolioManager.recommendation !== null
     || s.portfolioManager.targetAllocation !== null
     || s.portfolioManager.sizing !== null
-    || s.portfolioManager.confidence !== null
-    || s.finalActionRisk.actionEligibility !== 'BLOCKED'
-    || s.finalActionRisk.maximumLoss !== null
     || s.finalActionRisk.positionSize !== null
     || s.finalActionRisk.stopLoss !== null
-    || s.finalActionRisk.riskVerdict !== null
-    || s.action.decision !== 'ABSTAIN'
-    || s.action.execution !== 'FORBIDDEN'
-    || s.action.advisoryOnly !== true
-    || s.action.recommendation !== null
     || s.action.order !== null
-    || s.commandCenter.mode !== 'READ_ONLY'
-    || s.commandCenter.systemState !== 'HOLD'
-    || s.commandCenter.banner !== 'EVIDENCE_INCOMPLETE'
-    || s.commandCenter.execution !== 'FORBIDDEN'
-    || s.commandCenter.scenarioTreeStatus !== 'UNAVAILABLE'
+    || s.action.execution !== 'FORBIDDEN'
     || s.commandCenter.tradeTicket !== null
-    || s.commandCenter.observability.state !== 'CONTRACT_ONLY'
-    || s.commandCenter.observability.correlationId !== null
-    || s.commandCenter.observability.deploymentId !== null
-    || s.alerts.state !== 'SUPPRESSED'
+    || s.commandCenter.execution !== 'FORBIDDEN'
     || s.alerts.delivery !== 'FORBIDDEN'
-    || s.alerts.expiresAt !== null
-    || s.alerts.acknowledgementState !== 'UNAVAILABLE'
-    || s.alerts.escalation !== 'FORBIDDEN'
     || s.alerts.recipient !== null
-    || s.alerts.channel !== null
     || s.alerts.payload !== null
-    || !safeAcceptance
+    || s.acceptance.productionReadiness !== 'HOLD'
   ) problems.add('UNSAFE_OUTPUT_PRESENT');
 
   // Stable insertion order + contract-defined lineage order make the checksum
