@@ -18,7 +18,7 @@ import {
 } from '../advisory_ui/transport_contract.js';
 import { compareStrictInstants, isStrictTimestamp } from '../shared/temporal_contract.js';
 
-export const UNIFIED_REHEARSAL_SCHEMA_VERSION = 'xau.unified-offline-rehearsal.v1' as const;
+export const UNIFIED_REHEARSAL_SCHEMA_VERSION = 'xau.unified-offline-rehearsal.v2' as const;
 export const UNIFIED_REHEARSAL_ALGORITHM_VERSION = 'unified-readonly-cross-contract-1.2.0' as const;
 
 export interface UnifiedOfflineInput {
@@ -150,6 +150,7 @@ export async function runUnifiedOfflineRehearsal(raw: unknown) {
   );
   return {
     schemaVersion: UNIFIED_REHEARSAL_SCHEMA_VERSION,
+    algorithmVersion: UNIFIED_REHEARSAL_ALGORITHM_VERSION,
     mode: 'OFFLINE_ONLY' as const,
     decision: 'HOLD' as const,
     execution: 'FORBIDDEN' as const,
