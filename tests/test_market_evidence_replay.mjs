@@ -349,3 +349,31 @@ for (const file of ['market_engine/evidence_archive.ts', 'decision_chain/market_
   assert.doesNotMatch(readFileSync(new URL(`../backend/${file}`, import.meta.url), 'utf8'), /new Date\(\)|validatePoint/, file);
 }
 console.log('PASS the replay reaches no provider, network, clock, randomness or environment');
+
+// --- 13. Same freshness as the runtime market driver (context.buildField), at every threshold edge.
+{
+  const context = await loadBackendModule('market_engine/context.ts');
+  const { SYMBOL_RULES } = await loadBackendModule('market_engine/validate.ts');
+  const samples = { spot: 3900, us10y: 4.1, realYield: 1.7, vix: 17.2, wti: 66.4 };
+  let checked = 0;
+  for (const [field, value] of Object.entries(samples)) {
+    const spec = ev.MARKET_EVIDENCE_FIELD_SPEC[field];
+    const rule = SYMBOL_RULES[spec.freshnessSymbol];
+    for (const age of [0, rule.liveMaxAgeS, rule.liveMaxAgeS + 1, rule.staleMaxAgeS, rule.staleMaxAgeS + 1]) {
+      const observedAt = '2026-10-01T00:00:00.000Z';
+      const cutoff = new Date(Date.parse(observedAt) + age * 1000).toISOString();
+      const archive = { ...clone(fixture), coverage: { ...fixture.coverage, from: observedAt, to: cutoff },
+        records: [{ ...clone(fixture.records.find((r) => r.field === field)), observedAt, ingestedAt: observedAt, value, supersedes: null }] };
+      // A spot fresh at the cutoff, so MP-1 does not abstain for the secondary fields.
+      if (field !== 'spot') archive.records.push({ ...clone(fixture.records[1]), observedAt: cutoff, ingestedAt: cutoff });
+      const r = await replay(archive, cutoff);
+      const runtime = context.buildField(value, age, observedAt, archive.records[0].source, spec.freshnessSymbol);
+      assert.equal(r.observations[field].freshnessAtCutoff, runtime.status, `${field} age ${age}`);
+      assert.equal(r.marketSnapshot[field].value, runtime.value, `${field} age ${age}`);
+      assert.equal(r.marketSnapshot[field].status, runtime.status, `${field} age ${age}`);
+      checked += 1;
+    }
+  }
+  assert.deepEqual(context.buildSnapshot([]).dxy, (await replay(fixture)).marketSnapshot.dxy, 'DXY unavailable on both paths');
+  console.log(`PASS replay freshness equals the runtime market driver at ${checked} threshold edges`);
+}
