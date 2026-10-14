@@ -27,7 +27,8 @@ const input = (options = {}) => ({
   generatedAt: '2026-10-14T12:00:00.000Z', ...options,
 });
 const baseline = await bridge.runUnifiedOfflineRehearsal(input());
-assert.equal(baseline.schemaVersion, 'xau.unified-offline-rehearsal.v1');
+assert.equal(baseline.schemaVersion, 'xau.unified-offline-rehearsal.v2');
+assert.equal(baseline.algorithmVersion, 'unified-readonly-cross-contract-1.2.0');
 assert.equal(baseline.mode, 'OFFLINE_ONLY');
 assert.equal(baseline.outcome, 'COMPLETED');
 assert.equal(baseline.decision, 'HOLD');
@@ -95,6 +96,8 @@ assert.equal(newer.execution, 'FORBIDDEN');
 const invalid = await bridge.runUnifiedOfflineRehearsal(input({
   knowledgeCutoff: '2026-02-30T14:15:00.000Z',
 }));
+assert.equal(invalid.schemaVersion, baseline.schemaVersion);
+assert.equal(invalid.algorithmVersion, baseline.algorithmVersion);
 assert.equal(invalid.terminal.chain.chainState, 'HOLD');
 assert.equal(invalid.advisory.execution, 'FORBIDDEN');
 assert.equal(invalid.evidence.structuralStatus, 'REJECTED');
