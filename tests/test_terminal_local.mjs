@@ -62,7 +62,7 @@ assert.notEqual(contentSecurityPolicy(served.replace("POLL_INTERVAL_MS: 5000", "
 response = await fetch(`${base}${VIEW_PATH}`);
 assert.equal(response.status, 200);
 const view = await response.json();
-assert.equal(view.schemaVersion, 'xau.terminal-local-view.v3');
+assert.equal(view.schemaVersion, 'xau.terminal-local-view.v4');
 assert.equal(view.temporal.classification, 'HISTORICAL', 'the golden fixture is in the past');
 assert.equal(view.chain.chainState, 'HOLD');
 assert.equal(view.chain.execution, 'FORBIDDEN');
@@ -113,6 +113,20 @@ for (const bad of ['nope', '..%2Fgolden', '', 'GOLDEN']) {
   assert.equal(response.status, bad === '' ? 200 : 404, bad);
   await response.arrayBuffer();
 }
+// DATA-1 archive scenarios: the market snapshot comes from a replay, the manifest travels with the view.
+const archiveView = await scenarioView('archive-synthetic');
+assert.equal(archiveView.marketEvidence.status, 'VERIFIED');
+assert.equal(archiveView.marketEvidence.nature, 'SIMULATION');
+assert.equal(archiveView.market.fields.find((f) => f.field === 'wti').value, 66.4);
+assert.equal((await scenarioView('archive-after-correction')).market.fields.find((f) => f.field === 'wti').value, 66.9);
+assert.equal((await scenarioView('archive-incomplete')).marketEvidence.reproducible, false);
+for (const id of ['archive-unit-mismatch', 'archive-contradiction']) {
+  const v = await scenarioView(id);
+  assert.equal(v.marketEvidence.status, 'INVALID', id);
+  assert.equal(stageOf(v, 'MARKET_PRICING').state, 'ABSTAIN', id);
+  assert.ok(v.market.fields.every((f) => f.value === null), `${id}: no value from a rejected archive`);
+}
+assert.equal(view.marketEvidence, null, 'a chain input snapshot has no archive manifest');
 console.log(`PASS ${TERMINAL_SCENARIO_IDS.length} simulation scenarios all hold, each for its own reason; unknown ones are refused`);
 
 for (const [pathname, status] of [['/js/dashboard.js', 200], ['/css/style.css', 200], ['/index.html', 200],
@@ -280,7 +294,8 @@ assert.equal(d.getElementById('v2-nav-nature').getAttribute('data-mode'), 'histo
 assert.match(text(d, 'v2-nav-nature'), /^SIMULATION — FIXTURE · HISTORIQUE — cutoff il y a \d+ (s|min|h|j) · PAS UNE ANALYSE RÉELLE$/);
 // The legend defines every label, and LIVE only as a real feed.
 const legend = Object.fromEntries([...d.querySelectorAll('#nature-legend dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent]));
-assert.deepEqual(Object.keys(legend), ['DÉMO', 'SIMULATION', 'HISTORIQUE', 'FRAIS AU CUTOFF', 'LIVE', 'HOLD']);
+assert.deepEqual(Object.keys(legend), ['DÉMO', 'SIMULATION', 'HISTORIQUE', 'HISTORIQUE VÉRIFIÉ', 'FRAIS AU CUTOFF', 'LIVE', 'HOLD']);
+assert.match(legend['HISTORIQUE VÉRIFIÉ'], /octets bruts.*jamais LIVE/);
 assert.match(legend.LIVE, /flux de marché réel.*Jamais une simulation/);
 assert.match(legend['FRAIS AU CUTOFF'], /Ce n'est pas un flux en direct/);
 assert.match(legend.SIMULATION, /Jamais une analyse de marché réelle/);
@@ -330,6 +345,71 @@ for (const [classification, age, label, mode] of [
   dom.window.close();
 }
 console.log('PASS provenance: a recent or unreadable cutoff is labelled SIMULATION, never LIVE');
+
+// --- DATA-1 market evidence in the terminal: provenance shown, nature never overstated.
+dom = boot(LOCAL, serveView(archiveView));
+await settle();
+d = dom.window.document;
+assert.equal(d.getElementById('v2-mev').hidden, false);
+assert.equal(text(d, 'v2-mev-status'), 'REJEU VÉRIFIÉ · ARCHIVE SYNTHÉTIQUE · reproductible');
+assert.equal(text(d, 'mode-v2-val'), 'ARCHIVE SYNTHÉTIQUE · DRY RUN');
+assert.match(text(d, 'v2-nav-nature'), /^SIMULATION — SCÉNARIO ARCHIVE-SYNTHETIC · ARCHIVE SYNTHÉTIQUE · REJEU VÉRIFIÉ · .* · PAS UNE ANALYSE RÉELLE$/);
+assert.match(text(d, 'v2-mev-archive'), /^fixture-data1-2026-10-01 · SYNTHETIC_FIXTURE · 10 enregistrement\(s\)$/);
+assert.match(text(d, 'v2-mev-digest'), /^sha256:[0-9a-f]{64} \(non épinglée\)$/);
+assert.equal(text(d, 'v2-mev-replay'), archiveView.marketEvidence.replayDigest);
+assert.equal(text(d, 'v2-mev-audit'), "2 enregistrement(s) ingéré(s) après le cutoff ; corrigé(s) plus tard : WTI");
+const mevItems = [...d.querySelectorAll('#v2-mev-obs .mev__item')];
+assert.equal(mevItems.length, archiveView.marketEvidence.observations.length);
+const spotItem = Object.fromEntries([...mevItems[0].querySelectorAll('.mev__facts > div')]
+  .map((row) => [row.querySelector('dt').textContent, row.querySelector('dd').textContent]));
+assert.deepEqual(spotItem, {
+  'INSTRUMENT · TYPE': 'XAUUSD · LAST', 'SOURCE · ID SOURCE': 'twelve_data · XAU/USD', 'OBSERVÉ': '2026-10-01 14:14:00Z',
+  'PUBLIÉ': 'INCONNU', 'INGÉRÉ': '2026-10-01 14:14:03Z', 'RÉVISION': 'td-quote-2', 'FRAÎCHEUR AU CUTOFF': 'FRAIS AU CUTOFF · 60 s',
+  'EMPREINTE': archiveView.marketEvidence.observations[0].recordDigest,
+});
+assert.equal(mevItems[0].querySelector('.mev__raw').textContent, 'BRUT INCONNU');
+assert.doesNotMatch(d.getElementById('ws-chain').textContent, /\bLIVE\b/, 'a replayed snapshot is never LIVE');
+dom.window.close();
+dom = boot(LOCAL, serveView(view));
+await settle();
+assert.equal(dom.window.document.getElementById('v2-mev').hidden, true, 'no manifest, no section');
+dom.window.close();
+// A captured, fully re-read archive is HISTORIQUE VÉRIFIÉ, and still a dry run, still not LIVE.
+const historical = structuredClone(archiveView);
+Object.assign(historical.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED' });
+for (const o of historical.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
+dom = boot(LOCAL, serveView(historical));
+await settle();
+d = dom.window.document;
+assert.equal(text(d, 'mode-v2-val'), 'HISTORIQUE VÉRIFIÉ · DRY RUN');
+assert.match(text(d, 'v2-nav-nature'), /HISTORIQUE VÉRIFIÉ · REJEU VÉRIFIÉ · .* · PAS UNE ANALYSE RÉELLE$/);
+assert.doesNotMatch(d.getElementById('ws-chain').textContent + text(d, 'mode-v2-val'), /\bLIVE\b/);
+dom.window.close();
+// Any overstated or inconsistent claim refuses the whole view.
+for (const [name, mutate] of [
+  ['verified history without re-read bytes', (v) => { Object.assign(v.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED' }); }],
+  ['verified history from an incomplete replay', (v) => {
+    Object.assign(v.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED', status: 'INCOMPLETE', reproducible: false });
+    for (const o of v.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
+  }],
+  ['reproducible but incomplete', (v) => { v.marketEvidence.status = 'INCOMPLETE'; }],
+  ['synthetic archive called captured', (v) => { v.marketEvidence.provenanceClass = 'CAPTURED'; }],
+  ['captured archive called simulation', (v) => { v.marketEvidence.nature = 'HISTORICAL_UNVERIFIED'; }],
+  ['LIVE market nature', (v) => { v.marketEvidence.nature = 'LIVE'; }],
+  ['unknown raw state', (v) => { v.marketEvidence.observations[0].raw = 'TRUSTED'; }],
+  ['manifest missing', (v) => { delete v.marketEvidence; }],
+]) {
+  const body = structuredClone(archiveView);
+  mutate(body);
+  dom = boot(LOCAL, serveView(body));
+  await settle();
+  d = dom.window.document;
+  assert.equal(text(d, 'v2-state'), 'VUE V2 REFUSÉE', name);
+  assert.equal(d.getElementById('v2-mev').hidden, true, name);
+  assert.equal(d.querySelectorAll('#v2-mev-obs li').length, 0, name);
+  dom.window.close();
+}
+console.log('PASS market evidence: provenance per value, unknowns shown, HISTORIQUE VÉRIFIÉ only when proven, never LIVE');
 
 // --- Refusals: a view claiming anything but HOLD / forbidden is not displayed at all.
 const mutations = [

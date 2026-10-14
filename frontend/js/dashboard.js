@@ -201,6 +201,15 @@
     v2PositioningThrough: $('v2-positioning-through'),
     v2PositioningSources: $('v2-positioning-sources'),
     v2Capabilities: $('v2-capabilities'),
+    v2Mev: $('v2-mev'),
+    v2MevStatus: $('v2-mev-status'),
+    v2MevArchive: $('v2-mev-archive'),
+    v2MevCoverage: $('v2-mev-coverage'),
+    v2MevDigest: $('v2-mev-digest'),
+    v2MevReplay: $('v2-mev-replay'),
+    v2MevReasons: $('v2-mev-reasons'),
+    v2MevAudit: $('v2-mev-audit'),
+    v2MevObs: $('v2-mev-obs'),
     v2Horizons: $('v2-horizons'),
     v2Evidence: $('v2-evidence'),
     v2AcceptanceState: $('v2-acceptance-state'),
@@ -1104,7 +1113,7 @@ let pollTimer = null;
      11 ter. CHAÎNE DÉCISIONNELLE V2 (VUE LOCALE CHAIN-0)
      ====================================================================== */
 
-  const V2_SCHEMA_VERSION = 'xau.terminal-local-view.v3';
+  const V2_SCHEMA_VERSION = 'xau.terminal-local-view.v4';
 
   const V2_CAPABILITY_LABELS = {
     OPERATIONAL_LOCAL: 'OPÉRATIONNEL LOCAL',
@@ -1154,7 +1163,17 @@ let pollTimer = null;
     GOLDEN_FIXTURE: 'SIMULATION — FIXTURE',
     LOCAL_INPUT_FILE: 'SIMULATION — FICHIER LOCAL',
     LOCAL_SCENARIO: 'SIMULATION — SCÉNARIO',
+    LOCAL_MARKET_ARCHIVE: 'ARCHIVE DE MARCHÉ LOCALE',
   };
+
+  /* DATA-1 : nature des données de marché rejouées. Jamais LIVE. */
+  const V2_EVIDENCE_NATURE = {
+    SIMULATION: 'ARCHIVE SYNTHÉTIQUE',
+    HISTORICAL_VERIFIED: 'HISTORIQUE VÉRIFIÉ',
+    HISTORICAL_UNVERIFIED: 'HISTORIQUE NON VÉRIFIÉ',
+  };
+  const V2_EVIDENCE_STATUS = { VERIFIED: 'REJEU VÉRIFIÉ', INCOMPLETE: 'REJEU INCOMPLET', INVALID: 'ARCHIVE REJETÉE' };
+  const V2_RAW_STATES = { RAW_VERIFIED: 'BRUT RELU', RAW_DIGEST_ONLY: 'EMPREINTE SEULE', RAW_UNKNOWN: 'BRUT INCONNU' };
 
   /** Libellé d'origine ; un scénario est nommé par son identifiant. */
   const originText = (origin) => (origin.kind === 'LOCAL_SCENARIO' && isText(origin.label)
@@ -1218,6 +1237,20 @@ let pollTimer = null;
     }
     for (const c of view.capabilities) {
       if (!c || !has(V2_CAPABILITY_LABELS, c.status) || !isList(c.blockers)) return 'capacité non conforme';
+    }
+    const mev = view.marketEvidence;
+    if (mev === undefined) return 'preuves de marché absentes';
+    if (mev !== null) {
+      if (!has(V2_EVIDENCE_STATUS, mev.status) || !has(V2_EVIDENCE_NATURE, mev.nature) || !isList(mev.observations)
+          || !isList(mev.reasonCodes) || mev.observations.some((o) => !o || !has(V2_RAW_STATES, o.raw))) {
+        return 'preuves de marché non conformes';
+      }
+      // Une affirmation forte doit porter toutes ses conditions.
+      if (mev.reproducible !== (mev.status === 'VERIFIED')) return 'reproductibilité incohérente';
+      if (mev.nature === 'SIMULATION' && mev.provenanceClass !== 'SYNTHETIC_FIXTURE') return 'nature de marché incohérente';
+      if (mev.nature !== 'SIMULATION' && mev.provenanceClass !== 'CAPTURED') return 'nature de marché incohérente';
+      if (mev.nature === 'HISTORICAL_VERIFIED' && (mev.status !== 'VERIFIED' || mev.observations.length === 0
+          || mev.observations.some((o) => o.raw !== 'RAW_VERIFIED'))) return 'historique vérifié non prouvé';
     }
     for (const h of view.horizons) {
       // Une direction n'existe qu'avec une méthode approuvée ; il n'y en a aucune.
@@ -1292,6 +1325,8 @@ let pollTimer = null;
     setText(el.v2Origin, stateName === 'unavailable' ? 'AUCUN RUNTIME' : 'VUE REFUSÉE');
     el.v2Why.hidden = true;
     el.v2Summary.hidden = true;
+    el.v2Mev.hidden = true;
+    el.v2MevObs.replaceChildren();
     for (const n of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2CutoffAge, el.v2Digest,
       el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningThrough, el.v2PositioningSources, el.v2MarketState]) {
       setText(n, '—');
@@ -1436,8 +1471,12 @@ let pollTimer = null;
     setAttr(el.v2Origin, 'data-state', 'simulated');
     setText(el.v2Origin, originText(view.origin));
     const when = historical ? 'HISTORIQUE' : temporal.classification === 'UNKNOWN' ? 'CUTOFF INCONNU' : 'CUTOFF À LA GÉNÉRATION';
-    setChainMode(historical ? 'historical' : 'simulated', `SIMULATION · ${when}`,
-      `${originText(view.origin)} · ${historical ? `HISTORIQUE — cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)}` : when}`
+    const mev = view.marketEvidence;
+    // Données de marché rejouées : leur nature prime ; la chaîne reste un dry run.
+    const market = mev ? `${V2_EVIDENCE_NATURE[mev.nature]} · ${V2_EVIDENCE_STATUS[mev.status]}` : null;
+    setChainMode(historical ? 'historical' : 'simulated', market ? `${V2_EVIDENCE_NATURE[mev.nature]} · DRY RUN` : `SIMULATION · ${when}`,
+      `${originText(view.origin)} · ${market ? `${market} · ` : ''}`
+        + `${historical ? `HISTORIQUE — cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)}` : when}`
         + ' · PAS UNE ANALYSE RÉELLE');
 
     if (chain.outcome === 'REJECTED') {
@@ -1497,6 +1536,7 @@ let pollTimer = null;
       ? pos.sourceAuthorities.join(' · ') : 'N/A');
 
     renderReadiness(view);
+    renderMarketEvidence(view.marketEvidence);
 
     const counts = {};
     for (const c of view.capabilities) counts[c.status] = (counts[c.status] || 0) + 1;
@@ -1512,6 +1552,59 @@ let pollTimer = null;
       li.appendChild(node('p', 'cap__blockers', `Blocages : ${v2Blockers(c.blockers)}`));
       return li;
     }));
+  }
+
+  const known = (v) => (isText(v) ? v : 'INCONNU');
+  const shortTime = (v) => (isText(v) ? v.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'INCONNU');
+
+  /** DATA-1 : provenance complète de chaque valeur retenue au cutoff. */
+  function renderMarketEvidence(mev) {
+    el.v2Mev.hidden = mev === null;
+    if (mev === null) {
+      el.v2MevObs.replaceChildren();
+      return;
+    }
+    setAttr(el.v2Mev, 'data-status', mev.status);
+    setAttr(el.v2Mev, 'data-nature', mev.nature);
+    setText(el.v2MevStatus, `${V2_EVIDENCE_STATUS[mev.status]} · ${V2_EVIDENCE_NATURE[mev.nature]} · `
+      + (mev.reproducible ? 'reproductible' : 'non reproductible'));
+    setText(el.v2MevArchive, `${known(mev.archiveId)} · ${known(mev.provenanceClass)} · ${mev.recordCount} enregistrement(s)`);
+    setText(el.v2MevCoverage, mev.coverage
+      ? `${shortTime(mev.coverage.from)} → ${shortTime(mev.coverage.to)} — ${mev.coverage.statement}` : 'NON DÉCLARÉE');
+    setText(el.v2MevDigest, `${known(mev.archiveDigest)}${mev.pinnedDigest ? ' (épinglée)' : ' (non épinglée)'}`);
+    setText(el.v2MevReplay, mev.replayDigest);
+    setText(el.v2MevReasons, mev.reasonCodes.length ? mev.reasonCodes.join(' · ') : 'aucun');
+    setText(el.v2MevAudit, `${mev.recordsIngestedAfterCutoff} enregistrement(s) ingéré(s) après le cutoff`
+      + `${isList(mev.correctedAfterCutoff) && mev.correctedAfterCutoff.length
+        ? ` ; corrigé(s) plus tard : ${mev.correctedAfterCutoff.map((f) => String(f).toUpperCase()).join(', ')}` : ''}`);
+    el.v2MevObs.replaceChildren(mev.observations.length === 0
+      ? node('li', 'v2__empty', 'Aucune observation retenue au cutoff.')
+      : fragmentOf(mev.observations, (o) => {
+        const li = node('li', 'mev__item', undefined, { 'data-raw': o.raw });
+        const head = node('div', 'mev__head');
+        head.appendChild(node('span', 'mev__field', String(o.field || '?').toUpperCase()));
+        head.appendChild(node('span', 'mev__value num', `${isNum(o.value) ? o.value : 'N/A'} ${known(o.unit)}`));
+        head.appendChild(node('span', 'mev__raw', V2_RAW_STATES[o.raw]));
+        li.appendChild(head);
+        const dl = node('dl', 'mev__facts');
+        for (const [k, v] of [
+          ['INSTRUMENT · TYPE', `${known(o.instrument)} · ${known(o.observationType)}`],
+          ['SOURCE · ID SOURCE', `${known(o.source)} · ${known(o.sourceRecordId)}`],
+          ['OBSERVÉ', shortTime(o.observedAt)],
+          ['PUBLIÉ', shortTime(o.publishedAt)],
+          ['INGÉRÉ', shortTime(o.ingestedAt)],
+          ['RÉVISION', `${known(o.revision)}${isText(o.supersedes) ? ` (corrige ${o.supersedes})` : ''}`],
+          ['FRAÎCHEUR AU CUTOFF', `${o.freshnessAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF' : known(o.freshnessAtCutoff)} · ${fmtAge(o.ageSecondsAtCutoff)}`],
+          ['EMPREINTE', known(o.recordDigest)],
+        ]) {
+          const row = node('div');
+          row.appendChild(node('dt', '', k));
+          row.appendChild(node('dd', '', v));
+          dl.appendChild(row);
+        }
+        li.appendChild(dl);
+        return li;
+      }));
   }
 
   function renderReadiness(view) {

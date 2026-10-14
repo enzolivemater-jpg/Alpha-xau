@@ -13,6 +13,12 @@
  */
 
 import { SYMBOL_RULES } from '../market_engine/validate.js';
+import type {
+  MarketEvidenceNature,
+  MarketEvidenceReplay,
+  MarketEvidenceReplayStatus,
+  ReplayedObservation,
+} from '../market_engine/evidence_archive.js';
 import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 import {
   DECISION_CHAIN_STAGES,
@@ -20,8 +26,8 @@ import {
   type DecisionChainStage,
 } from './dry_run.js';
 
-export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v3' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-3.0.0' as const;
+export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.0.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -250,7 +256,28 @@ const MARKET_STATUS_PLAIN_FR: Readonly<Record<string, string>> = {
  */
 export type TerminalCapabilityStatus = 'OPERATIONAL_LOCAL' | 'SIMULATED' | 'BLOCKED' | 'NOT_VALIDATED';
 
-export type TerminalDataOrigin = 'GOLDEN_FIXTURE' | 'LOCAL_INPUT_FILE' | 'LOCAL_SCENARIO';
+export type TerminalDataOrigin = 'GOLDEN_FIXTURE' | 'LOCAL_INPUT_FILE' | 'LOCAL_SCENARIO' | 'LOCAL_MARKET_ARCHIVE';
+
+/**
+ * DATA-1 market evidence behind the chain's market snapshot, when the view
+ * was built from an archive replay. null: the snapshot came as chain input.
+ */
+export interface TerminalMarketEvidence {
+  readonly status: MarketEvidenceReplayStatus;
+  readonly nature: MarketEvidenceNature;
+  readonly reproducible: boolean;
+  readonly archiveId: string | null;
+  readonly provenanceClass: 'SYNTHETIC_FIXTURE' | 'CAPTURED' | null;
+  readonly archiveDigest: string | null;
+  readonly pinnedDigest: string | null;
+  readonly replayDigest: string;
+  readonly recordCount: number;
+  readonly coverage: { readonly from: string; readonly to: string; readonly statement: string } | null;
+  readonly reasonCodes: readonly string[];
+  readonly recordsIngestedAfterCutoff: number;
+  readonly correctedAfterCutoff: readonly string[];
+  readonly observations: readonly ReplayedObservation[];
+}
 
 export interface TerminalReason {
   readonly code: string;
@@ -392,6 +419,7 @@ export interface TerminalView {
     readonly deploymentId: string | null;
   };
   readonly capabilities: readonly TerminalCapability[];
+  readonly marketEvidence: TerminalMarketEvidence | null;
 }
 
 /** Stage states that report evidence, as opposed to an abstention. */
@@ -566,6 +594,27 @@ function summaryOf(
   };
 }
 
+function marketEvidenceOf(replay: MarketEvidenceReplay | null): TerminalMarketEvidence | null {
+  if (replay === null) return null;
+  return {
+    status: replay.status,
+    nature: replay.nature,
+    reproducible: replay.reproducible,
+    archiveId: replay.archive.archiveId,
+    provenanceClass: replay.archive.provenanceClass,
+    archiveDigest: replay.archive.digest,
+    pinnedDigest: replay.archive.pinnedDigest,
+    replayDigest: replay.digest,
+    recordCount: replay.archive.recordCount,
+    coverage: replay.archive.coverage === null ? null
+      : { from: replay.archive.coverage.from, to: replay.archive.coverage.to, statement: replay.archive.coverage.statement },
+    reasonCodes: [...replay.reasonCodes, ...(replay.selection?.reasonCodes ?? []).map((code) => `MP1_${code}`)],
+    recordsIngestedAfterCutoff: replay.audit.recordsIngestedAfterCutoff,
+    correctedAfterCutoff: [...replay.audit.correctedAfterCutoff],
+    observations: Object.values(replay.observations).filter((o): o is ReplayedObservation => o !== null),
+  };
+}
+
 const errorText = (error: { readonly path: string; readonly code: string }) =>
   `${error.path === '' ? '<input>' : error.path}: ${error.code}`;
 
@@ -574,6 +623,7 @@ export function buildTerminalView(
   digest: string | null,
   origin: { readonly kind: TerminalDataOrigin; readonly label: string },
   generatedAt: string,
+  marketEvidenceReplay: MarketEvidenceReplay | null = null,
 ): TerminalView {
   const base = {
     schemaVersion: TERMINAL_VIEW_SCHEMA_VERSION,
@@ -581,6 +631,7 @@ export function buildTerminalView(
     generatedAt,
     origin: { kind: origin.kind, label: origin.label },
     simulated: true as const,
+    marketEvidence: marketEvidenceOf(marketEvidenceReplay),
   };
   if (outcome.kind === 'REJECTED') {
     return {

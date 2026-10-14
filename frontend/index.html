@@ -110,7 +110,8 @@
       <div><dt>DÉMO</dt><dd>Valeurs synthétiques générées par le navigateur. Aucune donnée de marché.</dd></div>
       <div><dt>SIMULATION</dt><dd>Moteurs V2 exécutés sur une fixture, un fichier ou un scénario local. Jamais une analyse de marché réelle.</dd></div>
       <div><dt>HISTORIQUE</dt><dd>Le cutoff de la vue est antérieur de plus de 360 s à sa génération : elle décrit le passé.</dd></div>
-      <div><dt>FRAIS AU CUTOFF</dt><dd>Dans une simulation, le champ était dans son seuil de fraîcheur à l'instant du cutoff. Ce n'est pas un flux en direct.</dd></div>
+      <div><dt>HISTORIQUE VÉRIFIÉ</dt><dd>Archive capturée chez un fournisseur, rejouée au cutoff sans information postérieure, couverture complète déclarée, chaque valeur relue depuis les octets bruts conservés. Décrit le passé : jamais LIVE.</dd></div>
+      <div><dt>FRAIS AU CUTOFF</dt><dd>Dans une simulation ou un rejeu, le champ était dans son seuil de fraîcheur à l'instant du cutoff. Ce n'est pas un flux en direct.</dd></div>
       <div><dt>LIVE</dt><dd>Uniquement un flux de marché réel reçu dans son seuil de fraîcheur. Jamais une simulation.</dd></div>
       <div><dt>HOLD</dt><dd>Aucune décision positive n'est approuvée ; l'exécution est interdite dans tous les cas.</dd></div>
     </dl>
@@ -419,6 +420,20 @@
           <div><dt>POSITIONNEMENT OBSERVÉ JUSQU'À</dt><dd class="num" id="v2-positioning-through">—</dd></div>
           <div><dt>SOURCES POSITIONNEMENT</dt><dd id="v2-positioning-sources">—</dd></div>
         </dl>
+        <!-- DATA-1 : preuves derrière l'instantané de marché, quand la vue vient d'un rejeu d'archive. -->
+        <section class="mev" id="v2-mev" aria-labelledby="v2-mev-title" hidden>
+          <h3 class="v2__subtitle" id="v2-mev-title">PREUVES DE MARCHÉ — REJEU D'ARCHIVE</h3>
+          <p class="mev__status" id="v2-mev-status">—</p>
+          <dl class="v2__facts v2__facts--stack">
+            <div><dt>ARCHIVE</dt><dd id="v2-mev-archive">—</dd></div>
+            <div><dt>COUVERTURE DÉCLARÉE</dt><dd id="v2-mev-coverage">—</dd></div>
+            <div><dt>EMPREINTE DE L'ARCHIVE</dt><dd class="num" id="v2-mev-digest">—</dd></div>
+            <div><dt>EMPREINTE DU REJEU</dt><dd class="num" id="v2-mev-replay">—</dd></div>
+            <div><dt>MOTIFS</dt><dd id="v2-mev-reasons">—</dd></div>
+            <div><dt>APRÈS LE CUTOFF (JAMAIS UTILISÉ)</dt><dd id="v2-mev-audit">—</dd></div>
+          </dl>
+          <ul class="mev__obs" id="v2-mev-obs"></ul>
+        </section>
       </div>
     </section>
 

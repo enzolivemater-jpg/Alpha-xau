@@ -26,6 +26,7 @@ const VARIANTS = [
   { name: 'chaine déplié', hash: 'chaine', expand: true },
   { name: 'chaine market-unavailable déplié', hash: 'chaine', scenario: 'market-unavailable', expand: true },
   { name: 'chaine invalid-input', hash: 'chaine', scenario: 'invalid-input' },
+  { name: 'chaine archive-synthetic déplié', hash: 'chaine', scenario: 'archive-synthetic', expand: true },
 ];
 
 /** Runs in the page: clipped and overflowing elements. */

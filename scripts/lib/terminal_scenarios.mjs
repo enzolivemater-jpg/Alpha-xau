@@ -3,6 +3,10 @@
  * CHAIN-0 document `{ knowledgeCutoff, input }` from the golden fixture, to
  * show how the chain holds and why. They are simulations, not market data:
  * the terminal labels every view built from them SIMULATION.
+ *
+ * DATA-1 scenarios (`archive`) replay the synthetic market evidence archive
+ * at a cutoff instead: the chain's market snapshot then comes from the
+ * replay, the other inputs from the golden fixture.
  */
 
 const clone = (value) => structuredClone(value);
@@ -74,6 +78,45 @@ export const TERMINAL_SCENARIOS = [
     build: (golden) => ({ ...clone(golden), input: { ...clone(golden.input), unexpectedKey: true } }),
   },
 ];
+
+const ARCHIVE_CUTOFF = '2026-10-01T14:15:00.000Z';
+
+TERMINAL_SCENARIOS.push(
+  {
+    id: 'archive-synthetic',
+    label: 'Archive synthétique rejouée au cutoff (révision WTI pas encore connue)',
+    archive: (fixture) => ({ archive: clone(fixture), knowledgeCutoff: ARCHIVE_CUTOFF }),
+  },
+  {
+    id: 'archive-after-correction',
+    label: 'Même archive rejouée le lendemain : la correction WTI est connue',
+    archive: (fixture) => ({ archive: clone(fixture), knowledgeCutoff: '2026-10-02T14:00:00.000Z' }),
+  },
+  {
+    id: 'archive-incomplete',
+    label: 'Archive sans déclaration de couverture : rejeu incomplet',
+    archive: (fixture) => ({ archive: { ...clone(fixture), coverage: null }, knowledgeCutoff: ARCHIVE_CUTOFF }),
+  },
+  {
+    id: 'archive-unit-mismatch',
+    label: 'Rendement 10 ans archivé avec une mauvaise unité : archive rejetée',
+    archive: (fixture) => {
+      const archive = clone(fixture);
+      archive.records.find((r) => r.field === 'us10y').unit = 'INDEX_POINTS';
+      return { archive, knowledgeCutoff: ARCHIVE_CUTOFF };
+    },
+  },
+  {
+    id: 'archive-contradiction',
+    label: 'Deux fournisseurs en désaccord sur le même instant : archive rejetée',
+    archive: (fixture) => {
+      const archive = clone(fixture);
+      const spot = archive.records.find((r) => r.evidenceId === 'td-xau-20261001-1414');
+      archive.records.push({ ...spot, evidenceId: 'other-xau-20261001-1414', source: 'other_feed', value: 3905 });
+      return { archive, knowledgeCutoff: ARCHIVE_CUTOFF };
+    },
+  },
+);
 
 export const TERMINAL_SCENARIO_IDS = TERMINAL_SCENARIOS.map(({ id }) => id);
 
