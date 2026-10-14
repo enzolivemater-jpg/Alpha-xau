@@ -5,7 +5,7 @@ Status: `STATIC CI GUARD / NO RUNTIME CHANGE`.
 Institutional gate builders must stay deterministic and provider-independent.
 The test `tests/test_institutional_purity_guard.mjs` uses the TypeScript
 parser to scan the ten existing V2 gate modules (plus optional CHAIN-0,
-OBS-0, EVIDENCE-0, UI-0 and TR-0 when their branches are present) for common violations:
+OBS-0, EVIDENCE-0, UI-0, TR-0 and TIME-0 when their branches are present) for common violations:
 
 - direct imports of the Worker, legacy news ingestion, or legacy Committee;
 - external/bare package imports in this intentionally dependency-light layer;
