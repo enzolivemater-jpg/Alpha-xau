@@ -171,14 +171,28 @@ export async function fetchText(url: string): Promise<string> {
 /*  Helpers de parsing                                                         */
 /* -------------------------------------------------------------------------- */
 
+/** Écriture décimale uniquement : Number() lirait aussi "0x1A", "0b11" ou "0o7". */
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
 /** Convertit en nombre fini, ou null. N'accepte ni "", ni ".", ni "N/D". */
 export function toNumberOrNull(raw: unknown): number | null {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim();
-  if (trimmed === '' || trimmed === '.' || /^(n\/?[ad]|null|na)$/i.test(trimmed)) return null;
+  if (!DECIMAL.test(trimmed)) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Epoch en secondes -> ISO UTC, ou null si hors de l'intervalle d'un Date. */
+function epochSecondsToIso(seconds: unknown): string | null {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return null;
+  const date = new Date(seconds * 1000);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -225,14 +239,18 @@ interface FredResponse {
  */
 export function parseFred(body: string, symbol: MarketSymbol): RawDataPoint {
   const source: SourceCode = 'fred';
-  let payload: FredResponse;
+  let parsed: unknown;
   try {
-    payload = JSON.parse(body) as FredResponse;
+    parsed = JSON.parse(body);
   } catch {
     return { symbol, source, value: null, observedAt: null, unavailableReason: 'Réponse FRED non JSON' };
   }
+  if (!isJsonObject(parsed)) {
+    return { symbol, source, value: null, observedAt: null, unavailableReason: 'Réponse FRED : objet JSON attendu' };
+  }
+  const payload = parsed as FredResponse;
 
-  const observations = payload.observations ?? [];
+  const observations = Array.isArray(payload.observations) ? payload.observations : [];
   // On balaie du plus récent au plus ancien : les jours fériés en fin de
   // fenêtre valent "." et doivent être ignorés, pas interprétés.
   for (let i = observations.length - 1; i >= 0; i--) {
@@ -289,12 +307,16 @@ interface TwelveDataQuote {
 
 export function parseTwelveData(body: string, symbol: MarketSymbol): RawDataPoint {
   const source: SourceCode = 'twelve_data';
-  let quote: TwelveDataQuote;
+  let parsed: unknown;
   try {
-    quote = JSON.parse(body) as TwelveDataQuote;
+    parsed = JSON.parse(body);
   } catch {
     return { symbol, source, value: null, observedAt: null, unavailableReason: 'Réponse Twelve Data non JSON' };
   }
+  if (!isJsonObject(parsed)) {
+    return { symbol, source, value: null, observedAt: null, unavailableReason: 'Réponse Twelve Data : objet JSON attendu' };
+  }
+  const quote = parsed as TwelveDataQuote;
 
   // Twelve Data répond en HTTP 200 avec status:"error" sur quota dépassé.
   if (quote.status === 'error') {
@@ -317,9 +339,9 @@ export function parseTwelveData(body: string, symbol: MarketSymbol): RawDataPoin
   // la cotation réelle à jour. `last_quote_at` prioritaire ici ; repli
   // sur `timestamp` puis `datetime` si absent (autres endpoints/plans).
   if (typeof quote.last_quote_at === 'number' && Number.isFinite(quote.last_quote_at)) {
-    observedAt = new Date(quote.last_quote_at * 1000).toISOString();
+    observedAt = epochSecondsToIso(quote.last_quote_at);
   } else if (typeof quote.timestamp === 'number' && Number.isFinite(quote.timestamp)) {
-    observedAt = new Date(quote.timestamp * 1000).toISOString();
+    observedAt = epochSecondsToIso(quote.timestamp);
   } else if (typeof quote.datetime === 'string') {
     const [datePart, timePart, ...rest] = quote.datetime.trim().split(/[ T]/);
     if (rest.length === 0) observedAt = toUtcIso(datePart ?? '', timePart);
