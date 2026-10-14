@@ -37,9 +37,13 @@ const registered = array.elements.map((entry) => {
   assert.ok(ts.isStringLiteral(entry), 'every TEST_FILES entry must be a literal string');
   return entry.text;
 });
-const all = readdirSync(testDir).filter((n) => /^test_[a-z0-9_]+\.mjs$/.test(n))
+const all = readdirSync(testDir).filter((n) => /^test_.*\.mjs$/.test(n))
   .map((n) => 'tests/' + n).sort();
 const inventory = new Set(all);
+for (const file of all) {
+  assert.match(file, /^tests\/test_[a-z0-9_]+\.mjs$/,
+    'nonstandard test filename must be renamed or explicitly accounted for: ' + file);
+}
 const active = new Set(registered);
 assert.equal(active.size, registered.length, 'duplicate registered tests');
 for (const file of active) {
@@ -69,7 +73,7 @@ for (const [file, reason] of Object.entries(EXEMPTIONS)) {
 // which uses disposable service databases. Presence in documentation is not
 // proof of execution: require the exact 'run: node ...' command.
 const pgEntries = new Set([...workflowSource.matchAll(
-  /\brun:\s*node\s+(tests\/test_[a-z0-9_]+_postgres\.mjs)\b/g,
+  /^\s+run:\s+node\s+(tests\/test_[a-z0-9_]+_postgres\.mjs)\s*$/gm,
 )].map((match) => match[1]));
 const postgres = all.filter((file) => /_postgres\.mjs$/.test(file));
 for (const file of postgres) {
