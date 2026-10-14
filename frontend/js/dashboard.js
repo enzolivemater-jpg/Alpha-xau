@@ -169,6 +169,9 @@
     v2Generated: $('v2-generated'),
     v2Stages: $('v2-stages'),
     v2Market: $('v2-market'),
+    v2Replay: $('v2-replay'),
+    v2Positioning: $('v2-positioning'),
+    v2PositioningSources: $('v2-positioning-sources'),
     v2Capabilities: $('v2-capabilities'),
     v2CapabilityCount: $('v2-capability-count'),
   };
@@ -1093,11 +1096,12 @@ let pollTimer = null;
     v2Status(stateName, label, detail);
     setAttr(el.v2Origin, 'data-state', 'unknown');
     setText(el.v2Origin, stateName === 'unavailable' ? 'AUCUN RUNTIME' : 'VUE REFUSÉE');
-    for (const node of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2Digest, el.v2Generated]) {
+    for (const node of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2Digest, el.v2Generated,
+      el.v2Replay, el.v2Positioning, el.v2PositioningSources]) {
       setText(node, '—');
     }
     el.v2Stages.replaceChildren(v2EmptyRow(4, '—'));
-    el.v2Market.replaceChildren(v2EmptyRow(5, '—'));
+    el.v2Market.replaceChildren(v2EmptyRow(6, '—'));
     el.v2Capabilities.replaceChildren(v2EmptyRow(4, 'Matrice indisponible sans vue V2.'));
     setText(el.v2CapabilityCount, '—');
   }
@@ -1148,18 +1152,31 @@ let pollTimer = null;
       }));
 
     el.v2Market.replaceChildren(view.market.fields.length === 0
-      ? v2EmptyRow(5, 'Aucun champ de marché.')
+      ? v2EmptyRow(6, 'Aucun champ de marché.')
       : fragmentOf(view.market.fields, (f) => {
         const tr = v2Row([
           v2Cell(String(f.field || '?').toUpperCase()),
           v2Cell(isNum(f.value) ? String(f.value) : 'N/A', 'ta-r num'),
           v2Cell(f.statusAtCutoff),
           v2Cell(isNum(f.ageSecondsAtCutoff) ? `${f.ageSecondsAtCutoff}s` : 'N/A', 'ta-r num'),
+          v2Cell(isText(f.observedAt) ? f.observedAt : 'N/A', 'num'),
           v2Cell(f.source || 'N/A'),
         ]);
         tr.setAttribute('data-status', String(f.statusAtCutoff || 'UNKNOWN'));
         return tr;
       }));
+
+    const replay = view.market.replay;
+    setText(el.v2Replay, replay && isText(replay.mode)
+      ? `${replay.mode}${replay.reproducible === true ? ' — reproductible' : ` — non reproductible${isText(replay.reason) ? ` (${replay.reason})` : ''}`}`
+      : 'N/A');
+    const pos = view.positioning || {};
+    setText(el.v2Positioning, isText(pos.evidenceState)
+      ? `${pos.evidenceState} · ${isNum(pos.evidenceCount) ? pos.evidenceCount : 0} preuve(s) · signal ${pos.positioningState || 'N/A'}`
+        + `${isText(pos.observedThrough) ? ` · observé jusqu'à ${pos.observedThrough}` : ''}`
+      : 'N/A');
+    setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length
+      ? pos.sourceAuthorities.join(' · ') : 'N/A');
 
     const counts = {};
     for (const c of view.capabilities) counts[c.status] = (counts[c.status] || 0) + 1;

@@ -135,8 +135,13 @@ assert.equal(stageRows[8].getAttribute('data-capability'), 'BLOCKED');
 assert.match(stageRows[8].cells[3].textContent, /EXECUTION_NOT_AUTHORIZED/);
 const marketRows = [...d.querySelectorAll('#v2-market tr')];
 assert.equal(marketRows.length, 8);
-assert.deepEqual([...marketRows[0].cells].map((c) => c.textContent), ['SPOT', '3900', 'LIVE', '60s', 'twelve_data']);
-assert.deepEqual([...marketRows[3].cells].map((c) => c.textContent), ['DXY', 'N/A', 'UNAVAILABLE', 'N/A', 'N/A']);
+assert.deepEqual([...marketRows[0].cells].map((c) => c.textContent),
+  ['SPOT', '3900', 'LIVE', '60s', '2026-10-01T14:14:00.000Z', 'twelve_data']);
+assert.deepEqual([...marketRows[3].cells].map((c) => c.textContent), ['DXY', 'N/A', 'UNAVAILABLE', 'N/A', 'N/A', 'N/A']);
+assert.equal(text(d, 'v2-replay'), 'LATEST_ONLY — non reproductible (INGESTION_CUTOFF_NOT_AVAILABLE)');
+assert.equal(text(d, 'v2-positioning'),
+  "EVIDENCE_READY · 1 preuve(s) · signal UNAVAILABLE · observé jusqu'à 2026-09-30T19:31:00.000Z");
+assert.equal(text(d, 'v2-positioning-sources'), 'authority_test');
 const capRows = [...d.querySelectorAll('#v2-capabilities tr')];
 assert.equal(capRows.length, view.capabilities.length);
 const execRow = capRows.find((r) => r.cells[0].textContent === 'EXECUTION');
@@ -175,6 +180,7 @@ for (const [name, mutate] of mutations) {
   assert.equal(text(d, 'v2-state'), 'VUE V2 REFUSÉE', name);
   assert.equal(d.querySelectorAll('#v2-stages tr').length, 1, name);
   assert.equal(text(d, 'v2-chain-state'), '—', name);
+  assert.equal(text(d, 'v2-positioning'), '—', name);
   assert.equal(text(d, 'v2-capabilities').trim(), 'Matrice indisponible sans vue V2.', name);
   dom.window.close();
 }
