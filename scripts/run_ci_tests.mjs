@@ -12,14 +12,12 @@
  *       -> require a live local PostgreSQL instance (psql/su postgres).
  *   - test_anthropic_error_path.mjs, probe_external_endpoints.mjs
  *       -> make real outbound calls to external APIs.
- *   - test_anthropic_error_path.mjs, test_event_routing.mjs,
- *     test_provider_failure_modes.mjs
+ *   - test_anthropic_error_path.mjs, test_provider_failure_modes.mjs
  *       -> import sibling files (tests/ai_engine/*.mjs, tests/providers.mjs,
  *          etc.) that do not exist in this checkout layout. Loading them
  *          through scripts/lib/backend_module_loader.mjs is not enough:
- *          test_event_routing.mjs still expects the pre-H5 scopes
- *          (H1_H2 -> [H1,H2]) and test_provider_failure_modes.mjs the removed
- *          Stooq provider, so their expectations need an owner decision.
+ *          test_provider_failure_modes.mjs expects the removed Stooq
+ *          provider, so its expectations need an owner decision.
  *
  * Adding a new deterministic test: add its path to TEST_FILES below.
  */
@@ -66,6 +64,7 @@ const TEST_FILES = [
   'tests/test_event_facts_production_authorization_packet.mjs',
   'tests/test_event_facts_staging_proof.mjs',
   'tests/test_event_identity_claim_contract.mjs',
+  'tests/test_event_routing.mjs',
   'tests/test_event_impact_atomic_rpc.mjs',
   'tests/test_event_impact_deterministic_processor.mjs',
   'tests/test_event_impact_shadow_batch.mjs',

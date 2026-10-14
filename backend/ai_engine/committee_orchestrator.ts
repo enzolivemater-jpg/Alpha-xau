@@ -1283,7 +1283,8 @@ export function validateCommitteeEvent(raw: unknown): EventValidation {
  * leur valeur de référence, ceux du périmètre sont remplacés.
  *
  * CONSERVATION DE LA MASSE DE PROBABILITÉ — point le plus délicat.
- * La base impose que les cinq probabilités totalisent 1.00. Un recalcul
+ * La base impose que les cinq probabilités totalisent 1.00 (100 points de
+ * pourcentage entiers ici, divisés par 100 à la persistance). Un recalcul
  * partiel ne peut donc pas redistribuer librement : il doit rendre
  * exactement la masse qu'il a empruntée. Les horizons recalculés se
  * repartagent le budget que la référence leur allouait, et les horizons
