@@ -34,6 +34,7 @@ const repoRoot = path.resolve(__dirname, '..');
 
 const TEST_FILES = [
   'tests/test_advisory_ui_0_contract.mjs',
+  'tests/test_advisory_transport_contract.mjs',
   'tests/test_chain_ui0_integration.mjs',
   'tests/test_architecture_boundaries.mjs',
   'tests/test_institutional_purity_guard.mjs',
