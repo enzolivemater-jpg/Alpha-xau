@@ -1,11 +1,10 @@
 // Deterministic application contract for native market-driver provenance.
 // Executes the real TypeScript modules after local transpilation; only fetch
 // is simulated. No provider, live database, or deployment is contacted.
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
+import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MARKET = path.join(ROOT, 'backend', 'market_engine');
@@ -16,32 +15,15 @@ const t = (name, condition, detail = '') => {
   else { failed += 1; console.log(`  FAIL ${name}${detail ? ` — ${detail}` : ''}`); }
 };
 
-function transpile(file) {
-  return ts.transpileModule(readFileSync(path.join(MARKET, file), 'utf8'), {
-    compilerOptions: {
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2022,
-      verbatimModuleSyntax: false,
-    },
-  }).outputText.replaceAll(/(['"])\.\/([a-z_]+)\.js\1/g, '$1./$2.mjs$1');
-}
-
-const temp = mkdtempSync(path.join(tmpdir(), 'market-driver-provenance-'));
 let ingest;
 let context;
 let validate;
 try {
-  mkdirSync(temp, { recursive: true });
-  for (const file of ['types.ts', 'providers.ts', 'validate.ts', 'ingest_market.ts', 'context.ts']) {
-    writeFileSync(path.join(temp, file.replace(/\.ts$/, '.mjs')), transpile(file), 'utf8');
-  }
-  ingest = await import(pathToFileURL(path.join(temp, 'ingest_market.mjs')).href);
-  context = await import(pathToFileURL(path.join(temp, 'context.mjs')).href);
-  validate = await import(pathToFileURL(path.join(temp, 'validate.mjs')).href);
+  ingest = await loadBackendModule('market_engine/ingest_market.ts');
+  context = await loadBackendModule('market_engine/context.ts');
+  validate = await loadBackendModule('market_engine/validate.ts');
 } catch (error) {
   console.error('Unable to load real market-engine modules:', error);
-} finally {
-  rmSync(temp, { recursive: true, force: true });
 }
 
 t('real ingest module loads', Boolean(ingest));
