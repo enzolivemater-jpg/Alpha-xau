@@ -113,6 +113,10 @@ view. Each scenario is a simulation, never market data.
 The server:
 - binds `127.0.0.1` only and accepts only `GET` and `HEAD`;
 - serves `frontend/` read-only and refuses paths outside it;
+- serves the page with a strict Content-Security-Policy: the only inline
+  script allowed is the configuration block, by its SHA-256 after injection;
+  network access is limited to this server and Google Fonts; framing is
+  denied;
 - injects `V2_VIEW_URL` only into the page it serves.
 
 It makes no database, provider, broker or network call. The Supabase settings

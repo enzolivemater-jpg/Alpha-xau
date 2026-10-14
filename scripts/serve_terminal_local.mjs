@@ -14,6 +14,7 @@
  * mode.
  */
 
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -92,12 +93,36 @@ export async function buildLocalView({ inputFile = GOLDEN_FIXTURE, now = () => n
   };
 }
 
-function send(response, status, type, body, method) {
+/**
+ * Content-Security-Policy of the served page. The only inline script is the
+ * configuration block, allowed by its exact SHA-256 after injection; any
+ * other inline or foreign script is refused. Network access is limited to
+ * this server (and the Google Fonts stylesheet the page already uses).
+ */
+export function contentSecurityPolicy(html) {
+  const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(([, body]) => body);
+  if (inline.length !== 1) throw new Error(`expected exactly one inline script, found ${inline.length}`);
+  const hash = createHash('sha256').update(inline[0], 'utf8').digest('base64');
+  return [
+    "default-src 'none'",
+    `script-src 'self' 'sha256-${hash}'`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    'font-src https://fonts.gstatic.com',
+    "connect-src 'self'",
+    "img-src 'self' data:",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
+
+function send(response, status, type, body, method, extraHeaders = {}) {
   response.writeHead(status, {
     'content-type': type,
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
+    ...extraHeaders,
   });
   response.end(method === 'HEAD' ? undefined : body);
 }
@@ -105,6 +130,7 @@ function send(response, status, type, body, method) {
 export async function createTerminalServer(options = {}) {
   const view = await buildLocalView(options);
   const index = localIndexHtml();
+  const csp = contentSecurityPolicy(index);
   return createServer(async (request, response) => {
     const method = request.method ?? 'GET';
     if (method !== 'GET' && method !== 'HEAD') {
@@ -137,7 +163,9 @@ export async function createTerminalServer(options = {}) {
       return;
     }
     if (pathname === '/' || pathname === '/index.html') {
-      send(response, 200, CONTENT_TYPES['.html'], index, method);
+      send(response, 200, CONTENT_TYPES['.html'], index, method, {
+        'content-security-policy': csp, 'x-frame-options': 'DENY',
+      });
       return;
     }
     const file = path.resolve(FRONTEND, `.${pathname}`);

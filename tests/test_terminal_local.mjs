@@ -10,7 +10,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
-import { createTerminalServer, localIndexHtml, SCENARIOS_PATH, VIEW_PATH } from '../scripts/serve_terminal_local.mjs';
+import { createHash } from 'node:crypto';
+import { contentSecurityPolicy, createTerminalServer, localIndexHtml, SCENARIOS_PATH, VIEW_PATH } from '../scripts/serve_terminal_local.mjs';
 import { TERMINAL_SCENARIO_IDS } from '../scripts/lib/terminal_scenarios.mjs';
 
 const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
@@ -42,6 +43,21 @@ assert.match(response.headers.get('content-type'), /text\/html/);
 assert.equal(response.headers.get('cache-control'), 'no-store');
 const served = await response.text();
 assert.ok(served.includes(`V2_VIEW_URL: '${VIEW_PATH}',`));
+// Strict CSP: only the configuration script, by its exact hash after injection.
+const csp = response.headers.get('content-security-policy');
+const inline = /<script>([\s\S]*?)<\/script>/.exec(served)[1];
+const hash = createHash('sha256').update(inline, 'utf8').digest('base64');
+const directives = Object.fromEntries(csp.split('; ').map((d) => [d.split(' ')[0], d.split(' ').slice(1)]));
+assert.deepEqual(directives['script-src'], ["'self'", `'sha256-${hash}'`]);
+assert.deepEqual(directives['default-src'], ["'none'"]);
+assert.deepEqual(directives['connect-src'], ["'self'"]);
+assert.deepEqual(directives['frame-ancestors'], ["'none'"]);
+assert.ok(!csp.includes("'unsafe-eval'"));
+assert.equal(response.headers.get('x-frame-options'), 'DENY');
+assert.equal(csp, contentSecurityPolicy(served));
+assert.throws(() => contentSecurityPolicy(`${served}<script>alert(1)</script>`), /exactly one inline script/);
+assert.notEqual(contentSecurityPolicy(served.replace("POLL_INTERVAL_MS: 5000", "POLL_INTERVAL_MS: 5001")), csp,
+  'any change to the inline script changes its hash');
 
 response = await fetch(`${base}${VIEW_PATH}`);
 assert.equal(response.status, 200);
