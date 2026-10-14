@@ -6,6 +6,7 @@ import {
   HORIZONS,
   type Horizon,
 } from '../horizon_engine/contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const COMMITTEE_V2_SCHEMA_VERSION = 'xau.ai-committee-gate.v1' as const;
 export const COMMITTEE_V2_ALGORITHM_VERSION = 'ai-committee-dependency-gate-1.0.0' as const;
@@ -47,8 +48,6 @@ export interface CommitteeV2GateEnvelope {
   readonly response: null;
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 function hasExactHorizonSet(scenarios: CommitteeGateInput['horizonSynthesis']['scenarios']): boolean {
   if (scenarios.length !== HORIZONS.length) return false;
   return HORIZONS.every((horizon: Horizon, index) => scenarios[index]?.horizon === horizon);
@@ -64,7 +63,7 @@ export function buildCommitteeV2Gate(
 ): CommitteeV2GateEnvelope {
   const reasons = new Set<CommitteeGateReasonCode>();
 
-  if (!TIMESTAMP.test(knowledgeCutoff) || !Number.isFinite(Date.parse(knowledgeCutoff))) {
+  if (!isStrictTimestamp(knowledgeCutoff)) {
     reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   }
   if (input.horizonSynthesis.schemaVersion !== HORIZON_SCHEMA_VERSION
