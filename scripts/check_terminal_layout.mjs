@@ -6,8 +6,8 @@
  *   overflow the viewport outside a horizontal scroller;
  * - visible text below WCAG AA contrast (4.5:1, or 3:1 for large text);
  * - below 900 px, any vertical scroller other than the page itself.
- * The chain workspace is also checked with every section expanded, and on a
- * degraded and a rejected scenario.
+ * The chain workspace is also checked with every section and the legend
+ * expanded, and on a degraded and a rejected scenario.
  *
  *   XAU_PLAYWRIGHT=/path/to/node_modules/playwright-core \
  *   XAU_CHROMIUM=/path/to/chromium node scripts/check_terminal_layout.mjs
@@ -30,9 +30,11 @@ const VARIANTS = [
 
 /** Runs in the page: clipped and overflowing elements. */
 function findClipping() {
+  // Content of a closed <details> keeps a box in Chromium but is not shown.
+  const folded = (e) => { const box = e.closest('details:not([open])'); return box && !e.closest('summary'); };
   const out = [];
   for (const e of document.querySelectorAll('body *')) {
-    if (e.closest('[hidden], .sr-only') || !e.getClientRects().length) continue;
+    if (e.closest('[hidden], .sr-only') || folded(e) || !e.getClientRects().length) continue;
     const cs = getComputedStyle(e);
     const clipX = ['hidden', 'clip'].includes(cs.overflowX);
     const clipY = ['hidden', 'clip'].includes(cs.overflowY);
@@ -41,11 +43,13 @@ function findClipping() {
     }
     // Content inside a scrolling container is reachable, not lost.
     let scroller = false;
-    for (let n = e.parentElement; n; n = n.parentElement) {
+    // The page itself does not count: a page that scrolls sideways is the defect.
+    for (let n = e.parentElement; n && n !== document.body; n = n.parentElement) {
       const o = getComputedStyle(n);
       if (['auto', 'scroll'].includes(o.overflowX)) { scroller = true; break; }
     }
-    if (!scroller && e.getBoundingClientRect().right > window.innerWidth + 1) {
+    const box = e.getBoundingClientRect();
+    if (!scroller && (box.right > window.innerWidth + 1 || box.left < -1)) {
       out.push(`overflows viewport ${e.tagName.toLowerCase()}.${e.className}#${e.id}`);
     }
   }
@@ -126,7 +130,7 @@ async function main() {
           await page.waitForTimeout(500);
         }
         if (variant.expand) {
-          await page.evaluate(() => { for (const box of document.querySelectorAll('#ws-chain details')) box.open = true; });
+          await page.evaluate(() => { for (const box of document.querySelectorAll('details')) box.open = true; });
         }
         const found = [...await page.evaluate(findClipping), ...await page.evaluate(findLowContrast),
           ...await page.evaluate(findNestedScroll)];

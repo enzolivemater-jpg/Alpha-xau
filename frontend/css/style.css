@@ -875,6 +875,7 @@ body {
    10 bis. ESPACES DE TRAVAIL ET NATURE DES DONNÉES
    -------------------------------------------------------------------------- */
 .workbar {
+  position: relative;
   flex: none;
   display: flex;
   flex-wrap: wrap;
@@ -942,7 +943,7 @@ body {
 .mode[data-mode='offline'] .mode__val,
 .mode[data-mode='refused'] .mode__val { color: var(--down); }
 
-.legend { position: relative; align-self: center; font-family: var(--mono); font-size: var(--fs-micro); }
+.legend { align-self: center; font-family: var(--mono); font-size: var(--fs-micro); }
 .legend__toggle {
   cursor: pointer;
   list-style: none;
@@ -956,11 +957,13 @@ body {
 .legend[open] .legend__toggle { color: var(--text); border-color: var(--accent); }
 .legend__toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .legend__list {
+  /* Ancrée à la barre, pas au bouton : elle reste dans l'écran quelle que
+     soit la position du bouton une fois la barre repliée. */
   position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
+  right: var(--sp-3);
+  top: calc(100% - 2px);
   z-index: 20;
-  width: min(440px, calc(100vw - 2 * var(--sp-3)));
+  width: min(440px, calc(100% - 2 * var(--sp-3)));
   margin: 0;
   padding: var(--sp-3);
   display: grid;
