@@ -330,6 +330,12 @@ results.parse_timestamp = Object.fromEntries([
   return [label, parsed === null ? null : parsed.toISOString()];
 }));
 
+// cleanText() réel : seules les valeurs scalaires Unicode sont décodées.
+results.clean_text = ['caf&#233;', 'a&#55296;b', 'a&#57343;b', 'x&#1114111;y', 'x&#1114112;y', 'n&#0;m'].map((raw) => {
+  const text = cleanText(raw, 200);
+  return { raw, text, wellFormed: text === null || text.isWellFormed() };
+});
+
 process.stdout.write(JSON.stringify(results));
 process.exit(0);
 `;
@@ -412,6 +418,17 @@ console.log('--- GDELT ARTICLE PERIME (>48h) SOUS HORLOGE GELEE : FILTRE DE PROD
   t('report.ok = true (la requête HTTP réussit ; seul le filtrage d\'article rejette)', r.report.ok === true);
   t('0 article conservé (seendate > 48h avant l\'horloge gelée -- CONFIG.MAX_ARTICLE_AGE_MS toujours appliqué, jamais affaibli par le gel de test)',
     r.articleCount === 0, `got ${r.articleCount}`);
+}
+
+console.log('--- cleanText : jamais de chaîne UTF-16 mal formée ---');
+{
+  const r = Object.fromEntries(output.clean_text.map((c) => [c.raw, c]));
+  t('entité décimale valide décodée', r['caf&#233;'].text === 'café');
+  t('demi-paire haute isolée -> espace', r['a&#55296;b'].text === 'a b' && r['a&#55296;b'].wellFormed);
+  t('demi-paire basse isolée -> espace', r['a&#57343;b'].text === 'a b' && r['a&#57343;b'].wellFormed);
+  t('U+10FFFF (dernière valeur valide) décodée', r['x&#1114111;y'].text === 'x\u{10FFFF}y');
+  t('au-delà de U+10FFFF -> espace', r['x&#1114112;y'].text === 'x y');
+  t('toutes les sorties sont bien formées', output.clean_text.every((c) => c.wellFormed));
 }
 
 console.log('--- parseTimestamp STRICT : jamais décalé ni lu en heure locale ---');

@@ -618,8 +618,10 @@ function cleanText(raw: string | null | undefined, maxLength: number): string | 
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&#(\d+);/g, (_m, code: string) => {
+      // Valeurs scalaires Unicode uniquement : une demi-paire de substitution
+      // isolée (U+D800-U+DFFF) donnerait un JSON que PostgreSQL rejette.
       const n = Number(code);
-      return n > 0 && n < 0x10ffff ? String.fromCodePoint(n) : ' ';
+      return n > 0 && n <= 0x10ffff && (n < 0xd800 || n > 0xdfff) ? String.fromCodePoint(n) : ' ';
     })
     .replace(/&[a-z]+;|&#x[0-9a-f]+;/gi, (m) => HTML_ENTITIES[m.toLowerCase()] ?? ' ')
     // Marqueur de troncature propre à NewsAPI : "… [+2317 chars]".
