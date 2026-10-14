@@ -34,6 +34,7 @@
     POLL_INTERVAL_MS: 5000,
     ANALYSIS_INTERVAL_MS: 60000,
     STALE_THRESHOLD_S: 60,
+    V2_VIEW_URL: '',
   }, window.ALPHA_XAU_CONFIG || {});
 
   const RUNTIME = {
@@ -155,6 +156,21 @@
 
     tplNews: $('tpl-news-item'),
     tplScenario: $('tpl-scenario'),
+
+    v2Origin: $('v2-origin'),
+    v2Status: $('v2-status'),
+    v2State: $('v2-state'),
+    v2Detail: $('v2-detail'),
+    v2ChainState: $('v2-chain-state'),
+    v2Execution: $('v2-execution'),
+    v2Integrity: $('v2-integrity'),
+    v2Cutoff: $('v2-cutoff'),
+    v2Digest: $('v2-digest'),
+    v2Generated: $('v2-generated'),
+    v2Stages: $('v2-stages'),
+    v2Market: $('v2-market'),
+    v2Capabilities: $('v2-capabilities'),
+    v2CapabilityCount: $('v2-capability-count'),
   };
 
   /** Écrit du texte sans jamais interpréter de HTML : les titres de news
@@ -299,7 +315,11 @@
 
     /* Fraîcheur : staleness_seconds vient de la vue v_market_latest. */
     const staleness = isNum(tick.staleness_seconds) ? tick.staleness_seconds : null;
-    if (staleness === null) {
+    if (DEMO_MODE) {
+      // Un prix de démonstration n'a pas de fraîcheur : il n'est jamais LIVE.
+      setAttr(el.priceFreshness, 'data-state', 'demo');
+      setText(el.priceFreshness, 'DÉMO');
+    } else if (staleness === null) {
       setAttr(el.priceFreshness, 'data-state', 'unknown');
       setText(el.priceFreshness, 'FRAÎCHEUR N/A');
     } else if (staleness <= CONFIG.STALE_THRESHOLD_S) {
@@ -980,6 +1000,203 @@ let pollTimer = null;
   }
 
   /* ======================================================================
+     11 bis. CHAÎNE DÉCISIONNELLE V2 (VUE LOCALE CHAIN-0)
+     ====================================================================== */
+
+  const V2_SCHEMA_VERSION = 'xau.terminal-local-view.v1';
+
+  const V2_CAPABILITY_LABELS = {
+    OPERATIONAL_LOCAL: 'OPÉRATIONNEL LOCAL',
+    SIMULATED: 'SIMULÉ',
+    BLOCKED: 'BLOQUÉ',
+    NOT_VALIDATED: 'NON VALIDÉ',
+  };
+
+  const V2_BLOCKER_LABELS = {
+    DATA: 'DONNÉES',
+    UPSTREAM: 'AMONT',
+    INTEGRITY: 'INTÉGRITÉ',
+    BUSINESS_DECISION: 'DÉCISION MÉTIER',
+    AUTHORIZATION: 'AUTORISATION',
+    ENVIRONMENT: 'ENVIRONNEMENT',
+  };
+
+  const V2_ORIGIN_LABELS = {
+    GOLDEN_FIXTURE: 'SIMULÉ — FIXTURE',
+    LOCAL_INPUT_FILE: 'SIMULÉ — FICHIER LOCAL',
+  };
+
+  const isList = Array.isArray;
+  const isText = (v) => typeof v === 'string' && v.length > 0;
+
+  /**
+   * Garde-fou client : la vue doit dire HOLD, exécution interdite, simulée,
+   * avec des statuts connus. Toute autre affirmation est refusée en bloc :
+   * le terminal n'affiche jamais une partie d'une vue non conforme.
+   */
+  function v2Problem(view) {
+    if (!view || typeof view !== 'object') return 'vue absente';
+    if (view.schemaVersion !== V2_SCHEMA_VERSION) return `version inconnue (${String(view.schemaVersion)})`;
+    if (view.simulated !== true) return 'vue non marquée simulée';
+    if (!Object.prototype.hasOwnProperty.call(V2_ORIGIN_LABELS, view.origin && view.origin.kind)) return 'origine inconnue';
+    const chain = view.chain;
+    if (!chain || chain.chainState !== 'HOLD') return 'état de chaîne différent de HOLD';
+    if (chain.execution !== 'FORBIDDEN') return 'exécution non interdite';
+    if (chain.outcome !== 'COMPLETED' && chain.outcome !== 'REJECTED') return 'issue inconnue';
+    if (!isList(view.stages) || !isList(view.capabilities) || !view.market || !isList(view.market.fields)) {
+      return 'structure incomplète';
+    }
+    for (const c of view.capabilities) {
+      if (!c || !Object.prototype.hasOwnProperty.call(V2_CAPABILITY_LABELS, c.status) || !isList(c.blockers)) {
+        return 'capacité non conforme';
+      }
+    }
+    for (const st of view.stages) {
+      if (!st || !isText(st.stage) || !isText(st.state) || !isList(st.reasons)
+          || !Object.prototype.hasOwnProperty.call(V2_CAPABILITY_LABELS, st.capability)) {
+        return 'étage non conforme';
+      }
+    }
+    return null;
+  }
+
+  function v2Cell(text, className) {
+    const td = document.createElement('td');
+    if (className) td.className = className;
+    td.textContent = text == null || text === '' ? '—' : String(text);
+    return td;
+  }
+
+  function v2Row(cells) {
+    const tr = document.createElement('tr');
+    for (const cell of cells) tr.appendChild(cell);
+    return tr;
+  }
+
+  function v2EmptyRow(colspan, text) {
+    const td = v2Cell(text, 'v2__empty');
+    td.colSpan = colspan;
+    return v2Row([td]);
+  }
+
+  const v2Blockers = (list) => (isList(list) && list.length
+    ? list.map((b) => V2_BLOCKER_LABELS[b] || 'NON CLASSÉ').join(' · ') : '—');
+
+  function v2Status(stateName, label, detail) {
+    setAttr(el.v2Status, 'data-state', stateName);
+    setText(el.v2State, label);
+    setText(el.v2Detail, detail);
+  }
+
+  /** Vue absente, illisible ou rejetée : rien d'autre n'est affiché. */
+  function renderV2Unavailable(stateName, label, detail) {
+    v2Status(stateName, label, detail);
+    setAttr(el.v2Origin, 'data-state', 'unknown');
+    setText(el.v2Origin, stateName === 'unavailable' ? 'AUCUN RUNTIME' : 'VUE REFUSÉE');
+    for (const node of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2Digest, el.v2Generated]) {
+      setText(node, '—');
+    }
+    el.v2Stages.replaceChildren(v2EmptyRow(4, '—'));
+    el.v2Market.replaceChildren(v2EmptyRow(5, '—'));
+    el.v2Capabilities.replaceChildren(v2EmptyRow(4, 'Matrice indisponible sans vue V2.'));
+    setText(el.v2CapabilityCount, '—');
+  }
+
+  function renderV2(view) {
+    const problem = v2Problem(view);
+    if (problem) {
+      renderV2Unavailable('rejected', 'VUE V2 REFUSÉE', `Vue non conforme : ${problem}. Aucun état affiché.`);
+      return;
+    }
+    const chain = view.chain;
+    setAttr(el.v2Origin, 'data-state', 'simulated');
+    setText(el.v2Origin, V2_ORIGIN_LABELS[view.origin.kind]);
+
+    if (chain.outcome === 'REJECTED') {
+      const r = chain.rejection || {};
+      const errors = isList(r.inputErrors) ? r.inputErrors.slice(0, 4).join(' · ') : '';
+      v2Status('rejected', 'HOLD — ENTRÉE REJETÉE',
+        `Rejet à ${r.failedAt || 'étage inconnu'}${errors ? ` : ${errors}` : ''}${r.stageError ? ` — ${r.stageError}` : ''}`);
+    } else if (chain.integrity !== 'CONSISTENT') {
+      v2Status('rejected', 'HOLD — INTÉGRITÉ VIOLÉE',
+        `${isList(chain.violations) ? chain.violations.length : 0} violation(s) : la chaîne n'est pas exploitable.`);
+    } else {
+      const findings = isList(chain.inputFindings) ? chain.inputFindings.length : 0;
+      v2Status('hold', 'HOLD — EXÉCUTION INTERDITE',
+        `Dry run local, aucune décision positive approuvée${findings ? ` ; ${findings} entrée(s) rendue(s) plus restrictive(s)` : ''}.`);
+    }
+
+    setText(el.v2ChainState, chain.chainState);
+    setText(el.v2Execution, chain.execution === 'FORBIDDEN' ? 'INTERDITE' : '—');
+    setText(el.v2Integrity, chain.integrity || 'N/A');
+    setText(el.v2Cutoff, chain.knowledgeCutoff || 'N/A');
+    setText(el.v2Digest, isText(chain.digest) ? chain.digest.slice(0, 19) : 'N/A');
+    setAttr(el.v2Digest, 'title', isText(chain.digest) ? chain.digest : null);
+    setText(el.v2Generated, isText(view.generatedAt) ? `${fmtTimeUTC(view.generatedAt)} UTC` : 'N/A');
+
+    el.v2Stages.replaceChildren(view.stages.length === 0
+      ? v2EmptyRow(4, 'Aucun étage : entrée rejetée avant la chaîne.')
+      : fragmentOf(view.stages, (st) => {
+        const tr = v2Row([
+          v2Cell(st.stage.replace(/_/g, ' ')),
+          v2Cell(st.state, 'v2__state-cell'),
+          v2Cell(V2_CAPABILITY_LABELS[st.capability]),
+          v2Cell(st.reasons.map((r) => (r && r.code) || '?').join(' · '), 'v2__reasons'),
+        ]);
+        tr.setAttribute('data-capability', st.capability);
+        return tr;
+      }));
+
+    el.v2Market.replaceChildren(view.market.fields.length === 0
+      ? v2EmptyRow(5, 'Aucun champ de marché.')
+      : fragmentOf(view.market.fields, (f) => {
+        const tr = v2Row([
+          v2Cell(String(f.field || '?').toUpperCase()),
+          v2Cell(isNum(f.value) ? String(f.value) : 'N/A', 'ta-r num'),
+          v2Cell(f.statusAtCutoff),
+          v2Cell(isNum(f.ageSecondsAtCutoff) ? `${f.ageSecondsAtCutoff}s` : 'N/A', 'ta-r num'),
+          v2Cell(f.source || 'N/A'),
+        ]);
+        tr.setAttribute('data-status', String(f.statusAtCutoff || 'UNKNOWN'));
+        return tr;
+      }));
+
+    const counts = {};
+    for (const c of view.capabilities) counts[c.status] = (counts[c.status] || 0) + 1;
+    setText(el.v2CapabilityCount, Object.keys(V2_CAPABILITY_LABELS)
+      .map((k) => `${V2_CAPABILITY_LABELS[k]} ${counts[k] || 0}`).join(' · '));
+    el.v2Capabilities.replaceChildren(fragmentOf(view.capabilities, (c) => {
+      const tr = v2Row([
+        v2Cell(String(c.id || '?').replace(/_/g, ' ')),
+        v2Cell(V2_CAPABILITY_LABELS[c.status], 'v2__state-cell'),
+        v2Cell(v2Blockers(c.blockers)),
+        v2Cell(c.detail),
+      ]);
+      tr.setAttribute('data-capability', c.status);
+      return tr;
+    }));
+  }
+
+  async function refreshV2() {
+    if (!CONFIG.V2_VIEW_URL) {
+      renderV2Unavailable('unavailable', 'INDISPONIBLE',
+        'Aucun runtime V2 déployé. En local : node scripts/serve_terminal_local.mjs');
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), RUNTIME.FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(CONFIG.V2_VIEW_URL, { headers: { accept: 'application/json' }, signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      renderV2(await response.json());
+    } catch (err) {
+      renderV2Unavailable('error', 'VUE V2 INJOIGNABLE', `Serveur local injoignable — ${err.message}. HOLD conservé.`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /* ======================================================================
      12. MODE DÉMO
      ====================================================================== */
 
@@ -1026,47 +1243,26 @@ let pollTimer = null;
 
     renderNews([
       {
-        id: 'demo-1', title: 'Fed maintient ses taux et signale une pause prolongée face à une inflation sous-jacente persistante',
+        id: 'demo-1', title: '[DÉMO] Fed maintient ses taux et signale une pause prolongée face à une inflation sous-jacente persistante',
         news_score: 86.2, classification: 'critical', gold_direction_impact: 'bullish',
         region: 'US', category: 'monetary_policy', ts: new Date(Date.now() - 6e5).toISOString(),
       },
       {
-        id: 'demo-2', title: 'CPI américain ressort à 3.4% contre 3.1% attendu',
+        id: 'demo-2', title: '[DÉMO] CPI américain ressort à 3.4% contre 3.1% attendu',
         news_score: 74.5, classification: 'major', gold_direction_impact: 'bullish',
         region: 'US', category: 'inflation', ts: new Date(Date.now() - 24e5).toISOString(),
       },
       {
-        id: 'demo-3', title: 'Tensions renforcées autour du détroit d\'Ormuz après un incident naval',
+        id: 'demo-3', title: '[DÉMO] Tensions renforcées autour du détroit d\'Ormuz après un incident naval',
         news_score: 68.9, classification: 'major', gold_direction_impact: 'bullish',
         region: 'MENA', category: 'geopolitics', ts: new Date(Date.now() - 42e5).toISOString(),
       },
     ]);
 
-    const reason = 'Compression des taux réels, DXY plafonné sous sa résistance H4, structure H1 haussière intacte.';
-    renderAnalysis({
-      market_regime: 'risk_off',
-      overall_bias: 'bullish',
-      confidence: 72,
-      scenarios: {
-        H1: { direction: 'bullish', probability: 29, target: 3448.00, invalidation: 3396.50, activation_condition: 'Clôture H1 au-dessus de 3412.40 avec ATR H1 supérieur à sa moyenne 14.', confidence: 70, reasoning: reason },
-        H2: { direction: 'bullish', probability: 27, target: 3478.00, invalidation: 3388.00, activation_condition: 'Cassure de 3455.00 confirmée en clôture H4.', confidence: 65, reasoning: reason },
-        H3: { direction: 'neutral', probability: 17, target: 3415.00, invalidation: 3415.00, activation_condition: 'Maintien dans le range 3388.00-3455.00 sur trois séances.', confidence: 50, reasoning: 'Consolidation attendue avant le prochain cycle de données.' },
-        H4: { direction: 'bearish', probability: 13, target: 3290.00, invalidation: 3520.00, activation_condition: 'Rendement réel au-dessus de 2.05% pendant cinq séances consécutives.', confidence: 44, reasoning: 'Repricing hawkish si les taux réels repartent durablement à la hausse.' },
-        H5: { direction: 'bullish', probability: 14, target: 3520.00, invalidation: 3250.00, activation_condition: 'Clôture mensuelle au-dessus de 3480.00, soutenue par la diversification des réserves de change hors dollar.', confidence: 38, reasoning: 'Structurel : dette souveraine élevée et diversification des réserves des banques centrales, sur un horizon mensuel.' },
-      },
-      drivers: ['Compression des taux réels', 'Prime de risque géopolitique', 'Dollar plafonné'],
-      risks: ['Surprise hawkish de la Fed', 'Désescalade rapide au Moyen-Orient'],
-      invalidations: ['Perte de 3396.50 en clôture H1', 'Taux réels au-dessus de 2.05%'],
-      meta: {
-        analysis_id: null,
-        model_version: 'démonstration',
-        execution_status: 'VALID_SETUP',
-        risk_verdict: 'APPROVED_WITH_CONDITIONS',
-        spot_reference: 3412.40,
-        generated_at: new Date().toISOString(),
-        validation_errors: [],
-      },
-    });
+    /* Aucune analyse n'est fabriquée : un setup, un verdict ou des scénarios
+       inventés seraient lus comme une décision. Le mode démo montre l'état
+       honnête d'un terminal sans analyse. */
+    renderNoAnalysis('NO_DATA', 'MODE DÉMO — aucune analyse réelle. Aucun setup, verdict ni scénario n\'est simulé.');
   }
 
   /* ======================================================================
@@ -1086,6 +1282,10 @@ let pollTimer = null;
 
   function init() {
     startClock();
+
+    /* La vue V2 est indépendante du flux V1 : elle est lue dans les deux modes. */
+    refreshV2();
+    if (CONFIG.V2_VIEW_URL) setInterval(refreshV2, CONFIG.ANALYSIS_INTERVAL_MS);
 
     el.errorRetry.addEventListener('click', () => {
       clearError();

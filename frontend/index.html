@@ -45,6 +45,7 @@
     POLL_INTERVAL_MS: 5000,      // repli si le WebSocket est indisponible
     ANALYSIS_INTERVAL_MS: 60000, // l'analyse IA change lentement
     STALE_THRESHOLD_S: 60,       // au-delà, la donnée est marquée STALE
+    V2_VIEW_URL: '',             // vue CHAIN-0 du serveur local ; vide = sections V2 indisponibles
   };
 </script>
 
@@ -268,6 +269,77 @@
           <li class="invalidations__empty">—</li>
         </ul>
       </div>
+    </div>
+  </section>
+
+  <!-- ============== PANNEAU 5 — CHAÎNE DÉCISIONNELLE V2 ================ -->
+  <!--
+    Projection en lecture seule d'un dry run CHAIN-0 servi par le serveur
+    local (scripts/serve_terminal_local.mjs). Sans ce serveur, le panneau dit
+    qu'aucun runtime V2 n'existe : il n'affiche jamais un état par défaut.
+    La chaîne est toujours HOLD et l'exécution toujours interdite ; une vue
+    qui affirmerait autre chose est rejetée par le terminal.
+  -->
+  <section class="panel panel--chain" aria-labelledby="p5-title">
+    <div class="panel__head">
+      <h2 class="panel__title" id="p5-title">CHAÎNE DÉCISIONNELLE V2</h2>
+      <span class="badge" id="v2-origin" data-state="unknown">—</span>
+    </div>
+
+    <div class="panel__body panel__body--scroll v2">
+      <div class="v2__status" id="v2-status" data-state="unavailable" role="status">
+        <span class="v2__state" id="v2-state">INDISPONIBLE</span>
+        <span class="v2__detail" id="v2-detail">Aucun runtime V2 déployé.</span>
+      </div>
+
+      <dl class="v2__facts">
+        <div><dt>ÉTAT</dt><dd id="v2-chain-state">—</dd></div>
+        <div><dt>EXÉCUTION</dt><dd id="v2-execution">—</dd></div>
+        <div><dt>INTÉGRITÉ</dt><dd id="v2-integrity">—</dd></div>
+        <div><dt>CUTOFF</dt><dd class="num" id="v2-cutoff">—</dd></div>
+        <div><dt>EMPREINTE</dt><dd class="num" id="v2-digest">—</dd></div>
+        <div><dt>GÉNÉRÉE</dt><dd class="num" id="v2-generated">—</dd></div>
+      </dl>
+
+      <table class="v2__table">
+        <caption class="sr-only">Étages de la chaîne CHAIN-0, état et motifs</caption>
+        <thead>
+          <tr><th scope="col">ÉTAGE</th><th scope="col">ÉTAT</th><th scope="col">CAPACITÉ</th><th scope="col">MOTIFS</th></tr>
+        </thead>
+        <tbody id="v2-stages">
+          <tr><td colspan="4" class="v2__empty">—</td></tr>
+        </tbody>
+      </table>
+
+      <table class="v2__table">
+        <caption class="v2__caption">MARCHÉ AU CUTOFF — provenance et fraîcheur par champ</caption>
+        <thead>
+          <tr><th scope="col">CHAMP</th><th scope="col" class="ta-r">VALEUR</th><th scope="col">ÉTAT</th><th scope="col" class="ta-r">ÂGE</th><th scope="col">SOURCE</th></tr>
+        </thead>
+        <tbody id="v2-market">
+          <tr><td colspan="5" class="v2__empty">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============== PANNEAU 6 — MATRICE DES CAPACITÉS =================== -->
+  <section class="panel panel--capabilities" aria-labelledby="p6-title">
+    <div class="panel__head">
+      <h2 class="panel__title" id="p6-title">MATRICE DES CAPACITÉS</h2>
+      <span class="panel__meta" id="v2-capability-count">—</span>
+    </div>
+
+    <div class="panel__body panel__body--scroll">
+      <table class="v2__table">
+        <caption class="sr-only">Capacités du terminal : opérationnel local, simulé, bloqué ou non validé</caption>
+        <thead>
+          <tr><th scope="col">CAPACITÉ</th><th scope="col">STATUT</th><th scope="col">BLOCAGES</th><th scope="col">DÉTAIL</th></tr>
+        </thead>
+        <tbody id="v2-capabilities">
+          <tr><td colspan="4" class="v2__empty">Matrice indisponible sans vue V2.</td></tr>
+        </tbody>
+      </table>
     </div>
   </section>
 

@@ -246,7 +246,7 @@ body {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(300px, 1.15fr);
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr);
   gap: 1px;
   background: var(--rule);
   min-height: 0;
@@ -378,6 +378,8 @@ body {
 .badge[data-state='live']    { color: var(--up);    border-color: var(--up); }
 .badge[data-state='stale']   { color: var(--major); border-color: var(--major); }
 .badge[data-state='offline'] { color: var(--down);  border-color: var(--down); }
+.badge[data-state='demo'],
+.badge[data-state='simulated'] { color: var(--major); border-color: var(--major); }
 
 .readout { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
 
@@ -866,6 +868,88 @@ body {
 .footbar__item--right[hidden] { display: none; }
 
 /* --------------------------------------------------------------------------
+   10 bis. CHAÎNE DÉCISIONNELLE V2 ET MATRICE DES CAPACITÉS
+   Couleurs d'état : HOLD et BLOQUÉ en ambre, jamais en vert. Aucun état
+   de ces panneaux n'est un signal exploitable.
+   -------------------------------------------------------------------------- */
+.v2 { padding: var(--sp-3); }
+
+.v2__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+  align-items: baseline;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--rule-strong);
+  margin-bottom: var(--sp-3);
+}
+
+.v2__state { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.1em; }
+.v2__detail { color: var(--text-dim); font-size: var(--fs-xs); min-width: 0; overflow-wrap: anywhere; }
+
+.v2__status[data-state='hold'] { border-color: var(--major); }
+.v2__status[data-state='hold'] .v2__state { color: var(--major); }
+.v2__status[data-state='rejected'],
+.v2__status[data-state='error'] { border-color: var(--down); }
+.v2__status[data-state='rejected'] .v2__state,
+.v2__status[data-state='error'] .v2__state { color: var(--down); }
+.v2__status[data-state='unavailable'] .v2__state { color: var(--text-faint); }
+
+.v2__facts {
+  margin: 0 0 var(--sp-3);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.v2__facts dt { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.1em; color: var(--text-faint); }
+.v2__facts dd { margin: 0; font-family: var(--mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+
+.v2__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  margin-bottom: var(--sp-3);
+}
+
+.v2__caption {
+  caption-side: top;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  padding-bottom: var(--sp-1);
+}
+
+.v2__table th {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  text-align: left;
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--rule);
+}
+
+.v2__table td {
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--panel-alt);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.v2__reasons { color: var(--text-dim); font-family: var(--mono); font-size: var(--fs-micro); }
+.v2__empty { color: var(--text-faint); }
+.v2__state-cell { font-family: var(--mono); white-space: nowrap; }
+
+tr[data-capability='OPERATIONAL_LOCAL'] .v2__state-cell { color: var(--info); }
+tr[data-capability='SIMULATED'] .v2__state-cell { color: var(--major); }
+tr[data-capability='BLOCKED'] .v2__state-cell { color: var(--down); }
+tr[data-capability='NOT_VALIDATED'] .v2__state-cell { color: var(--text-faint); }
+
+/* --------------------------------------------------------------------------
    11. RESPONSIVE
    La grille 2×2 passe en colonne unique. Ordre de priorité mobile
    (SPEC §84) : prix, biais IA, alertes, news critiques, scénarios.
@@ -887,6 +971,9 @@ body {
   .panel--scenarios  { order: 2; }
   .panel--news       { order: 3; }
   .panel--macro      { order: 4; }
+  .panel--chain        { order: 5; }
+  .panel--capabilities { order: 6; }
+  .v2__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 560px) {
