@@ -4,6 +4,11 @@ Statut : **PREPARATION LOCALE / CI UNIQUEMENT / NON CONNECTE AU RUNTIME**.
 Aucune collecte réseau, migration, activation de méthode, connexion courtier ou
 action production n'est autorisée par cette étape.
 
+## Versions gelées (DATA-4A)
+
+- `CAPTURE_CONTINUITY_SCHEMA_VERSION` : `xau.capture-continuity.v1`.
+- `CAPTURE_CONTINUITY_ALGORITHM_VERSION` : `capture-continuity-receipt-audit-1.0.0`.
+
 ## Contexte et autorité
 
 - DATA-1 \`evidence_archive.ts\` reste **l'unique contrat d'archive et de rejeu**.
