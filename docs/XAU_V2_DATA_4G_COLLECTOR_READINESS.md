@@ -2,6 +2,8 @@
 
 Status: **DRAFT / OFFLINE ONLY / NOT APPROVED**. Parent: DATA-4F commit `e8acd86b28714118dafd260dddae18c3a286b51b`.
 
+Contract versions: `xau.collector-readiness.v1` and `collector-readiness-metadata-1.0.0`.
+
 ## Scope and non-goals
 
 This is an operator review contract, **not** a collector, permission grant, supplier schedule, verified quota, migration or trading strategy. Reuse DATA-4E for explicit UTC slots, DATA-4F for synthetic retry rehearsals, DATA-4A for receipt auditing, DATA-4B proposal for persistence, and DATA-1/2/3 for evidence handling. Do not create a parallel audit or coverage engine.
