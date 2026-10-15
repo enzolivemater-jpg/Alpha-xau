@@ -76,13 +76,11 @@ export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown
       || !['PENDING', 'REJECTED', 'APPROVED'].includes(String(raw.status))
       || !Array.isArray(raw.rejection_reasons) || raw.rejection_reasons.length > 20
       || !raw.rejection_reasons.every(x => nonempty(x) && ID.test(x))
-      || ![null, raw.evidence_reference].some(x => x === null)
-      && !nonempty(raw.evidence_reference)
-      || ![null, raw.evidence_digest].some(x => x === null)
-      && !(typeof raw.evidence_digest === 'string' && SHA.test(raw.evidence_digest))
-      || ![null, raw.reviewer].some(x => x === null) && !identifier(raw.reviewer)
-      || ![null, raw.scope].some(x => x === null) && !identifier(raw.scope)
-      || ![null, raw.version].some(x => x === null) && !identifier(raw.version)
+      || raw.evidence_reference !== null && !nonempty(raw.evidence_reference)
+      || raw.evidence_digest !== null && !(typeof raw.evidence_digest === 'string' && SHA.test(raw.evidence_digest))
+      || raw.reviewer !== null && !identifier(raw.reviewer)
+      || raw.scope !== null && !identifier(raw.scope)
+      || raw.version !== null && !identifier(raw.version)
       || raw.reviewed_at_utc !== null && instant(raw.reviewed_at_utc) === null
       || raw.expiry_or_review_due !== null && instant(raw.expiry_or_review_due) === null) {
       throw new Error('COLLECTOR_READINESS_INVALID_GATE');
