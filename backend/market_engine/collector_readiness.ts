@@ -89,7 +89,7 @@ export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown
     if (gate.status === 'APPROVED' && (
       !gate.evidence_reference || !gate.evidence_digest || !gate.reviewer
       || !gate.reviewed_at_utc || !gate.expiry_or_review_due || !gate.scope
-      || !gate.version || gate.rejection_reasons.length !== 0
+      || !gate.version || gate.scope !== packet.planId || gate.rejection_reasons.length !== 0
       || instant(gate.reviewed_at_utc)! > cutoff
       || instant(gate.expiry_or_review_due)! <= cutoff
       || instant(gate.expiry_or_review_due)! <= instant(gate.reviewed_at_utc)!
