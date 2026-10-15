@@ -10,7 +10,7 @@ La preuve des requêtes fournisseurs nécessite une extension de persistance,
 sans modifier \`official_source_artifacts\`, dédiée à BLS CPI.
 
 Un brouillon SQL figure dans
-\`database/migrations/20261015225000_market_provider_capture_evidence.sql\`.
+\`database/proposals/data_4b_market_provider_capture_evidence.sql\`.
 **La présence du fichier en migration ne signifie ni approbation ni application.**
 La CI l'exécute seulement sur PostgreSQL 17.6 éphémère.
 
