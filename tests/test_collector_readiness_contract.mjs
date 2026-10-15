@@ -74,7 +74,7 @@ const rejected = m.evaluateCollectorReadiness(mutate({
 }), cutoff);
 assert.equal(rejected.status, 'INCOMPLETE');
 const source = readFileSync(new URL('../backend/market_engine/collector_readiness.ts', import.meta.url), 'utf8');
-assert.doesNotMatch(source, /\\bfetch\\(|process\\.env|Date\\.now\\(|new Date\\(\\)|\\bquery\\(|\\bexec\\(/);
+assert.doesNotMatch(source, /\bfetch\(|process\.env|Date\.now\(|new Date\(\)|\bquery\(|\bexec\(/);
 const imports = listBackendImportClosure('market_engine/collector_readiness.ts');
 assert.ok(!imports.includes('market_engine/providers.ts'));
 console.log('PASS DATA-4G metadata gate rejects missing, inconsistent, expired and fake approvals; remains HOLD/FORBIDDEN');
