@@ -71,7 +71,23 @@ console.log('PASS a FRED response becomes evidence records naming its kept, dige
 // --- 3. Idempotence, revisions and order.
 const again = await cap.appendProviderCapture(r1.archive, fred('DGS10', 'US10Y', body1, '2026-10-01T07:00:00Z'), PARSERS);
 assert.equal(again.outcome, 'ALREADY_CAPTURED');
-assert.equal(again.archive, r1.archive, 'same bytes: nothing appended');
+assert.equal(again.archive, r1.archive, 'same bytes and same series: nothing appended');
+
+// Byte-identical JSON can be returned for two distinct FRED series. A digest
+// already recorded for DGS10 must not silently swallow a DFII10 observation.
+const collidingSeries = await cap.appendProviderCapture(r1.archive,
+  fred('DFII10', 'US10YR', body1, '2026-10-01T07:00:00Z'), PARSERS);
+assert.equal(collidingSeries.outcome, 'REJECTED', 'identical bytes must not mean identical series');
+assert.equal(collidingSeries.rejection, 'RAW_PAYLOAD_IDENTITY_CONFLICT');
+assert.equal(collidingSeries.archive, r1.archive, 'collision must not modify the input');
+
+// An orphaned digest is not proof that a capture has been recorded.
+const orphanedPayload = { ...fresh(), rawPayloads: { [digest1]: { parser: 'fred', symbol: 'US10Y', body: body1 } } };
+const orphanCapture = await cap.appendProviderCapture(orphanedPayload,
+  fred('DGS10', 'US10Y', body1, '2026-10-01T07:00:00Z'), PARSERS);
+assert.equal(orphanCapture.outcome, 'REJECTED');
+assert.equal(orphanCapture.rejection, 'RAW_PAYLOAD_IDENTITY_CONFLICT');
+assert.equal(orphanCapture.archive, orphanedPayload, 'orphaned raw bytes must not be treated as captured');
 const body2 = fredBody('2026-10-02', [['2026-09-29', '4.12'], ['2026-09-30', '4.11'], ['2026-10-01', '4.15']]);
 const r2 = await cap.appendProviderCapture(r1.archive, fred('DGS10', 'US10Y', body2, '2026-10-02T06:00:00Z'), PARSERS);
 assert.equal(r2.outcome, 'APPENDED', r2.rejection);
