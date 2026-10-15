@@ -3,11 +3,12 @@
  * All evidence is metadata/reference only; credentials and supplier bodies
  * must never be supplied. Even READY_FOR_HUMAN_REVIEW is not executable.
  */
+import { createHash } from 'node:crypto';
 import { compileCaptureSchedule } from './capture_schedule.js';
 import { parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
-export const COLLECTOR_READINESS_SCHEMA_VERSION = 'xau.collector-readiness.v1' as const;
-export const COLLECTOR_READINESS_ALGORITHM_VERSION = 'collector-readiness-metadata-1.0.0' as const;
+export const COLLECTOR_READINESS_SCHEMA_VERSION = 'xau.collector-readiness.v2' as const;
+export const COLLECTOR_READINESS_ALGORITHM_VERSION = 'collector-readiness-metadata-2.0.0' as const;
 
 export const REQUIRED_COLLECTOR_GATES = [
   'SUPPLIER_RIGHTS', 'SOURCE_CALENDAR', 'RATE_COST', 'SECRETS_NETWORK',
@@ -64,9 +65,10 @@ export interface CollectorReadinessResult {
 export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown): CollectorReadinessResult {
   const cutoff = instant(cutoffInput);
   if (cutoff === null) throw new Error('COLLECTOR_READINESS_INVALID_CUTOFF');
-  if (!isRecord(packet) || !exact(packet, ['schemaVersion', 'planId', 'gates'])
+  if (!isRecord(packet) || !exact(packet, ['schemaVersion', 'planId', 'planFingerprint', 'gates'])
     || packet.schemaVersion !== COLLECTOR_READINESS_SCHEMA_VERSION
-    || !identifier(packet.planId) || !Array.isArray(packet.gates)
+    || !identifier(packet.planId) || typeof packet.planFingerprint !== 'string'
+    || !SHA.test(packet.planFingerprint) || !Array.isArray(packet.gates)
     || packet.gates.length > REQUIRED_COLLECTOR_GATES.length) {
     throw new Error('COLLECTOR_READINESS_INVALID_PACKET');
   }
@@ -120,11 +122,18 @@ export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown
  * Packet self-declaration alone is insufficient to establish plan identity.
  * Still offline metadata validation only: no authorization or provenance grant.
  */
+/** A deterministic fingerprint of the canonical, compiled slot plan; not source authenticity. */
+export function fingerprintCaptureSchedule(declaredPolicy: unknown): string {
+  const compiled = compileCaptureSchedule(declaredPolicy);
+  return 'sha256:' + createHash('sha256').update(JSON.stringify(compiled.plan)).digest('hex');
+}
+
 export function evaluateCollectorReadinessForSchedule(
   declaredPolicy: unknown, packet: unknown, cutoffInput: unknown,
 ): CollectorReadinessResult {
   const compiled = compileCaptureSchedule(declaredPolicy);
-  if (!isRecord(packet) || packet.planId !== compiled.plan.planId) {
+  if (!isRecord(packet) || packet.planId !== compiled.plan.planId
+    || packet.planFingerprint !== fingerprintCaptureSchedule(declaredPolicy)) {
     throw new Error('COLLECTOR_READINESS_PLAN_MISMATCH');
   }
   return evaluateCollectorReadiness(packet, cutoffInput);
