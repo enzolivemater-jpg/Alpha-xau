@@ -66,7 +66,7 @@ for(const table of ['market_provider_responses','market_capture_attempt_receipts
 }
 for(const proc of [
  'public.fn_market_capture_record_attempt(text,text,text,text,text,text,timestamptz,bytea,text)',
- 'public.fn_market_capture_receipts_as_of(timestamptz,integer)',
+ 'public.fn_market_capture_receipts_as_of(text,timestamptz,integer)',
 ]) {
  assert.equal(sql("SELECT NOT prosecdef AND EXISTS (SELECT 1 FROM unnest(proconfig) setting WHERE setting = 'search_path=' OR setting = 'search_path='||chr(34)||chr(34))"+
   " AND NOT has_function_privilege('anon',oid,'EXECUTE') AND NOT has_function_privilege('authenticated',oid,'EXECUTE')"+
@@ -74,11 +74,16 @@ for(const proc of [
 }
 console.log('PASS RLS, grants, invoker RPC and empty search_path');
 
-assert.equal(service("SELECT count(*) FROM public.fn_market_capture_receipts_as_of(statement_timestamp()-interval '1 day',20);"),'0');
-assert.equal(service("SELECT count(*) FROM public.fn_market_capture_receipts_as_of(statement_timestamp()+interval '1 minute',20);"),'4');
-assert.equal(service("SELECT outcome FROM public.fn_market_capture_receipts_as_of(statement_timestamp()+interval '1 minute',20) WHERE slot_id='vix-1';"),'FAILED');
-reject("SET ROLE service_role; SELECT * FROM public.fn_market_capture_receipts_as_of(statement_timestamp()+interval '1 minute',1);",/exceeds explicit bound/);
-reject("SET ROLE service_role; SELECT * FROM public.fn_market_capture_receipts_as_of('infinity',20);",/invalid market receipt cutoff/);
+service(record('plan-2','dgs10-1','fred','DGS10','US10Y','CAPTURED',body,'NULL'));
+assert.equal(service("SELECT count(*) FROM public.fn_market_capture_receipts_as_of('plan-2',statement_timestamp()+interval '1 minute',1);"),'1');
+assert.equal(service("SELECT count(*) FROM public.market_provider_responses;"),'2',
+  'a second plan reuses a verified byte identity without duplicating raw payload');
+reject("SET ROLE service_role; SELECT * FROM public.fn_market_capture_receipts_as_of('invalid plan',statement_timestamp(),20);",/invalid market receipt cutoff or bound/);
+assert.equal(service("SELECT count(*) FROM public.fn_market_capture_receipts_as_of('plan-1',statement_timestamp()-interval '1 day',20);"),'0');
+assert.equal(service("SELECT count(*) FROM public.fn_market_capture_receipts_as_of('plan-1',statement_timestamp()+interval '1 minute',20);"),'4');
+assert.equal(service("SELECT outcome FROM public.fn_market_capture_receipts_as_of('plan-1',statement_timestamp()+interval '1 minute',20) WHERE slot_id='vix-1';"),'FAILED');
+reject("SET ROLE service_role; SELECT * FROM public.fn_market_capture_receipts_as_of('plan-1',statement_timestamp()+interval '1 minute',1);",/exceeds explicit bound/);
+reject("SET ROLE service_role; SELECT * FROM public.fn_market_capture_receipts_as_of('plan-1','infinity',20);",/invalid market receipt cutoff/);
 assert.equal(service('SELECT count(*) FROM public.market_provider_responses;'),'2');
-assert.equal(service('SELECT count(*) FROM public.market_capture_attempt_receipts;'),'4');
+assert.equal(service('SELECT count(*) FROM public.market_capture_attempt_receipts;'),'5');
 console.log('PASS bounded as-of complete-or-error, never evidence of complete schedule or market coverage');
