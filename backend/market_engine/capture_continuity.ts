@@ -11,6 +11,7 @@ import type { MarketSymbol } from './types.js';
 import { parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
 export const CAPTURE_CONTINUITY_SCHEMA_VERSION = 'xau.capture-continuity.v1' as const;
+export const CAPTURE_CONTINUITY_ALGORITHM_VERSION = 'capture-continuity-receipt-audit-1.0.0' as const;
 
 export interface PlannedCaptureSlot {
   readonly slotId: string;
