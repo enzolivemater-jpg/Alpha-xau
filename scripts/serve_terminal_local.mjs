@@ -74,6 +74,7 @@ export async function buildLocalView({
   inputFile = GOLDEN_FIXTURE, archiveFile = null, archiveDigest = undefined, cutoff = null, now = () => new Date(),
 } = {}) {
   const chain = await loadBackendModule('decision_chain/dry_run.ts');
+  const obs = await loadBackendModule('observability/offline_receipt.ts');
   const view = await loadBackendModule('decision_chain/terminal_view.ts');
   const evidence = await loadBackendModule('market_engine/evidence_archive.ts');
   const bridge = await loadBackendModule('decision_chain/market_evidence_chain.ts');
@@ -90,7 +91,10 @@ export async function buildLocalView({
     const replay = await evidence.replayMarketEvidence(archive, knowledgeCutoff,
       { parsers, ...(pinned ? { pinnedArchiveDigest: pinned } : {}) });
     const outcome = bridge.evaluateDecisionChainOnMarketEvidence(baseInput, replay);
-    const digest = outcome.kind === 'COMPLETED' ? await chain.computeDecisionChainDigest(outcome.result) : null;
+    const receipt = outcome.kind === 'COMPLETED'
+      ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
+    const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
+      ? receipt.fingerprint : null;
     return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), replay);
   };
   /** Without a scenario, the server's input; with one, that simulation. */
@@ -124,7 +128,10 @@ export async function buildLocalView({
     const outcome = document.ok
       ? chain.evaluateDecisionChain(document.input, document.knowledgeCutoff)
       : chain.evaluateDecisionChain(undefined, undefined);
-    const digest = outcome.kind === 'COMPLETED' ? await chain.computeDecisionChainDigest(outcome.result) : null;
+    const receipt = outcome.kind === 'COMPLETED'
+      ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
+    const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
+      ? receipt.fingerprint : null;
     return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString());
   };
 }
