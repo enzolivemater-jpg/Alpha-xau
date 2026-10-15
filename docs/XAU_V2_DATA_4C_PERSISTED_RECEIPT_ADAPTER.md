@@ -7,7 +7,7 @@ Contrat et versions gelées :
 - `PERSISTED_CAPTURE_RECEIPTS_SCHEMA_VERSION` :
   `xau.persisted-capture-receipts.v1`
 - `PERSISTED_CAPTURE_RECEIPTS_ALGORITHM_VERSION` :
-  `persisted-capture-receipts-audit-adapter-1.0.0`
+  `persisted-capture-receipts-audit-adapter-1.1.0`
 
 Source : RPC éphémère proposée dans DATA-4B,
 `fn_market_capture_receipts_as_of(plan_id,cutoff,max_rows)`, qui renvoie
