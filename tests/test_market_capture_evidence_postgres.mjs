@@ -12,7 +12,7 @@ const reject=(q,rx)=>assert.throws(()=>sql(q),rx);
 const service=(q)=>sql('SET ROLE service_role; '+q);
 assert.match(sql('SHOW server_version;'),/^17\./);
 sql("CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA extensions; CREATE EXTENSION pgcrypto WITH SCHEMA extensions; GRANT USAGE ON SCHEMA extensions TO service_role;");
-sql(readFileSync(new URL('../database/migrations/20261015225000_market_provider_capture_evidence.sql',import.meta.url),'utf8'));
+sql(readFileSync(new URL('../database/proposals/data_4b_market_provider_capture_evidence.sql',import.meta.url),'utf8'));
 console.log('PASS isolated migration in disposable PostgreSQL');
 
 const body="decode('7b226f62736572766174696f6e73223a5b5d7d','hex')";
