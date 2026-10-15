@@ -12,14 +12,31 @@ const approved = (gate_id) => ({
   expiry_or_review_due: '2026-10-17T12:00:00.000Z',
   scope: 'operator-declared-20261015', version: 'v1', rejection_reasons: [],
 });
+const schedule = {
+  schemaVersion: 'xau.capture-schedule-policy.v1',
+  planId: 'operator-declared-20261015',
+  windowStart: '2026-10-15T00:00:00.000Z',
+  windowEnd: '2026-10-17T00:00:00.000Z',
+  requestBudgets: {fred: 1, twelve_data: 0},
+  series: [{
+    provider: 'fred', symbol: 'US10Y', sourceRecordId: 'DGS10',
+    windows: [{
+      slotId: 'us10y-15',
+      earliestAt: '2026-10-15T08:00:00.000Z',
+      deadlineAt: '2026-10-15T08:05:00.000Z',
+    }],
+  }],
+};
 const full = () => ({
   schemaVersion: m.COLLECTOR_READINESS_SCHEMA_VERSION,
   planId: 'operator-declared-20261015',
+  planFingerprint: m.fingerprintCaptureSchedule(schedule),
   gates: m.REQUIRED_COLLECTOR_GATES.map(approved),
 });
 const empty = m.evaluateCollectorReadiness({
   schemaVersion: m.COLLECTOR_READINESS_SCHEMA_VERSION,
-  planId: 'operator-declared-20261015', gates: [],
+  planId: 'operator-declared-20261015',
+  planFingerprint: m.fingerprintCaptureSchedule(schedule), gates: [],
 }, cutoff);
 assert.equal(empty.status, 'INCOMPLETE');
 assert.equal(empty.missingGates.length, 11);
@@ -45,6 +62,7 @@ const mutate = (update) => {
   return packet;
 };
 reject({...full(), extra: true}, 'INVALID_PACKET');
+reject({...full(), planFingerprint: 'sha256:fake'}, 'INVALID_PACKET');
 reject({...full(), schemaVersion: 'unreviewed'}, 'INVALID_PACKET');
 reject({...full(), gates: [...full().gates, approved('INVALID')]}, 'INVALID_PACKET');
 reject({...full(), gates: [full().gates[0], full().gates[0]]});
@@ -74,23 +92,14 @@ const rejected = m.evaluateCollectorReadiness(mutate({
 }), cutoff);
 assert.equal(rejected.status, 'INCOMPLETE');
 
-const schedule = {
-  schemaVersion: 'xau.capture-schedule-policy.v1',
-  planId: 'operator-declared-20261015',
-  windowStart: '2026-10-15T00:00:00.000Z',
-  windowEnd: '2026-10-17T00:00:00.000Z',
-  requestBudgets: {fred: 1, twelve_data: 0},
-  series: [{
-    provider: 'fred', symbol: 'US10Y', sourceRecordId: 'DGS10',
-    windows: [{
-      slotId: 'us10y-15',
-      earliestAt: '2026-10-15T08:00:00.000Z',
-      deadlineAt: '2026-10-15T08:05:00.000Z',
-    }],
-  }],
-};
 const bound = m.evaluateCollectorReadinessForSchedule(schedule, full(), cutoff);
 assert.deepEqual(bound, complete);
+assert.match(full().planFingerprint, /^sha256:[0-9a-f]{64}$/);
+assert.throws(() => m.evaluateCollectorReadinessForSchedule({
+  ...schedule, series: [{...schedule.series[0], windows: [{
+    ...schedule.series[0].windows[0], deadlineAt: '2026-10-15T08:06:00.000Z',
+  }]}],
+}, full(), cutoff), /COLLECTOR_READINESS_PLAN_MISMATCH/);
 assert.throws(() => m.evaluateCollectorReadinessForSchedule(
   {...schedule, planId: 'another-plan'}, full(), cutoff,
 ), /COLLECTOR_READINESS_PLAN_MISMATCH/);
