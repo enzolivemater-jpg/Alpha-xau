@@ -166,7 +166,41 @@ from the provider. Test: `tests/test_market_evidence_capture.mjs`.
 - **Twelve Data quotes carry no book**, so `bid` and `ask` cannot be
   re-read from raw bytes.
 
-## Next step (DATA-3): proposed, not authorized
+## DATA-3: merge and local validation of real captures
+
+`mergeCaptureArchives(sources, { archiveId, parsers })` replays every kept
+capture of the source logs, with its exact bytes and its recorded reception
+time, in reception order, into a new log. The sources are not modified.
+
+The merge:
+- declares **no coverage**: each source declares only its own window, and
+  nothing establishes completeness between them, so every replay of the merge
+  is `INCOMPLETE`;
+- is `CAPTURED` only if every source is;
+- is rejected when:
+  - a source is invalid;
+  - a kept body has no record or several reception times;
+  - the replayed captures do not reproduce every source record (a value
+    already held from a strictly earlier capture is the only exception).
+
+Capture order and pre-validation now also apply to an archive without
+coverage.
+
+`scripts/validate_evidence_captures.mjs [--out DIR] ARCHIVE.json…`, a local
+tool not run in CI, checks:
+- the sources;
+- the merge, including its independence from source order;
+- at every capture instant (and one millisecond before) and later:
+  - determinism and no look-ahead;
+  - `INCOMPLETE` and not reproducible;
+  - DXY, bid and ask unavailable;
+  - publication time unknown;
+  - HOLD / FORBIDDEN for the replay and for CHAIN-0.
+
+It writes `merged-archive.json` and `report.json` to `--out`, never next to a
+source. Real captures are never committed: they are third-party data.
+
+## Remaining decisions (DATA-3 onward)
 
 Three decisions gate authentic history; nothing below is implemented.
 

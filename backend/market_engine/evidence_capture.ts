@@ -30,7 +30,7 @@ import {
 } from './evidence_archive.js';
 import type { MarketPricingAsOfFieldName } from './as_of_snapshot.js';
 import type { MarketSymbol, RawDataPoint } from './types.js';
-import { sha256Text } from '../shared/canonical_json.js';
+import { canonicalJson, sha256Text } from '../shared/canonical_json.js';
 import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export interface CaptureParsers {
@@ -222,4 +222,107 @@ export async function appendProviderCapture(
   }
   return result({ outcome: 'APPENDED', archive: next, rawPayloadDigest: digest, added, revised, unchanged, skipped,
     replayReasons: after.reasonCodes });
+}
+
+export interface MergeResult {
+  readonly outcome: 'MERGED' | 'REJECTED';
+  readonly archive: MarketEvidenceArchive | null;
+  /** Captures replayed into the merge, in reception order. */
+  readonly captures: readonly {
+    readonly rawPayloadDigest: string;
+    readonly provider: 'fred' | 'twelve_data';
+    readonly sourceRecordId: string;
+    readonly ingestedAt: string;
+    readonly fromArchive: string;
+    readonly outcome: CaptureResult['outcome'];
+  }[];
+  readonly problems: readonly string[];
+}
+
+/**
+ * Merges capture logs by replaying every kept capture (its exact bytes, at
+ * its recorded reception time) into a new log, in reception order. The
+ * sources are not modified. The merge declares no coverage: each source
+ * declares its own window, and nothing establishes completeness between
+ * them. It is CAPTURED only if every source is. It is rejected when a source
+ * is invalid, when a capture's reception time is ambiguous, or when the
+ * replayed captures do not reproduce the sources' records.
+ */
+export async function mergeCaptureArchives(
+  sources: readonly MarketEvidenceArchive[],
+  options: { readonly archiveId: string; readonly parsers: CaptureParsers },
+): Promise<MergeResult> {
+  const problems: string[] = [];
+  const verifyParsers = { fred: options.parsers.fred, twelve_data: options.parsers.twelve_data };
+  const pending: { digest: string; provider: 'fred' | 'twelve_data'; symbol: MarketSymbol; sourceRecordId: string;
+    body: string; ingestedAt: string; fromArchive: string }[] = [];
+  for (const source of sources) {
+    const latest = source.records.map((r) => r.ingestedAt).sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1);
+    const check = latest ? await replayMarketEvidence(source, latest, { parsers: verifyParsers }) : null;
+    if (check === null || check.status === 'INVALID') {
+      problems.push(`SOURCE_INVALID:${String(source?.archiveId)}:${check?.reasonCodes.join(',') ?? 'EMPTY'}`);
+      continue;
+    }
+    for (const [digest, payload] of Object.entries(source.rawPayloads)) {
+      const named = source.records.filter((r) => r.rawPayloadDigest === digest);
+      const times = [...new Set(named.map((r) => canonical(r.ingestedAt)))];
+      const series = [...new Set(named.map((r) => `${r.source}|${r.sourceRecordId}`))];
+      // A kept body no record names has no recorded reception time: not placed.
+      if (times.length !== 1 || series.length !== 1) {
+        problems.push(`CAPTURE_TIME_OR_SERIES_AMBIGUOUS:${source.archiveId}:${digest}`);
+        continue;
+      }
+      pending.push({ digest, provider: payload.parser, symbol: payload.symbol, sourceRecordId: named[0].sourceRecordId ?? '',
+        body: payload.body, ingestedAt: times[0], fromArchive: source.archiveId });
+    }
+  }
+  if (problems.length > 0) return { outcome: 'REJECTED', archive: null, captures: [], problems };
+
+  pending.sort((a, b) => Date.parse(a.ingestedAt) - Date.parse(b.ingestedAt) || (a.digest < b.digest ? -1 : a.digest > b.digest ? 1 : 0));
+  let archive: MarketEvidenceArchive = {
+    schemaVersion: MARKET_EVIDENCE_ARCHIVE_FORMAT,
+    archiveId: options.archiveId,
+    provenanceClass: sources.every((s) => s.provenanceClass === 'CAPTURED') ? 'CAPTURED' : 'SYNTHETIC_FIXTURE',
+    coverage: null,
+    records: [],
+    rawPayloads: {},
+  };
+  const captures: MergeResult['captures'][number][] = [];
+  for (const c of pending) {
+    const r = await appendProviderCapture(archive, {
+      provider: c.provider, symbol: c.symbol, sourceRecordId: c.sourceRecordId, body: c.body, ingestedAt: c.ingestedAt,
+    }, options.parsers);
+    captures.push({ rawPayloadDigest: c.digest, provider: c.provider, sourceRecordId: c.sourceRecordId,
+      ingestedAt: c.ingestedAt, fromArchive: c.fromArchive, outcome: r.outcome });
+    if (r.outcome === 'REJECTED') problems.push(`CAPTURE_REJECTED:${c.fromArchive}:${c.digest}:${r.rejection}`);
+    archive = r.archive;
+  }
+
+  // Every source record must come back, except a value a strictly earlier
+  // capture already holds unchanged (then the earlier record stands for it).
+  const merged = new Map(archive.records.map((r) => [r.evidenceId, r]));
+  for (const source of sources) {
+    for (const r of source.records) {
+      const same = merged.get(r.evidenceId);
+      const heldEarlier = archive.records.some((m) => m.field === r.field && m.source === r.source
+        && canonical(m.observedAt) === canonical(r.observedAt) && Object.is(m.value, r.value)
+        && isStrictlyAfter(r.ingestedAt, m.ingestedAt));
+      if (same ? canonicalJson(same) !== canonicalJson(normalizeRecord(r)) : !heldEarlier) {
+        problems.push(`RECORD_NOT_REPRODUCED:${source.archiveId}:${r.evidenceId}`);
+      }
+    }
+  }
+  return problems.length > 0
+    ? { outcome: 'REJECTED', archive: null, captures, problems }
+    : { outcome: 'MERGED', archive, captures, problems };
+}
+
+/** A record in the key order and canonical times the capture writes. */
+function normalizeRecord(r: MarketEvidenceRecord): MarketEvidenceRecord {
+  return {
+    evidenceId: r.evidenceId, field: r.field, instrument: r.instrument, unit: r.unit, observationType: r.observationType,
+    value: r.value, source: r.source, sourceRecordId: r.sourceRecordId, observedAt: canonical(r.observedAt),
+    publishedAt: r.publishedAt === null ? null : canonical(r.publishedAt), ingestedAt: canonical(r.ingestedAt),
+    revision: r.revision, supersedes: r.supersedes, rawPayloadDigest: r.rawPayloadDigest,
+  };
 }

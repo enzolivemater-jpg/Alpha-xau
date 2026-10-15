@@ -244,3 +244,87 @@ console.log('PASS capture reads no network, clock, environment or provider');
   assert.doesNotMatch(source, /\bfetch\(|https?:\/\/|Date\.now\(|new Date\(\)|statSync|mtime/, 'no network, no clock, no file time');
 }
 console.log('PASS capture CLI: explicit attestation for CAPTURED, never overwrites, atomic append, pinned replay');
+
+// --- 10. DATA-3 merge of separate capture logs (synthetic logs; real captures stay off the repository).
+{
+  const logOf = async (id, captures, cls = 'SYNTHETIC_FIXTURE') => {
+    let a = cap.createEvidenceArchive({ archiveId: id, provenanceClass: cls, createdAt: captures[0].ingestedAt,
+      fields: [...new Set(captures.map((c) => cap.CAPTURE_SERIES.find((s) => s.sourceRecordId === c.sourceRecordId).field))],
+      statement: 'test log' });
+    for (const c of captures) {
+      const r = await cap.appendProviderCapture(a, c, PARSERS);
+      assert.equal(r.outcome, 'APPENDED', `${id}: ${r.rejection}`);
+      a = r.archive;
+    }
+    return a;
+  };
+  const tdCap = (close, at, ingestedAt) => ({ provider: 'twelve_data', symbol: 'XAUUSD', sourceRecordId: 'XAU/USD', body: tdBody(close, at), ingestedAt });
+  const a = await logOf('log-a', [fred('DGS10', 'US10Y', fredBody('2026-10-01', [['2026-09-29', '4.12'], ['2026-09-30', '4.10']]), '2026-10-01T06:00:00Z')]);
+  const b = await logOf('log-b', [fred('DFII10', 'US10YR', fredBody('2026-10-01', [['2026-09-30', '1.70']]), '2026-10-01T07:00:00Z'),
+    fred('VIXCLS', 'VIX', fredBody('2026-10-01', [['2026-09-30', '17.20']]), '2026-10-01T07:00:01Z')]);
+  const c = await logOf('log-c', [tdCap(3900, '2026-10-01T14:14:00Z', '2026-10-01T14:14:03Z')]);
+  const merged = await cap.mergeCaptureArchives([c, a, b], { archiveId: 'merge', parsers: PARSERS });
+  assert.equal(merged.outcome, 'MERGED', merged.problems.join());
+  assert.equal(merged.archive.coverage, null, 'no window is claimed between the sources');
+  assert.equal(merged.archive.provenanceClass, 'SYNTHETIC_FIXTURE');
+  assert.deepEqual(merged.captures.map((x) => x.ingestedAt), ['2026-10-01T06:00:00.000Z', '2026-10-01T07:00:00.000Z', '2026-10-01T07:00:01.000Z', '2026-10-01T14:14:03.000Z']);
+  const key = (r) => r.evidenceId;
+  assert.deepEqual(merged.archive.records.map(key).sort(), [...a.records, ...b.records, ...c.records].map(key).sort(), 'every record reproduced');
+  assert.deepEqual(merged.archive.records.find((r) => r.field === 'spot'), c.records[0], 'byte-for-byte the same record');
+  const r = await asOf(merged.archive, '2026-10-01T14:14:03Z');
+  assert.deepEqual([r.status, r.reproducible, r.decision, r.execution], ['INCOMPLETE', false, 'HOLD', 'FORBIDDEN']);
+  assert.ok(r.reasonCodes.includes('COVERAGE_NOT_DECLARED'));
+  assert.equal((await cap.mergeCaptureArchives([a, b, c], { archiveId: 'merge', parsers: PARSERS })).archive.records.length, merged.archive.records.length);
+  // Only CAPTURED sources make a CAPTURED merge.
+  const cc = await logOf('log-c-cap', [tdCap(3900, '2026-10-01T14:14:00Z', '2026-10-01T14:14:03Z')], 'CAPTURED');
+  assert.equal((await cap.mergeCaptureArchives([cc], { archiveId: 'm', parsers: PARSERS })).archive.provenanceClass, 'CAPTURED');
+  assert.equal((await cap.mergeCaptureArchives([cc, a], { archiveId: 'm', parsers: PARSERS })).archive.provenanceClass, 'SYNTHETIC_FIXTURE');
+  // A value its bytes do not contain, a split reception time, an orphan body: rejected.
+  const edited = structuredClone(a);
+  edited.records[0].value = 4.5;
+  assert.match((await cap.mergeCaptureArchives([edited, b], { archiveId: 'm', parsers: PARSERS })).problems.join(), /SOURCE_INVALID:log-a/);
+  const split = structuredClone(a);
+  split.records[0].ingestedAt = '2026-10-01T06:30:00.000Z';
+  assert.match((await cap.mergeCaptureArchives([split], { archiveId: 'm', parsers: PARSERS })).problems.join(), /CAPTURE_TIME_OR_SERIES_AMBIGUOUS/);
+  const orphan = structuredClone(c);
+  orphan.rawPayloads[`sha256:${'1'.repeat(64)}`] = orphan.rawPayloads[orphan.records[0].rawPayloadDigest];
+  assert.equal((await cap.mergeCaptureArchives([orphan], { archiveId: 'm', parsers: PARSERS })).outcome, 'REJECTED');
+  // A source whose records were not what its own captures produce (renamed record).
+  const renamed = structuredClone(c);
+  renamed.records[0].evidenceId = 'twelve_data:renamed';
+  assert.match((await cap.mergeCaptureArchives([renamed], { archiveId: 'm', parsers: PARSERS })).problems.join(), /RECORD_NOT_REPRODUCED/);
+  // The same capture held by two logs is merged once.
+  const twice = await cap.mergeCaptureArchives([c, structuredClone(c)], { archiveId: 'm', parsers: PARSERS });
+  assert.equal(twice.outcome, 'MERGED');
+  assert.deepEqual(twice.captures.map((x) => x.outcome), ['APPENDED', 'ALREADY_CAPTURED']);
+
+  // The local validation tool, end to end, on these synthetic logs; sources are only read.
+  const { spawnSync } = await import('node:child_process');
+  const { mkdtempSync, rmSync, writeFileSync: write, readFileSync: read } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const dir = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'data3-'));
+  try {
+    const files = [['a', a], ['b', b], ['c', c]].map(([n, x]) => { const f = path.join(dir, `${n}.json`); write(f, JSON.stringify(x)); return f; });
+    const before = files.map((f) => read(f, 'utf8'));
+    const out = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'data3-out-'));
+    // Writing next to the sources is refused.
+    assert.equal(spawnSync(process.execPath, [new URL('../scripts/validate_evidence_captures.mjs', import.meta.url).pathname,
+      '--out', path.join(dir, 'out'), ...files], { encoding: 'utf8' }).status, 1);
+    const run = spawnSync(process.execPath, [new URL('../scripts/validate_evidence_captures.mjs', import.meta.url).pathname, '--out', out, ...files], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, /(\d+)\/\1 checks passed/);
+    assert.deepEqual(files.map((f) => read(f, 'utf8')), before, 'sources untouched');
+    const report = JSON.parse(read(path.join(out, 'report.json'), 'utf8'));
+    assert.ok(report.checks.every((x) => x.ok));
+    assert.equal(report.merged.coverage, null);
+    assert.equal(JSON.parse(read(path.join(out, 'merged-archive.json'), 'utf8')).records.length, merged.archive.records.length);
+    // A tampered source makes the tool fail.
+    write(files[0], JSON.stringify(edited));
+    assert.equal(spawnSync(process.execPath, [new URL('../scripts/validate_evidence_captures.mjs', import.meta.url).pathname, '--out', out, ...files], { encoding: 'utf8' }).status, 1);
+    rmSync(out, { recursive: true, force: true });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+console.log('PASS DATA-3 merge: captures replayed in reception order reproduce every source record; no coverage invented; tampering rejected');
