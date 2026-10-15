@@ -7,8 +7,8 @@ import { sha256Canonical } from '../shared/canonical_json.js';
 import { compileCaptureSchedule } from './capture_schedule.js';
 import { parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
-export const COLLECTOR_READINESS_SCHEMA_VERSION = 'xau.collector-readiness.v2' as const;
-export const COLLECTOR_READINESS_ALGORITHM_VERSION = 'collector-readiness-metadata-2.0.0' as const;
+export const COLLECTOR_READINESS_SCHEMA_VERSION = 'xau.collector-readiness.v3' as const;
+export const COLLECTOR_READINESS_ALGORITHM_VERSION = 'collector-readiness-metadata-3.0.0' as const;
 
 export const REQUIRED_COLLECTOR_GATES = [
   'SUPPLIER_RIGHTS', 'SOURCE_CALENDAR', 'RATE_COST', 'SECRETS_NETWORK',
@@ -95,7 +95,7 @@ export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown
     if (gate.status === 'APPROVED' && (
       !gate.evidence_reference || !gate.evidence_digest || !gate.reviewer
       || !gate.reviewed_at_utc || !gate.expiry_or_review_due || !gate.scope
-      || !gate.version || gate.scope !== packet.planId || gate.rejection_reasons.length !== 0
+      || !gate.version || gate.scope !== packet.planFingerprint || gate.rejection_reasons.length !== 0
       || instant(gate.reviewed_at_utc)! > cutoff
       || instant(gate.expiry_or_review_due)! <= cutoff
       || instant(gate.expiry_or_review_due)! <= instant(gate.reviewed_at_utc)!
@@ -125,10 +125,19 @@ export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown
  * Packet self-declaration alone is insufficient to establish plan identity.
  * Still offline metadata validation only: no authorization or provenance grant.
  */
-/** A deterministic fingerprint of the canonical, compiled slot plan; not source authenticity. */
+/** A deterministic fingerprint of canonical slots AND validated operator budgets; not source authenticity. */
 export function fingerprintCaptureSchedule(declaredPolicy: unknown): Promise<string> {
   const compiled = compileCaptureSchedule(declaredPolicy);
-  return sha256Canonical(compiled.plan);
+  const declared = declaredPolicy as { requestBudgets: { fred: number; twelve_data: number } };
+  return sha256Canonical({
+    schemaVersion: compiled.schemaVersion,
+    algorithmVersion: compiled.algorithmVersion,
+    plan: compiled.plan,
+    requestBudgets: {
+      fred: declared.requestBudgets.fred,
+      twelve_data: declared.requestBudgets.twelve_data,
+    },
+  });
 }
 
 export async function evaluateCollectorReadinessForSchedule(
@@ -136,7 +145,7 @@ export async function evaluateCollectorReadinessForSchedule(
 ): Promise<CollectorReadinessResult> {
   const compiled = compileCaptureSchedule(declaredPolicy);
   if (!isRecord(packet) || packet.planId !== compiled.plan.planId
-    || packet.planFingerprint !== await sha256Canonical(compiled.plan)) {
+    || packet.planFingerprint !== await fingerprintCaptureSchedule(declaredPolicy)) {
     throw new Error('COLLECTOR_READINESS_PLAN_MISMATCH');
   }
   return evaluateCollectorReadiness(packet, cutoffInput);
