@@ -2,7 +2,7 @@
 
 Status: **DRAFT / OFFLINE ONLY / NOT APPROVED**. Parent: DATA-4F commit `e8acd86b28714118dafd260dddae18c3a286b51b`.
 
-Contract versions: `xau.collector-readiness.v1` and `collector-readiness-metadata-1.0.0`.
+Contract versions: `xau.collector-readiness.v2` and `collector-readiness-metadata-2.0.0`.
 
 ## Scope and non-goals
 
@@ -26,13 +26,15 @@ This is an operator review contract, **not** a collector, permission grant, supp
 
 ## Acceptance packet
 
+The packet requires `planId` and `planFingerprint` (`sha256:` of the canonical DATA-4E compiled slot plan). A changed slot, deadline, provider or source under the same `planId` must be rejected by `evaluateCollectorReadinessForSchedule`. The fingerprint establishes artifact binding only, **not independently verified provenance**. Calling the low-level metadata checker alone does not authenticate the plan; all runtime authorization remains forbidden.
+
 For each gate record: `gate_id`, `status` (PENDING / REJECTED / APPROVED), `evidence_reference`, `evidence_digest`, `reviewer`, `reviewed_at_utc`, `expiry_or_review_due`, `scope`, `version`, `rejection_reasons`. Evidence references must be private-safe; never store credentials or raw supplier responses in Git. An approval is valid only within its documented scope, period and exact reviewed artifact versions.
 
 **Decision rule:** missing, expired, unverifiable, inconsistent or unreviewed evidence => gate NOT APPROVED. A complete packet is necessary but not sufficient for runtime activation: production and trading require independent, explicit human decisions. No self-approval by CI or software. Current state for every gate: **PENDING**. System remains `OFFLINE_ONLY / HOLD / FORBIDDEN`.
 
 ## Validation implemented (offline metadata only)
 
-1. `backend/market_engine/collector_readiness.ts`: pure schema validator rejecting unknown fields, invalid UTC, duplicate gate IDs, missing or expired evidence, cross-plan approvals and inconsistent statuses. `evaluateCollectorReadinessForSchedule` additionally validates the declared DATA-4E schedule and requires the packet's `planId` to match; review metadata must not be evaluated against an unrelated plan. All results remain `OFFLINE_ONLY / HOLD / FORBIDDEN`.
+1. `backend/market_engine/collector_readiness.ts`: pure schema validator rejecting unknown fields, invalid UTC, duplicate gate IDs, missing or expired evidence, cross-plan approvals and inconsistent statuses. `evaluateCollectorReadinessForSchedule` additionally validates the declared DATA-4E schedule and requires the packet's `planId` **and canonical plan fingerprint** to match; review metadata must not be evaluated against an unrelated plan. All results remain `OFFLINE_ONLY / HOLD / FORBIDDEN`.
 2. `tests/test_collector_readiness_contract.mjs` (registered in deterministic CI): invalid evidence digest, expiry, future review, wrong plan scope, duplicate gate, missing metadata and contradictory approval cases. This checks **metadata structure**, not actual supplier entitlement, licence validity, calendar completeness or independent provenance.
 3. No provider network, secret access, persistent database, broker, runtime clock or production changes.
 4. Follow-up before any real collection: verify underlying evidence externally, perform documented licence/calendar/retention/recovery reviews, and separately authorize changes. A packet marked `READY_FOR_HUMAN_REVIEW` never means `APPROVED_FOR_RUNTIME`.
