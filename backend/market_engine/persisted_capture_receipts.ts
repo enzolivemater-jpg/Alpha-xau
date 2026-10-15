@@ -15,7 +15,7 @@ import { CAPTURE_SERIES } from './evidence_capture.js';
 import { parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
 export const PERSISTED_CAPTURE_RECEIPTS_SCHEMA_VERSION = 'xau.persisted-capture-receipts.v1' as const;
-export const PERSISTED_CAPTURE_RECEIPTS_ALGORITHM_VERSION = 'persisted-capture-receipts-audit-adapter-1.0.0' as const;
+export const PERSISTED_CAPTURE_RECEIPTS_ALGORITHM_VERSION = 'persisted-capture-receipts-audit-adapter-1.1.0' as const;
 
 export interface PersistedCaptureReceiptRow {
   readonly plan_id: string;
