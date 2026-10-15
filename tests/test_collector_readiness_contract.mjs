@@ -27,10 +27,11 @@ const schedule = {
     }],
   }],
 };
+const planFingerprint = await m.fingerprintCaptureSchedule(schedule);
 const full = () => ({
   schemaVersion: m.COLLECTOR_READINESS_SCHEMA_VERSION,
   planId: 'operator-declared-20261015',
-  planFingerprint: m.fingerprintCaptureSchedule(schedule),
+  planFingerprint,
   gates: m.REQUIRED_COLLECTOR_GATES.map(approved),
 });
 const empty = m.evaluateCollectorReadiness({
@@ -95,10 +96,10 @@ const rejected = m.evaluateCollectorReadiness(mutate({
 }), cutoff);
 assert.equal(rejected.status, 'INCOMPLETE');
 
-const bound = m.evaluateCollectorReadinessForSchedule(schedule, full(), cutoff);
+const bound = await m.evaluateCollectorReadinessForSchedule(schedule, full(), cutoff);
 assert.deepEqual(bound, complete);
 assert.match(full().planFingerprint, /^sha256:[0-9a-f]{64}$/);
-assert.throws(() => m.evaluateCollectorReadinessForSchedule({
+await assert.rejects(() => m.evaluateCollectorReadinessForSchedule({
   ...schedule, series: [{...schedule.series[0], windows: [{
     ...schedule.series[0].windows[0], deadlineAt: '2026-10-15T08:06:00.000Z',
   }]}],
