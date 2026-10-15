@@ -165,3 +165,30 @@ from the provider. Test: `tests/test_market_evidence_capture.mjs`.
   Wiring it is gated.
 - **Twelve Data quotes carry no book**, so `bid` and `ask` cannot be
   re-read from raw bytes.
+
+## Next step (DATA-3): proposed, not authorized
+
+Three decisions gate authentic history; nothing below is implemented.
+
+1. **Capture authorization.** Use the existing collectors (`fetchFred`,
+   `fetchTwelveData`) or an operator download, with keys the operator
+   provides. Each body goes through `appendProviderCapture` with its
+   reception time.
+2. **Raw storage in the runtime.** The runtime ingestion still discards
+   bodies, and `official_source_artifacts` cannot hold them: its CHECK limits
+   it to BLS CPI. Two options, both schema changes:
+   - extend that table with an `artifact_role` for provider responses;
+   - add an append-only `market_provider_responses` table holding the
+     provider, series, body bytes, a generated SHA-256 and the ingestion time.
+
+   Either way, a request URL is stored only after `redactUrl`, because FRED
+   and Twelve Data put the API key in the query string. MP-2
+   `evidence_revision` would then be the body digest that DATA-2 already
+   derives (`cap-<sha256 prefix>`).
+3. **Trust.** Two separate questions:
+   - whether MP-0 may report a `VERIFIED` replay instead of
+     `HISTORICAL_REPLAY_UNAVAILABLE`;
+   - whether operator attestation suffices for `CAPTURED`, or only
+     collector-written logs.
+
+   HOLD stays in either case, because no method is approved.
