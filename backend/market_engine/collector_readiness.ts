@@ -19,6 +19,8 @@ type GateId = (typeof REQUIRED_COLLECTOR_GATES)[number];
 type GateStatus = 'PENDING' | 'REJECTED' | 'APPROVED';
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 const SHA = /^sha256:[0-9a-f]{64}$/;
+// Opaque references only: never place signed URLs, query-string keys or response bodies in review packets.
+const EVIDENCE_REF = /^(?:private:\/\/review\/|evidence:\/\/)[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 const UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 const gateSet: ReadonlySet<string> = new Set(REQUIRED_COLLECTOR_GATES);
 const isRecord = (x: unknown): x is Record<string, unknown> =>
@@ -79,7 +81,8 @@ export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown
       || !['PENDING', 'REJECTED', 'APPROVED'].includes(String(raw.status))
       || !Array.isArray(raw.rejection_reasons) || raw.rejection_reasons.length > 20
       || !raw.rejection_reasons.every(x => nonempty(x) && ID.test(x))
-      || raw.evidence_reference !== null && !nonempty(raw.evidence_reference)
+      || raw.evidence_reference !== null && !(typeof raw.evidence_reference === 'string'
+        && EVIDENCE_REF.test(raw.evidence_reference))
       || raw.evidence_digest !== null && !(typeof raw.evidence_digest === 'string' && SHA.test(raw.evidence_digest))
       || raw.reviewer !== null && !identifier(raw.reviewer)
       || raw.scope !== null && !identifier(raw.scope)
