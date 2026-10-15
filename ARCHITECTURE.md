@@ -1,3 +1,5 @@
+> **XAU V2 — Architecture canonique candidate (15 octobre 2026).** Le schéma ci-dessous est un plan historique, **pas** l'arborescence réelle ni la preuve d'un déploiement. Consulter d'abord [le plan de clôture architecturale](docs/XAU_V2_ARCHITECTURE_CLOSURE_PLAN.md), puis [la topologie vérifiée du dépôt](docs/XAU_V2_ARCHITECTURE_BASELINE.md). Les contrats spécialisés définissent les invariants normatifs ; aucune chaîne décisionnelle positive ou production n'est activée par cette documentation.
+
 # ALPHA-XAU INSTITUTIONAL TERMINAL — Architecture repository
 
 Monorepo. Frontend statique (GitHub Pages) + backend serverless (Workers/Vercel) + PostgreSQL managé (Supabase).
