@@ -4,6 +4,7 @@ import {
   COMMITTEE_V2_ALGORITHM_VERSION,
   COMMITTEE_V2_SCHEMA_VERSION,
 } from '../ai_engine/v2_committee_contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const PRE_PM_SCHEMA_VERSION = 'xau.pre-pm-evidence-risk.v1' as const;
 export const PRE_PM_ALGORITHM_VERSION = 'pre-pm-dependency-gate-1.0.0' as const;
@@ -45,15 +46,13 @@ export interface PrePmEnvelope {
   readonly portfolioManagerInput: null;
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 /** PMR-0 never constructs Portfolio Manager input or an inferred risk verdict. */
 export function buildPrePmEvidenceRiskGate(
   input: PrePmContractInput,
   knowledgeCutoff: string,
 ): PrePmEnvelope {
   const reasons = new Set<PrePmReasonCode>();
-  if (!TIMESTAMP.test(knowledgeCutoff) || !Number.isFinite(Date.parse(knowledgeCutoff))) {
+  if (!isStrictTimestamp(knowledgeCutoff)) {
     reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   }
   if (input.committee.schemaVersion !== COMMITTEE_V2_SCHEMA_VERSION

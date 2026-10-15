@@ -1,34 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
+import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const files = {
-  'market_engine/types.ts': 'market_engine/types.mjs',
-  'market_engine/institutional_snapshot.ts': 'market_engine/institutional_snapshot.mjs',
-  'positioning_engine/evidence_contract.ts': 'positioning_engine/evidence_contract.mjs',
-  'regime_engine/contract.ts': 'regime_engine/contract.mjs',
-};
-const temp = mkdtempSync(path.join(tmpdir(), 'regime-contract-'));
-let mod;
-try {
-  for (const [sourcePath, outputPath] of Object.entries(files)) {
-    const input = readFileSync(path.join(ROOT, 'backend', sourcePath), 'utf8');
-    const output = ts.transpileModule(input, {
-      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    }).outputText.replaceAll(/(['"])\.\.\/([a-z_]+)\/([a-z_]+)\.js\1/g, '$1../$2/$3.mjs$1')
-      .replaceAll(/(['"])\.\/([a-z_]+)\.js\1/g, '$1./$2.mjs$1');
-    const destination = path.join(temp, outputPath);
-    mkdirSync(path.dirname(destination), { recursive: true });
-    writeFileSync(destination, output, 'utf8');
-  }
-  mod = await import(pathToFileURL(path.join(temp, 'regime_engine', 'contract.mjs')).href);
-} finally {
-  rmSync(temp, { recursive: true, force: true });
-}
+const mod = await loadBackendModule('regime_engine/contract.ts');
 
 const cutoff = '2026-10-01T12:00:00.000Z';
 const input = {
@@ -75,6 +52,22 @@ const upstreamAbstain = structuredClone(input);
 upstreamAbstain.positioning.evidenceState = 'ABSTAIN';
 assert.equal(mod.buildRegimeAssessmentContract(upstreamAbstain, cutoff).evidenceState, 'ABSTAIN');
 assert.ok(mod.buildRegimeAssessmentContract(input, '2026-10-01').reasonCodes.includes('INVALID_KNOWLEDGE_CUTOFF'));
+
+// Upstream states outside MP-0/P-0 v1 fail closed instead of reading as READY.
+for (const [label, mutate, reason] of [
+  ['unknown market state', (value) => { value.marketPricing.state = 'BOGUS'; }, 'MARKET_PRICING_ABSTAINED'],
+  ['missing market state', (value) => { delete value.marketPricing.state; }, 'MARKET_PRICING_ABSTAINED'],
+  ['unknown evidence state', (value) => { value.positioning.evidenceState = 'BOGUS'; }, 'POSITIONING_EVIDENCE_ABSTAINED'],
+  ['forged positioning signal', (value) => { value.positioning.positioningState = 'LONG'; }, 'POSITIONING_EVIDENCE_ABSTAINED'],
+]) {
+  const forged = structuredClone(input);
+  forged.marketPricing.state = 'AVAILABLE';
+  mutate(forged);
+  const assessed = mod.buildRegimeAssessmentContract(forged, cutoff);
+  assert.equal(assessed.evidenceState, 'ABSTAIN', label);
+  assert.ok(assessed.reasonCodes.includes(reason), label);
+  assert.equal(assessed.regime, 'UNAVAILABLE', label);
+}
 
 const regimeSource = readFileSync(path.join(ROOT, 'backend', 'regime_engine', 'contract.ts'), 'utf8');
 const docs = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_REGIME_CONTRACT.md'), 'utf8');
