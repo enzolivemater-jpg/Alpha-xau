@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
+import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENGINE = path.join(ROOT, 'backend', 'positioning_engine');
@@ -11,22 +10,7 @@ const migration = readFileSync(path.join(ROOT, 'database', 'migrations', '202610
 const docs = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_POSITIONING_PERSISTENCE_CONTRACT.md'), 'utf8');
 const board = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_COMPLETION_BOARD.md'), 'utf8');
 
-function transpile(file) {
-  return ts.transpileModule(readFileSync(path.join(ENGINE, file), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText.replaceAll(/(['"])\.\/([a-z_]+)\.js\1/g, '$1./$2.mjs$1');
-}
-
-const temp = mkdtempSync(path.join(tmpdir(), 'positioning-persistence-'));
-let mod;
-try {
-  for (const file of ['evidence_contract.ts', 'persisted_evidence.ts']) {
-    writeFileSync(path.join(temp, file.replace(/\.ts$/, '.mjs')), transpile(file), 'utf8');
-  }
-  mod = await import(pathToFileURL(path.join(temp, 'persisted_evidence.mjs')).href);
-} finally {
-  rmSync(temp, { recursive: true, force: true });
-}
+const mod = await loadBackendModule('positioning_engine/persisted_evidence.ts');
 
 const row = (evidence_id, metric_code, value, observed_at, revision = null) => ({
   evidence_id,

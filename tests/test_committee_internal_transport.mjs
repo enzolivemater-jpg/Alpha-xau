@@ -489,6 +489,13 @@ for (const kind of ['ACCOUNT_BLOCKED', 'TEMPORARILY_UNAVAILABLE']) {
     const outcome = await notifyAiEngine(oneEvent(), baseEnv, log, createNotifyBudget(), fakeDb);
     results.circuit_temp_unavailable_expired = { outcome, callCount: __handleCommitteeEventCallCount };
   }
+  // Panne connue, started_at illisible -> fenêtre inconnue : circuit OUVERT.
+  {
+    __handleCommitteeEventCallCount = 0;
+    __latestCommitteeRun = { started_at: 'not-a-timestamp', status: 'failed', providers: { anthropic: { failure_kind: 'ACCOUNT_BLOCKED' } } };
+    const outcome = await notifyAiEngine(oneEvent(), baseEnv, log, createNotifyBudget(), fakeDb);
+    results.circuit_unreadable_started_at = { outcome, callCount: __handleCommitteeEventCallCount };
+  }
   // Dernière ligne ai_committee RÉUSSIE (providers:{}) -> circuit FERMÉ,
   // même très récente.
   {
@@ -672,6 +679,9 @@ console.log('--- CIRCUIT FOURNISSEUR (P0-B) : FENETRES DE RECHARGE 75MIN / 20MIN
   t('TEMPORARILY_UNAVAILABLE >= 20 min -> circuit rechargé, une tentative normale autorisée',
     results.circuit_temp_unavailable_expired.callCount === 1
     && results.circuit_temp_unavailable_expired.outcome.attempted.includes('circuit-probe'));
+  t('panne connue + started_at illisible -> circuit OUVERT (jamais rechargé par NaN), AUCUN appel comité',
+    results.circuit_unreadable_started_at.callCount === 0
+    && results.circuit_unreadable_started_at.outcome.deferred.includes('circuit-probe'));
   t('dernière ligne ai_committee RÉUSSIE -> circuit FERMÉ, tentative normale autorisée',
     results.circuit_closed_after_success.callCount === 1
     && results.circuit_closed_after_success.outcome.attempted.includes('circuit-probe'));

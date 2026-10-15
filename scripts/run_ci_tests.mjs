@@ -12,15 +12,12 @@
  *       -> require a live local PostgreSQL instance (psql/su postgres).
  *   - test_anthropic_error_path.mjs, probe_external_endpoints.mjs
  *       -> make real outbound calls to external APIs.
- *   - test_frontend_degraded_modes.mjs, test_committee_validation.mjs
- *       -> hardcoded /home/claude/alpha-xau/... absolute paths from a
- *          different environment (pre-existing gap, tracked separately;
- *          not fixed by this task).
- *   - test_anthropic_error_path.mjs, test_event_routing.mjs,
- *     test_provider_failure_modes.mjs
+ *   - test_anthropic_error_path.mjs, test_provider_failure_modes.mjs
  *       -> import sibling files (tests/ai_engine/*.mjs, tests/providers.mjs,
- *          etc.) that do not exist in this checkout layout (pre-existing
- *          gap, not fixed by this task).
+ *          etc.) that do not exist in this checkout layout. Loading them
+ *          through scripts/lib/backend_module_loader.mjs is not enough:
+ *          test_provider_failure_modes.mjs expects the removed Stooq
+ *          provider, so its expectations need an owner decision.
  *
  * Adding a new deterministic test: add its path to TEST_FILES below.
  */
@@ -33,6 +30,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 const TEST_FILES = [
+  'tests/test_advisory_transport_contract.mjs',
+  'tests/test_advisory_ui_0_contract.mjs',
+  'tests/test_architecture_boundaries.mjs',
+  'tests/test_capture_continuity_contract.mjs',
+  'tests/test_ci_inventory.mjs',
+  'tests/test_evidence_manifest_contract.mjs',
+  'tests/test_institutional_purity_guard.mjs',
+  'tests/test_institutional_transitive_imports.mjs',
+  'tests/test_temporal_contract.mjs',
+  'tests/test_unified_input_boundary.mjs',
+  'tests/test_unified_offline_rehearsal.mjs',
+  'tests/test_unified_receipt_gate.mjs',
   'tests/test_alert_contract.mjs',
   'tests/test_ai_committee_v2_contract.mjs',
   'tests/test_bea_pce_adapter.mjs',
@@ -49,9 +58,13 @@ const TEST_FILES = [
   'tests/test_bls_cpi_production_orchestrator.mjs',
   'tests/test_committee_event_retry_idempotency.mjs',
   'tests/test_committee_internal_transport.mjs',
+  'tests/test_committee_validation.mjs',
   'tests/test_command_center_contract.mjs',
   'tests/test_completion_board_and_recovery_authorization.mjs',
+  'tests/test_contract_version_registry.mjs',
   'tests/test_decision_chain_contract.mjs',
+  'tests/test_decision_chain_dry_run.mjs',
+  'tests/test_decision_chain_scenarios.mjs',
   'tests/test_ecb_collector.mjs',
   'tests/test_ecb_raw_integration.mjs',
   'tests/test_event_cluster_relation_contract.mjs',
@@ -63,12 +76,14 @@ const TEST_FILES = [
   'tests/test_event_facts_production_authorization_packet.mjs',
   'tests/test_event_facts_staging_proof.mjs',
   'tests/test_event_identity_claim_contract.mjs',
+  'tests/test_event_routing.mjs',
   'tests/test_event_impact_atomic_rpc.mjs',
   'tests/test_event_impact_deterministic_processor.mjs',
   'tests/test_event_impact_shadow_batch.mjs',
   'tests/test_event_impact_shadow_orchestrator.mjs',
   'tests/test_event_impact_shadow_runtime.mjs',
   'tests/test_event_membership_reassign_contract.mjs',
+  'tests/test_event_plan_aggregation.mjs',
   'tests/test_event_membership_supersession_contract.mjs',
   'tests/test_event_rpc_contract.mjs',
   'tests/test_event_schema_contract.mjs',
@@ -77,6 +92,7 @@ const TEST_FILES = [
   'tests/test_event_shadow_orchestrator.mjs',
   'tests/test_event_shadow_runtime.mjs',
   'tests/test_event_version_rpc_contract.mjs',
+  'tests/test_frontend_degraded_modes.mjs',
   'tests/test_future_data_api_grant_contract.mjs',
   'tests/test_federal_reserve_collector.mjs',
   'tests/test_federal_reserve_raw_integration.mjs',
@@ -89,8 +105,13 @@ const TEST_FILES = [
   'tests/test_institutional_acceptance_contract.mjs',
   'tests/test_market_driver_provenance.mjs',
   'tests/test_market_pricing_as_of_contract.mjs',
+  'tests/test_market_provider_parsing.mjs',
+  'tests/test_news_source_entity_decoding.mjs',
+  'tests/test_news_dedup_accounting.mjs',
   'tests/test_market_pricing_institutional_contract.mjs',
   'tests/test_market_pricing_persistence_contract.mjs',
+  'tests/test_market_evidence_replay.mjs',
+  'tests/test_market_evidence_capture.mjs',
   'tests/test_notification_horizon_provider_circuit.mjs',
   'tests/test_official_source_artifacts_contract.mjs',
   'tests/test_ofac_collector.mjs',
@@ -110,6 +131,12 @@ const TEST_FILES = [
   'tests/test_recovery_rehearsal_contract.mjs',
   'tests/test_regime_contract.mjs',
   'tests/test_security_baseline_hardening_contract.mjs',
+  'tests/test_sql_ts_enum_parity.mjs',
+  'tests/test_strict_timestamp.mjs',
+  'tests/test_sub_millisecond_cutoff.mjs',
+  'tests/test_terminal_contrast.mjs',
+  'tests/test_terminal_local.mjs',
+  'tests/test_terminal_view.mjs',
   'tests/test_us_treasury_collector.mjs',
   'tests/test_us_treasury_raw_adapter.mjs',
   'tests/test_us_treasury_raw_integration.mjs',
