@@ -104,7 +104,11 @@ function decodeXmlEntities(text: string): string {
     if (entity.charAt(0) === '#') {
       const isHex = entity.charAt(1) === 'x' || entity.charAt(1) === 'X';
       const codePoint = isHex ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+      // Valeur scalaire Unicode uniquement : sinon l'entité reste littérale
+      // (jamais de RangeError, de NUL ni de demi-paire de substitution isolée).
+      const scalar = Number.isInteger(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
+        && (codePoint < 0xd800 || codePoint > 0xdfff);
+      return scalar ? String.fromCodePoint(codePoint) : match;
     }
     switch (entity) {
       case 'amp': return '&';
