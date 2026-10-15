@@ -113,6 +113,20 @@ const broken = structuredClone(r3.archive);
 broken.records[0].unit = 'INDEX_POINTS';
 assert.equal((await cap.appendProviderCapture(broken, fred('DGS10', 'US10Y', fredBody('2026-10-04', [['2026-10-03', '4.2']]), '2026-10-04T00:00:00Z'), PARSERS)).rejection,
   'ARCHIVE_INVALID', 'nothing is appended to an archive that is already invalid');
+// An archive without declared coverage is still an ordered, validated log (DATA-3 regression:
+// both checks used to be skipped when coverage was null).
+const uncovered = { ...fresh(), coverage: null };
+const u1 = await cap.appendProviderCapture(uncovered, fred('DGS10', 'US10Y', fredBody('2026-10-02', [['2026-10-01', '4.10']]), '2026-10-02T06:00:00Z'), PARSERS);
+assert.equal(u1.outcome, 'APPENDED');
+assert.equal(u1.archive.coverage, null, 'no coverage is invented');
+const u2 = await cap.appendProviderCapture(u1.archive, fred('DFII10', 'US10YR', fredBody('2026-10-01', [['2026-09-30', '1.70']]), '2026-10-01T06:00:00Z'), PARSERS);
+assert.equal(u2.rejection, 'INGESTION_OUT_OF_ORDER', 'capture time cannot go back, coverage or not');
+const u3 = await cap.appendProviderCapture(u1.archive, fred('DFII10', 'US10YR', fredBody('2026-10-02', [['2026-10-01', '1.70']]), '2026-10-02T06:00:00Z'), PARSERS);
+assert.equal(u3.outcome, 'APPENDED', 'the same instant is not going back');
+const brokenUncovered = structuredClone(u1.archive);
+brokenUncovered.records[0].unit = 'INDEX_POINTS';
+assert.equal((await cap.appendProviderCapture(brokenUncovered, fred('DFII10', 'US10YR', fredBody('2026-10-03', [['2026-10-02', '1.71']]), '2026-10-03T06:00:00Z'), PARSERS)).rejection,
+  'ARCHIVE_INVALID', 'an invalid archive without coverage is refused before anything is appended');
 console.log('PASS rejections: wrong series, bad time, empty or error body, future stamp, implausible value, invalid archive');
 
 // --- 5. Replays of the capture log: as-of, verified bytes, no look-ahead.

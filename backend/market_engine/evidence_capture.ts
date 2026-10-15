@@ -137,11 +137,17 @@ export async function appendProviderCapture(
   const ingestedMs = parseStrictTimestamp(capture.ingestedAt);
   if (ingestedMs === null) return result({ outcome: 'REJECTED', rejection: 'INVALID_INGESTED_AT' });
   const ingestedAt = new Date(ingestedMs).toISOString();
-  const before = archive.coverage ? await replayMarketEvidence(archive, archive.coverage.to, { parsers: verifyParsers }) : null;
+  // The log's last known instant: the end of its coverage or its latest
+  // ingestion, whichever is later. An archive without coverage is still a log.
+  const latestIngestion = archive.records.map((r) => r.ingestedAt)
+    .reduce<string | null>((latest, t) => (latest === null || isStrictlyAfter(t, latest) ? t : latest), null);
+  const floor = archive.coverage && (latestIngestion === null || isStrictlyAfter(archive.coverage.to, latestIngestion))
+    ? archive.coverage.to : latestIngestion;
+  const before = floor === null ? null : await replayMarketEvidence(archive, floor, { parsers: verifyParsers });
   if (before !== null && before.status === 'INVALID') {
     return result({ outcome: 'REJECTED', rejection: 'ARCHIVE_INVALID', replayReasons: before.reasonCodes });
   }
-  if (archive.coverage && isStrictlyAfter(archive.coverage.to, ingestedAt)) {
+  if (floor !== null && isStrictlyAfter(floor, ingestedAt)) {
     return result({ outcome: 'REJECTED', rejection: 'INGESTION_OUT_OF_ORDER' });
   }
   const series = CAPTURE_SERIES.find((s) => s.provider === capture.provider && s.symbol === capture.symbol
