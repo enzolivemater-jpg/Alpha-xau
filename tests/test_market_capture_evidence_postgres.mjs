@@ -68,7 +68,7 @@ for(const proc of [
  'public.fn_market_capture_record_attempt(text,text,text,text,text,text,timestamptz,bytea,text)',
  'public.fn_market_capture_receipts_as_of(timestamptz,integer)',
 ]) {
- assert.equal(sql("SELECT NOT prosecdef AND EXISTS (SELECT 1 FROM unnest(proconfig) setting WHERE setting IN ('search_path=', 'search_path=""'))"+
+ assert.equal(sql("SELECT NOT prosecdef AND EXISTS (SELECT 1 FROM unnest(proconfig) setting WHERE setting = 'search_path=' OR setting = 'search_path='||chr(34)||chr(34))"+
   " AND NOT has_function_privilege('anon',oid,'EXECUTE') AND NOT has_function_privilege('authenticated',oid,'EXECUTE')"+
   " AND has_function_privilege('service_role',oid,'EXECUTE') FROM pg_proc WHERE oid='"+proc+"'::regprocedure;"),'t');
 }
