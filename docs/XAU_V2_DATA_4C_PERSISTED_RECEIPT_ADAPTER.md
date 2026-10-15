@@ -10,14 +10,14 @@ Contrat et versions gelées :
   `persisted-capture-receipts-audit-adapter-1.0.0`
 
 Source : RPC éphémère proposée dans DATA-4B,
-`fn_market_capture_receipts_as_of(cutoff,max_rows)`, qui renvoie
+`fn_market_capture_receipts_as_of(plan_id,cutoff,max_rows)`, qui renvoie
 l'historique **complet-ou-erreur** dans la limite autorisée. Aucun appel
 Postgres n'est ajouté au runtime. Le tableau de résultats est injecté
 dans `normalizePersistedCaptureReceipts`.
 
 ## Invariants
 
-- Validation stricte de **toutes** les colonnes RPC, de la paire
+- Validation stricte de l'identité du plan demandé, de **toutes** les colonnes RPC, de la paire
   fournisseur/série/symbole et de la cohérence succès/échec.
 - Les horodatages exigent un ISO-8601 à fuseau explicite ; la date de
   première connaissance pour l'audit est **`recorded_at` de PostgreSQL**,
