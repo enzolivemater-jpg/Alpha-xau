@@ -94,7 +94,7 @@ export function normalizePersistedCaptureReceipts(
   result.sort((a, b) => {
     const ta = parseStrictTimestampNanos(a.receivedAt)!;
     const tb = parseStrictTimestampNanos(b.receivedAt)!;
-    return ta < tb ? -1 : ta > tb ? 1 : a.slotId.localeCompare(b.slotId);
+    return ta < tb ? -1 : ta > tb ? 1 : a.slotId < b.slotId ? -1 : a.slotId > b.slotId ? 1 : 0;
   });
   return result;
 }
