@@ -92,7 +92,9 @@ export function replayOfflineCaptureAttempts(
     || !exact(retryInput.maxProviderAttempts, ['fred', 'twelve_data'])) {
     fail('INVALID_RETRY_POLICY');
   }
-  const limits = retryInput.maxProviderAttempts;
+  // The runtime guards above justify this narrow contract type.
+  const retry = retryInput as OfflineCaptureRetryPolicy;
+  const limits = retry.maxProviderAttempts;
   for (const provider of ['fred', 'twelve_data'] as const) {
     const cap = limits[provider];
     if (!Number.isSafeInteger(cap) || (cap as number) < compiled.plannedByProvider[provider]
@@ -119,7 +121,7 @@ export function replayOfflineCaptureAttempts(
   // Exact per-slot attempt identity. Duplicate delivery is not a new call;
   // conflicting replays are evidence tampering, never "last writer wins".
   const seen = new Map<string, string>();
-  for (const item of traceInput) {
+  for (const item of traceInput as unknown[]) {
     if (!isObj(item) || !exact(item, [
       'slotId', 'attempt', 'at', 'outcome', 'rawPayloadDigest', 'failureCode',
     ]) || typeof item.slotId !== 'string'
@@ -129,10 +131,10 @@ export function replayOfflineCaptureAttempts(
     }
     const at = instant(item.at);
     if (at === null) fail('INVALID_ATTEMPT_TIME');
-    if (at > cutoff) continue; // Never consult the future's outcome or digest.
+    if ((at as bigint) > (cutoff as bigint)) continue; // Never consult the future's outcome or digest.
     const slot = slots.get(item.slotId);
     if (!slot) fail('UNKNOWN_SLOT');
-    if (at < slot.start || at > slot.end) fail('ATTEMPT_OUTSIDE_SLOT');
+    if ((at as bigint) < slot!.start || (at as bigint) > slot!.end) fail('ATTEMPT_OUTSIDE_SLOT');
     const captured = item.outcome === 'CAPTURED';
     const error = item.outcome === 'RETRYABLE_FAILURE' || item.outcome === 'FAILED';
     if ((!captured && !error)
@@ -142,7 +144,7 @@ export function replayOfflineCaptureAttempts(
           || typeof item.failureCode !== 'string' || !FAILURE_CODES.has(item.failureCode)))) {
       fail('INVALID_OUTCOME');
     }
-    if ((item.attempt as number) > (retryInput.maxAttemptsPerSlot as number)) {
+    if ((item.attempt as number) > retry.maxAttemptsPerSlot) {
       fail('RETRY_LIMIT_EXCEEDED');
     }
     const id = item.slotId + '\u0000' + item.attempt;
@@ -157,14 +159,14 @@ export function replayOfflineCaptureAttempts(
       continue;
     }
     seen.set(id, normalized);
-    slot.attempts.push(item as unknown as MockCaptureAttempt);
+    slot!.attempts.push(item as unknown as MockCaptureAttempt);
   }
 
   let attemptsAccepted = 0;
   const attemptsByProvider = { fred: 0, twelve_data: 0 };
   const simulatedReceipts: CaptureAttemptReceipt[] = [];
   const pendingRetrySlots: string[] = [];
-  const wait = BigInt(retryInput.minimumRetryDelayMs as number) * 1_000_000n;
+  const wait = BigInt(retry.minimumRetryDelayMs) * 1_000_000n;
   for (const [id, slot] of slots) {
     slot.attempts.sort((a, b) => a.attempt - b.attempt);
     let previous: MockCaptureAttempt | null = null;
@@ -187,7 +189,7 @@ export function replayOfflineCaptureAttempts(
     if (previous.outcome === 'RETRYABLE_FAILURE') {
       // No invented terminal success or failure. A retryable failure without
       // another explicit event remains unaccounted for, even at deadline.
-      if (previous.attempt < (retryInput.maxAttemptsPerSlot as number)
+      if (previous.attempt < retry.maxAttemptsPerSlot
         && instant(previous.at)! + wait <= slot.end) pendingRetrySlots.push(id);
       continue;
     }
