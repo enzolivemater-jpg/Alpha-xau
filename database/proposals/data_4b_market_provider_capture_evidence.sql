@@ -64,7 +64,7 @@ CREATE TABLE public.market_capture_attempt_receipts (
 );
 
 CREATE INDEX idx_market_capture_receipts_as_of
-  ON public.market_capture_attempt_receipts (recorded_at, plan_id, slot_id);
+  ON public.market_capture_attempt_receipts (plan_id, recorded_at, slot_id);
 CREATE INDEX idx_market_capture_receipts_response
   ON public.market_capture_attempt_receipts (response_id)
   WHERE response_id IS NOT NULL;
@@ -194,7 +194,7 @@ $$;
 -- Read of receipts is complete-or-error, never silently truncated, and uses
 -- the database first-knowledge timestamp rather than an operator clock.
 CREATE OR REPLACE FUNCTION public.fn_market_capture_receipts_as_of(
-  p_cutoff TIMESTAMPTZ, p_max_rows INTEGER DEFAULT 2048
+  p_plan_id TEXT, p_cutoff TIMESTAMPTZ, p_max_rows INTEGER DEFAULT 2048
 )
 RETURNS TABLE (
   plan_id TEXT, slot_id TEXT, provider TEXT, source_record_id TEXT, symbol TEXT,
@@ -206,7 +206,60 @@ AS $$
 DECLARE
   v_count BIGINT;
 BEGIN
-  IF p_cutoff IS NULL OR NOT isfinite(p_cutoff) OR
+  IF p_plan_id IS NULL OR p_plan_id !~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}
+    p_max_rows IS NULL OR p_max_rows NOT BETWEEN 1 AND 10000 THEN
+    RAISE EXCEPTION 'invalid market receipt cutoff or bound' USING ERRCODE='22023';
+  END IF;
+  SELECT count(*) INTO v_count FROM public.market_capture_attempt_receipts a
+    WHERE a.plan_id=p_plan_id AND a.recorded_at <= p_cutoff;
+  IF v_count > p_max_rows THEN
+    RAISE EXCEPTION 'market receipt history exceeds explicit bound (% > %)',
+      v_count, p_max_rows USING ERRCODE='54000';
+  END IF;
+  RETURN QUERY SELECT a.plan_id,a.slot_id,a.provider,a.source_record_id,
+    a.symbol,a.outcome,a.source_received_at,a.recorded_at,a.failure_code,
+    r.content_sha256
+    FROM public.market_capture_attempt_receipts a
+    LEFT JOIN public.market_provider_responses r ON r.id=a.response_id
+    WHERE a.plan_id=p_plan_id AND a.recorded_at <= p_cutoff
+    ORDER BY a.recorded_at,a.slot_id;
+END;
+$$;
+
+ALTER TABLE public.market_provider_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.market_capture_attempt_receipts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.market_provider_responses FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON public.market_capture_attempt_receipts FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, INSERT (provider,source_record_id,symbol,body_bytes,source_received_at)
+  ON public.market_provider_responses TO service_role;
+GRANT SELECT, INSERT
+  (plan_id,slot_id,provider,source_record_id,symbol,outcome,response_id,failure_code,source_received_at)
+  ON public.market_capture_attempt_receipts TO service_role;
+
+REVOKE ALL ON FUNCTION public.fn_market_capture_proof_append_only()
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_market_capture_record_attempt(
+  TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TIMESTAMPTZ,BYTEA,TEXT
+) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_market_capture_receipts_as_of(
+  TEXT,TIMESTAMPTZ,INTEGER
+) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_market_capture_record_attempt(
+  TEXT,TEXT,TEXT,TEXT,TEXT,TEXT,TIMESTAMPTZ,BYTEA,TEXT
+) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_market_capture_receipts_as_of(
+  TEXT,TIMESTAMPTZ,INTEGER
+) TO service_role;
+
+COMMENT ON TABLE public.market_provider_responses IS
+  'DATA-4B NOT DEPLOYED: raw exact bytes, dedup per provider series, no claim of provider authentication.';
+COMMENT ON TABLE public.market_capture_attempt_receipts IS
+  'DATA-4B NOT DEPLOYED: explicit attempt receipts; an attempt ledger is not proof of a complete scheduler or market coverage.';
+COMMENT ON COLUMN public.market_capture_attempt_receipts.recorded_at IS
+  'Database first-knowledge time for as-of; not the supplier publication time or client-reported receipt time.';
+COMMIT;
+ OR
+    p_cutoff IS NULL OR NOT isfinite(p_cutoff) OR
     p_max_rows IS NULL OR p_max_rows NOT BETWEEN 1 AND 10000 THEN
     RAISE EXCEPTION 'invalid market receipt cutoff or bound' USING ERRCODE='22023';
   END IF;
