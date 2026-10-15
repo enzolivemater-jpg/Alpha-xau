@@ -73,6 +73,36 @@ const rejected = m.evaluateCollectorReadiness(mutate({
   status: 'REJECTED', rejection_reasons: ['CONTRACT_NOT_VERIFIED'],
 }), cutoff);
 assert.equal(rejected.status, 'INCOMPLETE');
+
+const schedule = {
+  schemaVersion: 'xau.capture-schedule-policy.v1',
+  planId: 'operator-declared-20261015',
+  windowStart: '2026-10-15T00:00:00.000Z',
+  windowEnd: '2026-10-17T00:00:00.000Z',
+  requestBudgets: {fred: 1, twelve_data: 0},
+  series: [{
+    provider: 'fred', symbol: 'US10Y', sourceRecordId: 'DGS10',
+    windows: [{
+      slotId: 'us10y-15',
+      earliestAt: '2026-10-15T08:00:00.000Z',
+      deadlineAt: '2026-10-15T08:05:00.000Z',
+    }],
+  }],
+};
+const bound = m.evaluateCollectorReadinessForSchedule(schedule, full(), cutoff);
+assert.deepEqual(bound, complete);
+assert.throws(() => m.evaluateCollectorReadinessForSchedule(
+  {...schedule, planId: 'another-plan'}, full(), cutoff,
+), /COLLECTOR_READINESS_PLAN_MISMATCH/);
+assert.throws(() => m.evaluateCollectorReadinessForSchedule(
+  {...schedule, requestBudgets: {fred: 0, twelve_data: 0}}, full(), cutoff,
+), /CAPTURE_SCHEDULE_BUDGET_EXCEEDED/);
+assert.throws(() => m.evaluateCollectorReadinessForSchedule(
+  {...schedule, series: [{...schedule.series[0], sourceRecordId: 'VIXCLS'}]},
+  full(), cutoff,
+), /CAPTURE_SCHEDULE_INVALID_SERIES/);
+assert.equal(bound.execution, 'FORBIDDEN');
+assert.equal(bound.providerAuthenticity, 'NOT_PROVEN');
 const source = readFileSync(new URL('../backend/market_engine/collector_readiness.ts', import.meta.url), 'utf8');
 assert.doesNotMatch(source, /\bfetch\(|process\.env|Date\.now\(|new Date\(\)|\bquery\(|\bexec\(/);
 const imports = listBackendImportClosure('market_engine/collector_readiness.ts');
