@@ -37,7 +37,7 @@ const full = () => ({
 const empty = m.evaluateCollectorReadiness({
   schemaVersion: m.COLLECTOR_READINESS_SCHEMA_VERSION,
   planId: 'operator-declared-20261015',
-  planFingerprint: m.fingerprintCaptureSchedule(schedule), gates: [],
+  planFingerprint, gates: [],
 }, cutoff);
 assert.equal(empty.status, 'INCOMPLETE');
 assert.equal(empty.missingGates.length, 11);
@@ -104,13 +104,13 @@ await assert.rejects(() => m.evaluateCollectorReadinessForSchedule({
     ...schedule.series[0].windows[0], deadlineAt: '2026-10-15T08:06:00.000Z',
   }]}],
 }, full(), cutoff), /COLLECTOR_READINESS_PLAN_MISMATCH/);
-assert.throws(() => m.evaluateCollectorReadinessForSchedule(
+await assert.rejects(() => m.evaluateCollectorReadinessForSchedule(
   {...schedule, planId: 'another-plan'}, full(), cutoff,
 ), /COLLECTOR_READINESS_PLAN_MISMATCH/);
-assert.throws(() => m.evaluateCollectorReadinessForSchedule(
+await assert.rejects(() => m.evaluateCollectorReadinessForSchedule(
   {...schedule, requestBudgets: {fred: 0, twelve_data: 0}}, full(), cutoff,
 ), /CAPTURE_SCHEDULE_BUDGET_EXCEEDED/);
-assert.throws(() => m.evaluateCollectorReadinessForSchedule(
+await assert.rejects(() => m.evaluateCollectorReadinessForSchedule(
   {...schedule, series: [{...schedule.series[0], sourceRecordId: 'VIXCLS'}]},
   full(), cutoff,
 ), /CAPTURE_SCHEDULE_INVALID_SERIES/);
