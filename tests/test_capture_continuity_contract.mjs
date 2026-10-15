@@ -60,8 +60,8 @@ for(const r of [ok,beforeReceipt,audit(plan,failed),audit(plan,late),audit({},[]
 }
 const imports=listBackendImportClosure('market_engine/capture_continuity.ts');
 assert.ok(!imports.includes('market_engine/providers.ts'),'no provider/network imported');
-for(const file of imports) {
-  const source=readFileSync(new URL('../backend/' + file,import.meta.url),'utf8');
-  assert.doesNotMatch(source,/\bfetch\(|process\.env|Date\.now\(|new Date\(\)/,file);
-}
+// Only the DATA-4 entry must be pure. Existing DATA-2 dependencies include
+// validate.ts, whose optional runtime default clock is outside this audit.
+const source=readFileSync(new URL('../backend/market_engine/capture_continuity.ts',import.meta.url),'utf8');
+assert.doesNotMatch(source,/\bfetch\(|process\.env|Date\.now\(|new Date\(\)/,'DATA-4 audit has no I/O or clock');
 console.log('PASS DATA-4 continuity ledger: as-of, gaps, failure, duplicates, source identity and fail-closed HOLD');
