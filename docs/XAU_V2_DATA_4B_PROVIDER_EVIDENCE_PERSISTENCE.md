@@ -29,8 +29,9 @@ L'identité \`plan_id + slot_id\` est unique et les deux tables sont en
 ajout seul. Une clé composite garantit que la réponse référencée
 appartient à la série annoncée. Une fonction d'écriture invoker insère
 réponse et reçu en une seule transaction ; un rejeu identique restitue
-le même reçu, une divergence échoue. Les reçus sont lisibles **as-of**
-par une RPC à borne explicite, complète-ou-erreur, ordonnée.
+le même reçu, une divergence échoue. Les reçus sont lisibles **as-of** uniquement pour un **plan_id** explicite
+par une RPC à borne explicite, complète-ou-erreur, ordonnée. Une lecture
+globale mélangeant les plans serait incorrecte et non bornable dans le temps.
 
 ## Sécurité et limites
 
