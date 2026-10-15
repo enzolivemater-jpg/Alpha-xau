@@ -103,7 +103,12 @@ export function normalizePersistedCaptureReceipts(
 export function auditPersistedCaptureContinuity(
   plan: unknown, rpcRows: unknown, knowledgeCutoff: string,
 ): CaptureContinuityAudit {
-  return auditCaptureContinuity(
-    plan, normalizePersistedCaptureReceipts(rpcRows, knowledgeCutoff), knowledgeCutoff,
-  );
+  if (!obj(plan) || typeof plan.planId !== 'string' || !IDENTIFIER.test(plan.planId)) {
+    throw new Error('CAPTURE_RPC_PLAN_INVALID');
+  }
+  const receipts = normalizePersistedCaptureReceipts(rpcRows, knowledgeCutoff);
+  if (!Array.isArray(rpcRows) || rpcRows.some((r: PersistedCaptureReceiptRow) => r.plan_id !== plan.planId)) {
+    throw new Error('CAPTURE_RPC_PLAN_MISMATCH');
+  }
+  return auditCaptureContinuity(plan, receipts, knowledgeCutoff);
 }
