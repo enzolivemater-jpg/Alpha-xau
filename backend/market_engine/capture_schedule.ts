@@ -114,7 +114,8 @@ export function compileCaptureSchedule(input: unknown): CompiledCaptureSchedule 
     const ordered: { slot: PlannedCaptureSlot; start: bigint; end: bigint }[] = [];
     for (const win of entry.windows) {
       if (!isRecord(win) || !hasExactly(win, ['slotId', 'earliestAt', 'deadlineAt'])
-          || typeof win.slotId !== 'string' || !IDENTIFIER.test(win.slotId)) {
+          || typeof win.slotId !== 'string' || !IDENTIFIER.test(win.slotId)
+          || typeof win.earliestAt !== 'string' || typeof win.deadlineAt !== 'string') {
         return refuse('INVALID_SLOT');
       }
       const start = safeUtc(win.earliestAt);
