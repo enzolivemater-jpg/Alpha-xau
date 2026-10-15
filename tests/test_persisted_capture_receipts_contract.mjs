@@ -34,6 +34,10 @@ assert.deepEqual(rec,[
 assert.deepEqual(adapter.normalizePersistedCaptureReceipts([a,b],cutoff),rec,'ordering independent');
 assert.deepEqual(adapter.auditPersistedCaptureContinuity(plan,[a,b],cutoff),
   audit.auditCaptureContinuity(plan,rec,cutoff),'DATA-4A is the one canonical audit');
+assert.throws(() => adapter.auditPersistedCaptureContinuity(plan,[{...a,plan_id:'other-plan'}],cutoff),
+  /CAPTURE_RPC_PLAN_MISMATCH/, 'a different plan can never enter this audit');
+assert.throws(() => adapter.auditPersistedCaptureContinuity({...plan,planId:'invalid plan'},[a,b],cutoff),
+  /CAPTURE_RPC_PLAN_INVALID/);
 const success=adapter.auditPersistedCaptureContinuity(plan,[a,b],cutoff);
 assert.equal(success.status,'ATTEMPTS_RECORDED');
 assert.equal(success.archiveCoverage,'NOT_ESTABLISHED');
