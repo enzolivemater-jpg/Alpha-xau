@@ -28,6 +28,7 @@ const t = (n, c, x = '') => { c ? (p++, console.log(`  OK  ${n}`)) : (f++, conso
 
 const source = readFileSync(new URL('../backend/ai_engine/committee_orchestrator.ts', import.meta.url), 'utf8');
 const lockSource = readFileSync(new URL('../backend/shared/run_lock.ts', import.meta.url), 'utf8');
+const timestampSource = readFileSync(new URL('../backend/shared/strict_timestamp.ts', import.meta.url), 'utf8');
 
 function extractBlock(src, startRegex) {
   const m = startRegex.exec(src);
@@ -87,6 +88,10 @@ const isAuthorizedSrc = extractBlock(source, /function isAuthorized\(request: Re
 const handleRequestSrc = extractBlock(source, /export async function handleRequest\(/);
 const timingSafeEqualSrc = extractBlock(source, /function timingSafeEqual\(a: string, b: string\)/);
 const isUniqueViolationSrc = extractBlock(lockSource, /export function isUniqueViolation\(message: string\)/);
+const timestampShapeMatch = /const SHAPE = .*;/.exec(timestampSource);
+if (!timestampShapeMatch) throw new Error('SHAPE introuvable dans strict_timestamp.ts.');
+const daysInMonthSrc = extractBlock(timestampSource, /function daysInMonth\(year: number, month: number\)/);
+const parseStrictTimestampSrc = extractBlock(timestampSource, /export function parseStrictTimestamp\(value: unknown\)/);
 
 const dir = mkdtempSync(join(tmpdir(), 'xau-ops009-'));
 const harnessPath = join(dir, 'harness.ts');
@@ -96,6 +101,9 @@ ${secretKeyPatternSrc}
 ${redactStringSrc}
 ${redactSrc}
 ${errorMessageSrc}
+${timestampShapeMatch[0]}
+${daysInMonthSrc}
+${parseStrictTimestampSrc}
 ${asRecordSrc}
 ${scopeHorizonsSrc}
 ${eventScopeSrc}
@@ -492,6 +500,28 @@ const results = {};
   };
 }
 
+// 21. triggered_at strict : une date impossible ou sans fuseau est REJETÉE
+//     avant toute réclamation, jamais décalée par Date.parse.
+{
+  const accepted = {};
+  for (const [label, value] of [
+    ['z', '2026-10-01T10:00:00.000Z'],
+    ['offset', '2026-10-01T12:00:00+02:00'],
+    ['feb30', '2026-02-30T10:00:00Z'],
+    ['hour24', '2026-10-01T24:00:00Z'],
+    ['no_zone', '2026-10-01T10:00:00'],
+    ['prose', 'Oct 1 2026 10:00 GMT'],
+    ['number', 1790848800000],
+  ]) {
+    const validation = validateCommitteeEvent(committeeEventBody('E-TS-' + label, { triggered_at: value }));
+    accepted[label] = validation.ok ? validation.event.triggered_at : null;
+  }
+  const db = new FakeDb();
+  __runCommitteeCallCount = 0;
+  const result = await handleCommitteeEvent(committeeEventBody('E-TS-FEB30', { triggered_at: '2026-02-30T10:00:00Z' }), makeEnv(db));
+  results.strict_triggered_at = { accepted, result, rows: db.rows.size, calls: __runCommitteeCallCount };
+}
+
 process.stdout.write(JSON.stringify({ results }));
 `;
 
@@ -610,6 +640,20 @@ console.log('--- P0-B (BLOCKER 1) : PANNE DE TRANSPORT (status=0) SUIT LE MEME C
   t('panne transport -> ai_events.status = FAILED (rejouable)', r.row.status === 'FAILED');
   t('panne transport -> releaseLock persiste providers.anthropic.failure_kind = TEMPORARILY_UNAVAILABLE',
     r.release?.providers?.anthropic?.failure_kind === 'TEMPORARILY_UNAVAILABLE');
+}
+
+console.log('--- triggered_at STRICT : jamais décalé ni lu en heure locale ---');
+{
+  const r = results.strict_triggered_at;
+  t('triggered_at Z -> accepté, canonique', r.accepted.z === '2026-10-01T10:00:00.000Z');
+  t('triggered_at avec offset -> converti en UTC', r.accepted.offset === '2026-10-01T10:00:00.000Z');
+  t('30 février -> rejeté (jamais lu comme le 2 mars)', r.accepted.feb30 === null);
+  t('24:00 -> rejeté (jamais lu comme le lendemain)', r.accepted.hour24 === null);
+  t('heure sans fuseau -> rejetée (jamais lue en heure locale)', r.accepted.no_zone === null);
+  t('forme libre -> rejetée', r.accepted.prose === null);
+  t('nombre -> rejeté', r.accepted.number === null);
+  t('date impossible -> INVALID_EVENT avant toute réclamation ni appel LLM',
+    r.result.status === 'INVALID_EVENT' && r.rows === 0 && r.calls === 0);
 }
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);

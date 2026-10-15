@@ -17,6 +17,13 @@ Canonical implementation:
 - `database/migrations/20261002092118_positioning_evidence_history_as_of.sql`;
 - `backend/positioning_engine/persisted_evidence.ts`.
 
+## Frozen versions
+
+- persistence schema: `xau.positioning-persistence.v1`;
+- adapter algorithm: `positioning-persisted-evidence-adapter-1.0.0`;
+- downstream evidence envelope: `xau.positioning-evidence.v1` /
+  `positioning-evidence-normalizer-1.0.0` (P-0).
+
 ## Evidence identity and revision semantics
 
 One identity is `(source_authority, dataset_code, instrument_code, metric_code,
