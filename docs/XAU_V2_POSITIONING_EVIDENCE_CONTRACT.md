@@ -24,10 +24,17 @@ finite value, unit, report period end, publication timestamp, system observation
 timestamp, retained artifact identifier and explicit revision identifier/null.
 The tuple is rejected if its shape is not exact, its timestamps are ambiguous,
 its date is impossible, it is duplicated, or publication/observation occurs
-after the supplied knowledge cutoff.
+after the supplied knowledge cutoff. Identity fields follow the P-1 schema
+checks: an explicit revision matches `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$` and
+the artifact identifier carries no surrounding whitespace, so P-0 accepts no
+evidence that persistence would reject.
 
 Supported units describe representation only: `CONTRACTS`, `PERCENT`, `RATIO`,
 and `INDEX`. They do not confer semantic comparability between datasets.
+
+Evidence is ordered field by field (identity, then publication, observation
+and artifact strings) in UTF-16 code-unit order, never by locale collation, so
+the envelope is identical whatever the host locale.
 
 ## Deliberate abstention
 

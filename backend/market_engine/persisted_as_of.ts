@@ -11,6 +11,7 @@ import {
   type MarketPricingAsOfFieldName,
   type MarketPricingAsOfSelection,
 } from './as_of_snapshot.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const MARKET_PRICING_PERSISTENCE_SCHEMA_VERSION = 'xau.market-pricing-persistence.v1' as const;
 export const MARKET_PRICING_PERSISTENCE_ALGORITHM_VERSION = 'market-pricing-persisted-as-of-adapter-1.0.0' as const;
@@ -42,16 +43,14 @@ const FIELD_SET: ReadonlySet<string> = new Set([
   'spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ISO_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const RPC_KEYS = [
   'candidate_id', 'evidence_revision', 'field', 'ingested_at',
   'observed_at', 'source', 'value',
 ] as const;
 
 function timestamp(value: unknown): { readonly milliseconds: number; readonly canonical: string } | null {
-  if (typeof value !== 'string' || !ISO_WITH_ZONE.test(value)) return null;
-  const milliseconds = Date.parse(value);
-  if (!Number.isFinite(milliseconds)) return null;
+  const milliseconds = parseStrictTimestamp(value);
+  if (milliseconds === null) return null;
   return { milliseconds, canonical: new Date(milliseconds).toISOString() };
 }
 
