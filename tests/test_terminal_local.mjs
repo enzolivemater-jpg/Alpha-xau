@@ -68,6 +68,10 @@ assert.equal(view.chain.chainState, 'HOLD');
 assert.equal(view.chain.execution, 'FORBIDDEN');
 assert.equal(view.chain.integrity, 'CONSISTENT');
 assert.equal(view.chain.digest, 'sha256:b39bad106bee8ccd0cc4269ee0fcd29ee1d5dd4f6f99637718c4dea22ec7a6f7', 'golden digest');
+const serverSource = readFileSync(new URL('../scripts/serve_terminal_local.mjs', import.meta.url), 'utf8');
+assert.doesNotMatch(serverSource, /computeDecisionChainDigest/, 'terminal may not compute an unchecked chain digest');
+assert.match(serverSource, /obs\.buildOfflineAuditReceipt\(outcome\.result\)/, 'terminal must use OBS-0 receipt');
+assert.match(serverSource, /STRUCTURALLY_VALID_HOLD_UNVERIFIED/, 'terminal must admit only structurally accepted receipt');
 assert.equal(view.origin.kind, 'GOLDEN_FIXTURE');
 assert.ok(Number.isFinite(Date.parse(view.generatedAt)));
 
