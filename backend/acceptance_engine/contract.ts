@@ -1,6 +1,7 @@
 /** E2E-0: institutional acceptance manifest and fail-closed gate. */
 
 import { ALERT_ALGORITHM_VERSION, ALERT_SCHEMA_VERSION } from '../alert_engine/contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const ACCEPTANCE_SCHEMA_VERSION = 'xau.institutional-acceptance.v1' as const;
 export const ACCEPTANCE_ALGORITHM_VERSION = 'institutional-acceptance-gate-1.0.0' as const;
@@ -52,15 +53,13 @@ export interface InstitutionalAcceptanceEnvelope {
   readonly knowledgeCutoff: string;
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
 /** E2E-0 records missing proof but never runs or grants acceptance. */
 export function buildInstitutionalAcceptanceGate(
   input: InstitutionalAcceptanceInput,
   knowledgeCutoff: string,
 ): InstitutionalAcceptanceEnvelope {
   const reasons = new Set<AcceptanceReasonCode>();
-  if (!TIMESTAMP.test(knowledgeCutoff) || !Number.isFinite(Date.parse(knowledgeCutoff))) {
+  if (!isStrictTimestamp(knowledgeCutoff)) {
     reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   }
   if (input.alert.schemaVersion !== ALERT_SCHEMA_VERSION
