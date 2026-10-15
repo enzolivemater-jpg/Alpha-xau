@@ -10,6 +10,7 @@ import {
   POSITIONING_SCHEMA_VERSION,
   type PositioningEvidenceEnvelope,
 } from '../positioning_engine/evidence_contract.js';
+import { isStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const REGIME_SCHEMA_VERSION = 'xau.regime-assessment.v1' as const;
 export const REGIME_ALGORITHM_VERSION = 'regime-dependency-gate-1.0.0' as const;
@@ -49,12 +50,6 @@ export interface RegimeAssessmentEnvelope {
   };
 }
 
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
-function validTimestamp(value: string): boolean {
-  return TIMESTAMP.test(value) && Number.isFinite(Date.parse(value));
-}
-
 /**
  * Validates the two upstream institutional envelopes but performs no regime
  * inference. R-0 exists to prevent legacy prose/LLM labels from crossing the
@@ -65,7 +60,7 @@ export function buildRegimeAssessmentContract(
   knowledgeCutoff: string,
 ): RegimeAssessmentEnvelope {
   const reasons = new Set<RegimeReasonCode>();
-  if (!validTimestamp(knowledgeCutoff)) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
+  if (!isStrictTimestamp(knowledgeCutoff)) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   if (input.marketPricing.knowledgeCutoff !== knowledgeCutoff
       || input.positioning.knowledgeCutoff !== knowledgeCutoff) {
     reasons.add('UPSTREAM_CUTOFF_MISMATCH');
@@ -75,14 +70,20 @@ export function buildRegimeAssessmentContract(
       || input.marketPricing.algorithmVersion !== MARKET_PRICING_ALGORITHM_VERSION) {
     reasons.add('MARKET_PRICING_VERSION_MISMATCH');
   }
-  if (input.marketPricing.state === 'ABSTAIN') reasons.add('MARKET_PRICING_ABSTAINED');
+  // Allowlist, not denylist: a state MP-0/P-0 v1 cannot emit fails closed.
+  if (input.marketPricing.state !== 'AVAILABLE' && input.marketPricing.state !== 'DEGRADED') {
+    reasons.add('MARKET_PRICING_ABSTAINED');
+  }
   if (input.marketPricing.state === 'DEGRADED') reasons.add('MARKET_PRICING_DEGRADED');
 
   if (input.positioning.schemaVersion !== POSITIONING_SCHEMA_VERSION
       || input.positioning.algorithmVersion !== POSITIONING_ALGORITHM_VERSION) {
     reasons.add('POSITIONING_VERSION_MISMATCH');
   }
-  if (input.positioning.evidenceState === 'ABSTAIN') reasons.add('POSITIONING_EVIDENCE_ABSTAINED');
+  if (input.positioning.evidenceState !== 'EVIDENCE_READY'
+      || input.positioning.positioningState !== 'UNAVAILABLE') {
+    reasons.add('POSITIONING_EVIDENCE_ABSTAINED');
+  }
   if (input.positioning.positioningState === 'UNAVAILABLE') reasons.add('POSITIONING_SIGNAL_UNAVAILABLE');
 
   reasons.add('REGIME_METHODOLOGY_NOT_APPROVED');
