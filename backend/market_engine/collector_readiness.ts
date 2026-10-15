@@ -3,7 +3,7 @@
  * All evidence is metadata/reference only; credentials and supplier bodies
  * must never be supplied. Even READY_FOR_HUMAN_REVIEW is not executable.
  */
-import { createHash } from 'node:crypto';
+import { sha256Canonical } from '../shared/canonical_json.js';
 import { compileCaptureSchedule } from './capture_schedule.js';
 import { parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
@@ -126,17 +126,17 @@ export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown
  * Still offline metadata validation only: no authorization or provenance grant.
  */
 /** A deterministic fingerprint of the canonical, compiled slot plan; not source authenticity. */
-export function fingerprintCaptureSchedule(declaredPolicy: unknown): string {
+export function fingerprintCaptureSchedule(declaredPolicy: unknown): Promise<string> {
   const compiled = compileCaptureSchedule(declaredPolicy);
-  return 'sha256:' + createHash('sha256').update(JSON.stringify(compiled.plan)).digest('hex');
+  return sha256Canonical(compiled.plan);
 }
 
-export function evaluateCollectorReadinessForSchedule(
+export async function evaluateCollectorReadinessForSchedule(
   declaredPolicy: unknown, packet: unknown, cutoffInput: unknown,
-): CollectorReadinessResult {
+): Promise<CollectorReadinessResult> {
   const compiled = compileCaptureSchedule(declaredPolicy);
   if (!isRecord(packet) || packet.planId !== compiled.plan.planId
-    || packet.planFingerprint !== fingerprintCaptureSchedule(declaredPolicy)) {
+    || packet.planFingerprint !== await sha256Canonical(compiled.plan)) {
     throw new Error('COLLECTOR_READINESS_PLAN_MISMATCH');
   }
   return evaluateCollectorReadiness(packet, cutoffInput);
