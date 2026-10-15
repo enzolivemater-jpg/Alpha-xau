@@ -121,8 +121,10 @@ export function replayOfflineCaptureAttempts(
   // Exact per-slot attempt identity. Duplicate delivery is not a new call;
   // conflicting replays are evidence tampering, never "last writer wins".
   const seen = new Map<string, string>();
-  for (const item of traceInput as unknown[]) {
-    if (!isObj(item) || !exact(item, [
+  for (const raw of traceInput as unknown[]) {
+    if (!isObj(raw)) fail('INVALID_ATTEMPT');
+    const item = raw as unknown as MockCaptureAttempt;
+    if (!exact(item as unknown as Record<string, unknown>, [
       'slotId', 'attempt', 'at', 'outcome', 'rawPayloadDigest', 'failureCode',
     ]) || typeof item.slotId !== 'string'
       || !Number.isSafeInteger(item.attempt)
