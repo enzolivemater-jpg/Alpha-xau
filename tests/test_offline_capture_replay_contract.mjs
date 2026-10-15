@@ -35,7 +35,7 @@ const trace = [
   event('xau-a',1,ts('09','01'),'RETRYABLE_FAILURE',null,'QUOTA'),
   event('xau-a',2,ts('09','02'),'CAPTURED',digest),
 ];
-const cutoff=ts('23','00');
+const cutoff='2026-10-16T00:00:00.000Z';
 const replay=(t=trace,when=cutoff,r=retry,p=policy)=>mod.replayOfflineCaptureAttempts(p,t,when,r);
 const result=replay();
 assert.equal(result.simulationOnly,true);
