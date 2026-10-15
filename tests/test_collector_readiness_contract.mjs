@@ -10,7 +10,7 @@ const approved = (gate_id) => ({
   evidence_digest: 'sha256:' + 'a'.repeat(64), reviewer: 'reviewer-1',
   reviewed_at_utc: '2026-10-15T12:00:00.000Z',
   expiry_or_review_due: '2026-10-17T12:00:00.000Z',
-  scope: 'operator-declared-20261015', version: 'v1', rejection_reasons: [],
+  scope: planFingerprint, version: 'v1', rejection_reasons: [],
 });
 const schedule = {
   schemaVersion: 'xau.capture-schedule-policy.v1',
@@ -78,6 +78,7 @@ reject(mutate({reviewed_at_utc: '2026-10-17T00:00:00.000Z'}), 'INVALID_APPROVAL'
 reject(mutate({expiry_or_review_due: cutoff}), 'INVALID_APPROVAL');
 reject(mutate({expiry_or_review_due: '2026-10-15T00:00:00.000Z'}), 'INVALID_APPROVAL');
 reject(mutate({scope: 'another-plan'}), 'INVALID_APPROVAL');
+reject(mutate({scope: schedule.planId}), 'INVALID_APPROVAL');
 reject(mutate({rejection_reasons: ['MISSING_EVIDENCE']}), 'INVALID_APPROVAL');
 reject(mutate({unrecognized: 'yes'}));
 reject(mutate({reviewed_at_utc: '2026-02-30T00:00:00.000Z'}));
@@ -99,6 +100,15 @@ assert.equal(rejected.status, 'INCOMPLETE');
 const bound = await m.evaluateCollectorReadinessForSchedule(schedule, full(), cutoff);
 assert.deepEqual(bound, complete);
 assert.match(full().planFingerprint, /^sha256:[0-9a-f]{64}$/);
+const budgetChanged = {...schedule, requestBudgets: {fred: 2, twelve_data: 0}};
+assert.notEqual(await m.fingerprintCaptureSchedule(budgetChanged), planFingerprint,
+  'a changed operator budget must change the reviewed plan fingerprint');
+await assert.rejects(
+  () => m.evaluateCollectorReadinessForSchedule(budgetChanged, full(), cutoff),
+  /COLLECTOR_READINESS_PLAN_MISMATCH/,
+);
+assert.ok(full().gates.every(g => g.scope === planFingerprint),
+  'every approved gate must be bound to the exact full plan, not just planId');
 await assert.rejects(() => m.evaluateCollectorReadinessForSchedule({
   ...schedule, series: [{...schedule.series[0], windows: [{
     ...schedule.series[0].windows[0], deadlineAt: '2026-10-15T08:06:00.000Z',
