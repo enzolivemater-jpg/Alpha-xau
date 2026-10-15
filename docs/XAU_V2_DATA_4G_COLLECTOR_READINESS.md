@@ -2,7 +2,7 @@
 
 Status: **DRAFT / OFFLINE ONLY / NOT APPROVED**. Parent: DATA-4F commit `e8acd86b28714118dafd260dddae18c3a286b51b`.
 
-Contract versions: `xau.collector-readiness.v2` and `collector-readiness-metadata-2.0.0`.
+Contract versions: `xau.collector-readiness.v3` and `collector-readiness-metadata-3.0.0`.
 
 ## Scope and non-goals
 
@@ -26,9 +26,9 @@ This is an operator review contract, **not** a collector, permission grant, supp
 
 ## Acceptance packet
 
-The packet requires `planId` and `planFingerprint` (`sha256:` of the canonical DATA-4E compiled slot plan). A changed slot, deadline, provider or source under the same `planId` must be rejected by `evaluateCollectorReadinessForSchedule`. The fingerprint establishes artifact binding only, **not independently verified provenance**. Calling the low-level metadata checker alone does not authenticate the plan; all runtime authorization remains forbidden.
+The packet requires `planId` and `planFingerprint` (`sha256:` of the canonical DATA-4E compiled slot plan, compiler versions **and operator request budgets**). A changed slot, deadline, provider, source or declared budget under the same `planId` must be rejected by `evaluateCollectorReadinessForSchedule`. The fingerprint establishes artifact binding only, **not independently verified provenance**. Calling the low-level metadata checker alone does not authenticate the plan; all runtime authorization remains forbidden.
 
-For each gate record: `gate_id`, `status` (PENDING / REJECTED / APPROVED), `evidence_reference`, `evidence_digest`, `reviewer`, `reviewed_at_utc`, `expiry_or_review_due`, `scope`, `version`, `rejection_reasons`. Evidence references must be opaque `private://review/...` or `evidence://...` identifiers (no HTTP URLs, URL query strings, credentials or raw responses); never store credentials or raw supplier responses in Git. An approval is valid only within its documented scope, period and exact reviewed artifact versions.
+For each gate record: `gate_id`, `status` (PENDING / REJECTED / APPROVED), `evidence_reference`, `evidence_digest`, `reviewer`, `reviewed_at_utc`, `expiry_or_review_due`, `scope`, `version`, `rejection_reasons`. Evidence references must be opaque `private://review/...` or `evidence://...` identifiers (no HTTP URLs, URL query strings, credentials or raw responses); never store credentials or raw supplier responses in Git. For `APPROVED` metadata, each gate's `scope` MUST equal the **full `planFingerprint`**, not merely the `planId`; otherwise the approval is rejected. An approval is valid only within its documented scope, period and exact reviewed artifact versions.
 
 **Decision rule:** missing, expired, unverifiable, inconsistent or unreviewed evidence => gate NOT APPROVED. A complete packet is necessary but not sufficient for runtime activation: production and trading require independent, explicit human decisions. No self-approval by CI or software. Current state for every gate: **PENDING**. System remains `OFFLINE_ONLY / HOLD / FORBIDDEN`.
 
