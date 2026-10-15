@@ -408,11 +408,11 @@ const offlineConsumers = new Set([
 for (const file of backendFiles) {
   const contents = readFileSync(path.join(ROOT, file), 'utf8');
   if (offlineConsumers.has(file)) {
-    assert.match(contents, /decision_chain\\//, `${file} must project the canonical chain`);
-    assert.doesNotMatch(contents, /\\bfetch\\(|process\\.env|Math\\.random\\(|Date\\.now\\(|new WebSocket\\(|SUPABASE_|ANTHROPIC_|OPENAI_/, file);
+    assert.match(contents, /decision_chain\//, file + ' must project the canonical chain');
+    assert.doesNotMatch(contents, /\bfetch\(|process\.env|Math\.random\(|Date\.now\(|new WebSocket\(|SUPABASE_|ANTHROPIC_|OPENAI_/, file);
   } else {
-    assert.doesNotMatch(contents, /decision_chain\\//,
-      `${file} imports CHAIN-0 outside the audited offline boundary`);
+    assert.doesNotMatch(contents, /decision_chain\//,
+      file + ' imports CHAIN-0 outside the audited offline boundary');
   }
 }
 
