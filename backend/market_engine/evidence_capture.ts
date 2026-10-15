@@ -75,6 +75,7 @@ export type CaptureRejection =
   | 'INVALID_INGESTED_AT'
   | 'INGESTION_OUT_OF_ORDER'
   | 'UNKNOWN_SERIES'
+  | 'RAW_PAYLOAD_IDENTITY_CONFLICT'
   | 'NO_USABLE_OBSERVATION'
   | 'ARCHIVE_WOULD_BE_INVALID';
 
@@ -156,7 +157,16 @@ export async function appendProviderCapture(
 
   const digest = await sha256Text(capture.body);
   if (Object.prototype.hasOwnProperty.call(archive.rawPayloads, digest)) {
-    return result({ outcome: 'ALREADY_CAPTURED', rawPayloadDigest: digest });
+    const existing = archive.rawPayloads[digest];
+    // Bytes alone are not a provider observation's identity. FRED responses
+    // can be byte-identical across different requested series; otherwise we
+    // would silently drop the second series as "already captured".
+    const sameIdentity = existing.parser === capture.provider && existing.symbol === capture.symbol
+      && archive.records.some((r) => r.rawPayloadDigest === digest && r.source === capture.provider
+        && r.sourceRecordId === capture.sourceRecordId);
+    return sameIdentity
+      ? result({ outcome: 'ALREADY_CAPTURED', rawPayloadDigest: digest })
+      : result({ outcome: 'REJECTED', rejection: 'RAW_PAYLOAD_IDENTITY_CONFLICT', rawPayloadDigest: digest });
   }
 
   const read = capture.provider === 'fred'
