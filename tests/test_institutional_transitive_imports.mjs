@@ -31,6 +31,11 @@ const CORE_ALLOWLIST = [
   'backend/market_engine/types.ts',
   // Reviewed deterministic validators used by canonical TV-2 CHAIN-0.
   'backend/market_engine/validate.ts',
+  // DATA-1 archive and canonical serialization are reviewed pure modules:
+  // the offline terminal imports their *types*; never admit providers/runtime.
+  'backend/market_engine/evidence_archive.ts',
+  'backend/market_engine/as_of_snapshot.ts',
+  'backend/shared/canonical_json.ts',
   'backend/shared/strict_timestamp.ts',
   'backend/positioning_engine/evidence_contract.ts',
 ];
