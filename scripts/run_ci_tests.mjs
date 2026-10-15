@@ -30,6 +30,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 const TEST_FILES = [
+  'tests/test_advisory_transport_contract.mjs',
+  'tests/test_advisory_ui_0_contract.mjs',
+  'tests/test_architecture_boundaries.mjs',
+  'tests/test_ci_inventory.mjs',
+  'tests/test_evidence_manifest_contract.mjs',
+  'tests/test_institutional_purity_guard.mjs',
+  'tests/test_institutional_transitive_imports.mjs',
+  'tests/test_temporal_contract.mjs',
+  'tests/test_unified_input_boundary.mjs',
+  'tests/test_unified_offline_rehearsal.mjs',
+  'tests/test_unified_receipt_gate.mjs',
   'tests/test_alert_contract.mjs',
   'tests/test_ai_committee_v2_contract.mjs',
   'tests/test_bea_pce_adapter.mjs',
