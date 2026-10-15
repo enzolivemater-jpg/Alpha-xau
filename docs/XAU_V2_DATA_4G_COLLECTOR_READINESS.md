@@ -28,12 +28,12 @@ For each gate record: `gate_id`, `status` (PENDING / REJECTED / APPROVED), `evid
 
 **Decision rule:** missing, expired, unverifiable, inconsistent or unreviewed evidence => gate NOT APPROVED. A complete packet is necessary but not sufficient for runtime activation: production and trading require independent, explicit human decisions. No self-approval by CI or software. Current state for every gate: **PENDING**. System remains `OFFLINE_ONLY / HOLD / FORBIDDEN`.
 
-## Validation plan (future implementation only if needed)
+## Validation implemented (offline metadata only)
 
-1. Pure schema validator rejecting unknown fields, invalid UTC, duplicate gate IDs, missing evidence and invalid state transitions.
-2. Negative tests: fabricated quota, digest-only authenticity, expired licence, calendar gaps, fake approval, wrong plan ID, failed restore, synthetic receipt as real proof.
+1. `backend/market_engine/collector_readiness.ts`: pure schema validator rejecting unknown fields, invalid UTC, duplicate gate IDs, missing or expired evidence, cross-plan approvals and inconsistent statuses. All results remain `OFFLINE_ONLY / HOLD / FORBIDDEN`.
+2. `tests/test_collector_readiness_contract.mjs` (registered in deterministic CI): invalid evidence digest, expiry, future review, wrong plan scope, duplicate gate, missing metadata and contradictory approval cases. This checks **metadata structure**, not actual supplier entitlement, licence validity, calendar completeness or independent provenance.
 3. No provider network, secret access, persistent database, broker, runtime clock or production changes.
-4. Review exact delta against DATA-4F and only then decide whether executable validation code adds value.
+4. Follow-up before any real collection: verify underlying evidence externally, perform documented licence/calendar/retention/recovery reviews, and separately authorize changes. A packet marked `READY_FOR_HUMAN_REVIEW` never means `APPROVED_FOR_RUNTIME`.
 
 ## Human-gate checklist
 
