@@ -3,6 +3,7 @@
  * All evidence is metadata/reference only; credentials and supplier bodies
  * must never be supplied. Even READY_FOR_HUMAN_REVIEW is not executable.
  */
+import { compileCaptureSchedule } from './capture_schedule.js';
 import { parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
 export const COLLECTOR_READINESS_SCHEMA_VERSION = 'xau.collector-readiness.v1' as const;
@@ -112,4 +113,19 @@ export function evaluateCollectorReadiness(packet: unknown, cutoffInput: unknown
     authorization: 'OFFLINE_ONLY', decision: 'HOLD', execution: 'FORBIDDEN',
     providerAuthenticity: 'NOT_PROVEN', calendarCompleteness: 'NOT_PROVEN',
   };
+}
+
+/**
+ * Bind a review packet to a DATA-4E validated plan before presentation.
+ * Packet self-declaration alone is insufficient to establish plan identity.
+ * Still offline metadata validation only: no authorization or provenance grant.
+ */
+export function evaluateCollectorReadinessForSchedule(
+  declaredPolicy: unknown, packet: unknown, cutoffInput: unknown,
+): CollectorReadinessResult {
+  const compiled = compileCaptureSchedule(declaredPolicy);
+  if (!isRecord(packet) || packet.planId !== compiled.plan.planId) {
+    throw new Error('COLLECTOR_READINESS_PLAN_MISMATCH');
+  }
+  return evaluateCollectorReadiness(packet, cutoffInput);
 }
