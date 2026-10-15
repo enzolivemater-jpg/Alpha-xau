@@ -399,8 +399,21 @@ for (const file of closure) {
 const backendFiles = spawnSync('git', ['ls-files', 'backend'], { cwd: ROOT, encoding: 'utf8' })
   .stdout.split('\n').filter((file) => file.endsWith('.ts') && !file.startsWith('backend/decision_chain/'));
 assert.ok(backendFiles.length > 40);
+// Only two explicitly reviewed, offline-only projection modules may consume
+// the canonical chain. Production handlers, market providers and brokers cannot.
+const offlineConsumers = new Set([
+  'backend/observability/offline_receipt.ts',
+  'backend/observability/unified_rehearsal.ts',
+]);
 for (const file of backendFiles) {
-  assert.doesNotMatch(readFileSync(path.join(ROOT, file), 'utf8'), /decision_chain\//, `${file} imports CHAIN-0`);
+  const contents = readFileSync(path.join(ROOT, file), 'utf8');
+  if (offlineConsumers.has(file)) {
+    assert.match(contents, /decision_chain\//, file + ' must project the canonical chain');
+    assert.doesNotMatch(contents, /\bfetch\(|process\.env|Math\.random\(|Date\.now\(|new WebSocket\(|SUPABASE_|ANTHROPIC_|OPENAI_/, file);
+  } else {
+    assert.doesNotMatch(contents, /decision_chain\//,
+      file + ' imports CHAIN-0 outside the audited offline boundary');
+  }
 }
 
 // --- 11. Static guards on source and documentation.
