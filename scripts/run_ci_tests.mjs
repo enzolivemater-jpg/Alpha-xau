@@ -35,6 +35,7 @@ const TEST_FILES = [
   'tests/test_architecture_boundaries.mjs',
   'tests/test_capture_continuity_contract.mjs',
   'tests/test_capture_schedule_contract.mjs',
+  'tests/test_offline_capture_replay_contract.mjs',
   'tests/test_persisted_capture_receipts_contract.mjs',
   'tests/test_ci_inventory.mjs',
   'tests/test_evidence_manifest_contract.mjs',
