@@ -111,7 +111,17 @@ randomness, clock or I/O).
 | Database / migrations | NOT_MIGRATED; none touched |
 | Recovery / security | FROZEN; REC-1 human gate |
 
-## Integration with the cloud branch (not done: permission)
+## Integration with the cloud branch (DONE locally on `integration/pr-149-plus-cloud-canonical-json`)
+
+Created from `4e132f4`; `84e5374` cherry-picked as `979d601` with no conflict (git auto-merged
+`scripts/run_ci_tests.mjs`; `grep -c test_canonical_json_contract` = 1, no duplicate). Verified on
+the integrated result: `npm run typecheck` clean; `npm test` **134/134** test files; `CI-GOV-1:
+159 tests accounted for (134 deterministic; 17 ephemeral PostgreSQL; 8 reviewed exceptions)`;
+`canonical_json contract: OK`, i.e. the cloud test passes against the 256-level `canonicalJson`
+bound. Nothing pushed; `main`, #149 and the cloud branch untouched. The paragraph below records
+the earlier analysis made while the branch could not yet be created.
+
+### Earlier analysis (before the integration branch existed)
 
 `origin/claude/xau-v2-nightly-20261016` = `84e5374be7c979c1407ede51ecd3ee7ab6360964`, one commit
 on the shared base `e1e70225`: `tests/test_canonical_json_contract.mjs` (new) and one line in
