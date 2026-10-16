@@ -13,10 +13,7 @@ offline contracts behave as written; every human gate in
 - `npm run typecheck`: clean.
 - `npm test`: 115/115 test files passed at `e1e70225`.
 
-## Commits (local only, never pushed)
-
-The first session had no git identity (commits blocked); the operator then
-configured one. Resolved. Commits on top of `e1e70225`:
+## Commits (local only, never pushed), oldest first
 
 | Change | Commit |
 |---|---|
@@ -24,50 +21,65 @@ configured one. Resolved. Commits on top of `e1e70225`:
 | 2 timestamp parity | `c96d34e` |
 | 3 + 5 capture lock/fsync, `--out` guard | `7641c9a` |
 | 4 RC-0 scenario parity test | `031c928` |
+| handoff v1 | `3ec3d22` |
+| 6 OBS-0 refuses an unhashable chain, CHAIN-0 mutation sweep | `0f3dadb` |
+| 7 DATA-1 replay non-string cutoff/pin, archive mutation sweep | `c07f20b` |
+| 8 DATA-4 audit echo, shared mutation helper, DATA-4 sweep | `d6fe8fc` |
+| 9 BLS employment adapter `TypeError`, adapters sweep | `b86637b` |
+| 10 EI/GT processors sweep | `57362a3` |
+| 11 decision gates forged-upstream sweep | `d4c0844` |
 
 ## Changes
 
-| # | Domain | Defect (demonstrated) | Fix | Files |
+| # | Domain | Defect (demonstrated) | Fix | Main files |
 |---|---|---|---|---|
-| 1 | Terminal / security | Local server bound to loopback but served any `Host`; a rebound hostname could read the CHAIN-0 view | `403` unless `Host` is exactly `127.0.0.1:<port>` or `localhost:<port>`, including a missing Host | `scripts/serve_terminal_local.mjs`, `tests/test_terminal_local_host_guard.mjs` (new), `scripts/run_ci_tests.mjs`, `docs/XAU_V2_TERMINAL_LOCAL_VIEW_CONTRACT.md` |
-| 2 | Time / gates | `shared/strict_timestamp.ts` (CHAIN-0, market, positioning, V2 gates) accepted year `0000`, `-00:00` and offsets to `±23:59`, which TIME-0 `parseStrictInstant` rejects | Same year/zone policy; 4480-string parity sweep requires identical accept/reject and identical millisecond instants | `backend/shared/strict_timestamp.ts`, `tests/test_strict_timestamp.mjs`, `docs/XAU_V2_TIME_0_STRICT_TEMPORAL_CONTRACT.md` |
-| 3 | DATA capture | `market_evidence_capture.mjs init/append` rewrote the whole log with no lock: concurrent writers could silently drop a capture; log not fsynced before rename | Exclusive `<log>.lock` (`O_EXCL`, fail fast, never auto-removed), `fsync` before rename; test covers held lock, independent logs, no leftovers, 6 concurrent appends with no lost success | `scripts/market_evidence_capture.mjs`, `tests/test_market_evidence_capture.mjs`, `docs/XAU_V2_MARKET_EVIDENCE_REPLAY_CONTRACT.md` |
+| 1 | Terminal / security | Loopback server served any `Host`: a rebound hostname could read the CHAIN-0 view | `403` unless `Host` is exactly `127.0.0.1:<port>` / `localhost:<port>`, including no Host | `scripts/serve_terminal_local.mjs`, `tests/test_terminal_local_host_guard.mjs` |
+| 2 | Time / gates | `shared/strict_timestamp.ts` accepted year `0000`, `-00:00`, offsets to `±23:59`; TIME-0 rejects them | Same policy; 4480-string parity sweep (accept/reject and millisecond instant) | `backend/shared/strict_timestamp.ts`, `tests/test_strict_timestamp.mjs` |
+| 3 | DATA capture | `market_evidence_capture.mjs` init/append: no lock (lost update), no fsync before rename | Exclusive `<log>.lock` (`O_EXCL`, fail fast, never auto-removed) + fsync; 6-process concurrency test | `scripts/market_evidence_capture.mjs` |
+| 4 | Integration RC-0 | Cross-system smoke covered the golden fixture only | All 6 non-archive terminal scenarios through terminal and unified rehearsal: identical view, deterministic, HOLD/FORBIDDEN, no ticket. `everything-granted`: CHAIN-0 completes, OBS-0 refuses the receipt (`UNSAFE_OUTPUT_PRESENT`), no fingerprint (by design, now asserted) | `tests/test_rc0_cross_system_contract.mjs` |
+| 5 | DATA tooling | `validate_evidence_captures.mjs` `--out` guard used a string prefix | Path-segment check | `scripts/validate_evidence_captures.mjs` |
+| 6 | Observability | NaN/Infinity in `marketSnapshot` passes input validation, is echoed by the abstaining MP-0 gate; the result is not hashable and `buildOfflineAuditReceipt` (hence rehearsal and terminal) threw | Receipt is REJECTED with `STAGE_INTEGRITY_INVALID`, never throws | `backend/observability/offline_receipt.ts`, `tests/test_decision_chain_mutation.mjs` |
+| 7 | DATA-1 | `replayMarketEvidence` threw on a NaN/Infinity cutoff or pinned digest (echoed into the hashed envelope) | Non-string cutoff = invalid cutoff; non-string pin never matches | `backend/market_engine/evidence_archive.ts`, `tests/test_market_evidence_mutation.mjs` |
+| 8 | DATA-4A | `auditCaptureContinuity` echoed a non-string cutoff into an unhashable audit | Invalid cutoff with empty echo | `backend/market_engine/capture_continuity.ts`, `tests/test_capture_chain_mutation.mjs`, `tests/lib/mutation_cases.mjs` |
+| 9 | Macro facts | `mapBlsEmploymentReleaseToEventFacts` threw `TypeError` when `summary.payroll` was `undefined` | Falls through to the `MALFORMED` shape check | `backend/event_facts/bls_employment_situation_adapter.ts`, `tests/test_event_facts_adapters_mutation.mjs` |
+| 10 | Event Impact / Gold Transmission | none found | Sweep only: 17214 hostile event versions, no throw, no mutation, deterministic, zero interpretations / paths | `tests/test_event_consumers_mutation.mjs` |
+| 11 | Decision gates | none found | Sweep only: ten gates called directly with forged upstream envelopes, authorizations, versions and cutoffs on the golden and everything-granted chains: no positive or forbidden-state output | `tests/test_decision_gates_forged_upstream.mjs` |
 
-| 4 | Integration (RC-0) | Cross-system smoke covered the golden fixture only; the plan requires the same accepted receipt and HOLD across every scenario | `tests/test_rc0_cross_system_contract.mjs` now runs all 6 non-archive terminal scenarios through both the local terminal and the unified rehearsal: identical terminal view, deterministic replay, HOLD/FORBIDDEN, no trade ticket, packet actionability NONE. Finding: `everything-granted` completes CHAIN-0 but OBS-0 refuses its receipt (`UNSAFE_OUTPUT_PRESENT`), so no fingerprint is shown (by design, now asserted). Test only, no production code change | `tests/test_rc0_cross_system_contract.mjs` |
-| 5 | DATA tooling | `validate_evidence_captures.mjs` `--out` guard used a string prefix (`startsWith(dirname)`), so a sibling directory such as `<dir>-sibling` was refused as if inside the source directory | Path-segment check via `path.relative`; the source directory itself is still refused | `scripts/validate_evidence_captures.mjs`, `tests/test_market_evidence_capture.mjs` |
+Mutation sweeps (6–11) share `tests/lib/mutation_cases.mjs` (deterministic: node
+replacement by 25 hostile values, removal, unknown key, own `__proto__` key; no
+randomness, clock or I/O).
 
 ## Validation (real runs, this worktree)
 
-- After change 1: `npm test` 116/116, `npm run typecheck` clean.
-- After change 2: `npm test` 116/116, `npm run typecheck` clean. First run of the new
-  sweep failed only on my own coverage threshold (not on parser disagreement); fixed.
-- After change 3: `npm test` 116/116. (Typecheck covers `.ts` only; the `.mjs` script is exercised by the test.)
-- After changes 4–5: `npm test` 116/116.
-- Red-before-fix was **not** observed in isolation for change 1 (the first run
-  failed with output truncated, so which assertion failed was not seen) or for
-  changes 2–3. Direct `node tests/...` runs are refused by the session policy; only
-  `npm test` / `npm run typecheck` run.
+- Final state of this handoff: `npm run typecheck` clean; `npm test` **121/121**
+  test files at the last run (before the final docs-only commit).
+- Each change was followed by a full `npm test` and, for `.ts` edits, `npm run typecheck`.
+- Red-before-fix was observed for changes 6, 7, 8, 9 (the new sweep failed first,
+  with the stack naming the defect). It was **not** observed in isolation for
+  changes 1–3 (first run's output was truncated). Direct `node tests/...` runs are
+  refused by the session policy; only `npm test` / `npm run typecheck` run.
 - Not run: the 17 PostgreSQL tests (need an ephemeral database / CI), and the 8
-  documented exemptions.
+  documented exemptions. Frontend layout check (needs headless Chromium) not run.
 
 ## Domain status (unchanged unless stated)
 
 | Domain | Status |
 |---|---|
-| DATA (4A–4G, capture, archives) | OFFLINE_ONLY, HISTORICAL_UNVERIFIED; capture log now writer-locked (change 3). Real captures, DXY/bid/ask, supplier rights absent |
-| Macro / Event Impact / Gold Transmission | NOT_APPROVED; insufficiency preserved, no consensus provider |
-| Market Pricing, horizons, committee, PM, risk, action | HOLD / FORBIDDEN; contract-level only |
-| Terminal | READ_ONLY, simulated/origin labelled; Host guard added (change 1) |
-| Time contracts | Two parsers now in parity by test (change 2); not consolidated |
+| DATA (4A–4G, capture, archives) | OFFLINE_ONLY, HISTORICAL_UNVERIFIED; capture log writer-locked (3); replay/audit harden against non-string cutoffs (7, 8). Real captures, DXY/bid/ask, supplier rights absent |
+| Macro / Event Impact / Gold Transmission | NOT_APPROVED; insufficiency preserved, no consensus provider; July 2026 employment stays `UNAVAILABLE` (asserted) |
+| Market Pricing, horizons, committee, PM, risk, action, CC, alerts, acceptance | HOLD / FORBIDDEN; contract-level only, no positive output reachable under forged upstream (11) |
+| Terminal | READ_ONLY, simulated/origin labelled; Host guard (1) |
+| Time contracts | Two parsers in parity by test (2); not consolidated |
 | Database / migrations | NOT_MIGRATED; none touched |
 | Recovery / security | FROZEN; REC-1 human gate |
 
 ## Remaining / next
 
-1. Create the commits above (needs a git identity).
-2. Confirm in CI (ephemeral PostgreSQL included) on the exact head commit.
-3. Known and left alone: `validate_evidence_captures.mjs` picks each source's
-   latest `ingestedAt` with a lexical `sort()`, which mis-orders `…:00Z` against
-   `…:00.500Z`; it only affects which cutoff the per-source check replays at.
-4. Not yet examined: frontend degraded modes, committee/orchestrator paths,
-   `backend/worker.ts` routes (runtime, deploy-gated).
+1. Confirm in CI (ephemeral PostgreSQL included) on the exact head commit.
+2. Known and left alone: `validate_evidence_captures.mjs` picks each source's
+   latest `ingestedAt` with a lexical `sort()` (mis-orders `…:00Z` against
+   `…:00.500Z`); it only affects which cutoff the per-source check replays at.
+3. Not yet swept: official artifact parsers (BLS HTML, DOL PDF text, CPI), the
+   advisory UI / transport / evidence-manifest gates with direct hostile input,
+   terminal view builder with hostile replays, frontend degraded modes,
+   committee/orchestrator legacy paths, `backend/worker.ts` routes (deploy-gated).
