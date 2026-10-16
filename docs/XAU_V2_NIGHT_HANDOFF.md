@@ -35,6 +35,10 @@ offline contracts behave as written; every human gate in
 | 16 MP-1 / MP-2 / P-0 / P-1 / validatePoint / capture hardening | `2031ac2` |
 | 17 identity-key ambiguity and non-JSON state at the write boundary | `ba0b0f5` |
 | 18 deterministic nesting bound (`canonicalJson`, CPI writer) | `19dd94d` |
+| 19 terminal shows a fingerprint only if well-formed and chain CONSISTENT | `32821ee` |
+| 20 empty archive pin disabled the pin; hostile `--input`/`--archive` files | `1f738ee` |
+| 21 render isolation: guard-passing hostile views never half-drawn | `dd65100` |
+| 22 ECB / Fed RSS: unclosed item took the next item's date and description | `5326ea3` |
 
 ## Changes
 
@@ -60,16 +64,23 @@ offline contracts behave as written; every human gate in
 | 17 | Event facts write boundary | The strong identity key joins namespace/type/value with U+001F (also `chr(31)` in frozen SQL), so two different triples hash alike; the CPI writer's "JSON" check let `Map`, `Set`, `Date`, class instances, getters and sparse arrays through | Application boundary refuses U+001F in identity fields (no adapter emits it); strictly plain JSON required. **SQL not changed** (migration gate) | `backend/event_facts/{release_identity_lookup,bls_cpi_production_writer}.ts`, `tests/test_event_facts_write_boundary_mutation.mjs` |
 | 18 | Shared | `canonicalJson` recursed unbounded: deep or circular input overflowed the stack with a host-dependent `RangeError`; the new strict-JSON check did too | Fixed bound (256 levels; 64 for the CPI writer state) with a typed `TypeError` / `false`; 30 entry points fed 2,000–300,000 levels | `backend/shared/canonical_json.ts`, `tests/test_deep_nesting.mjs` |
 
+| 19 | Terminal | `buildTerminalView` displayed whatever digest the caller passed (callers derive it from an accepted receipt, guarded only by a source-grep test) | Shown only if `sha256:<64 hex>` and the chain is `CONSISTENT` (defence in depth) | `backend/decision_chain/terminal_view.ts`, `tests/test_terminal_view.mjs` |
+| 20 | Terminal / DATA CLI | **A requested pin was silently dropped when empty**: `buildLocalView({archiveDigest: ''})` and `market_evidence_capture.mjs replay --digest ""` applied the pin only when truthy, so the replay was not pinned. Hostile `--input`/`--archive` files: none other found (59 views, all HOLD, no HTTP 500) | A requested pin is always applied (`!== undefined`) | `scripts/serve_terminal_local.mjs`, `scripts/market_evidence_capture.mjs`, `tests/test_terminal_local_hostile_files.mjs` |
+| 21 | Terminal front | none found: 18 views passing `v2Problem` with `null` items, wrong types, minimal sections → 17 drawn whole, 1 safe fallback, no uncaught page error, no leaked marker | Test only | `tests/test_terminal_render_isolation.mjs` |
+| 22 | Macro / news | **Wrong publication date accepted.** ECB and Fed extracted items with a lazy `<item>…</item>`; a missing `</item>` merged two items and the first took the second's description and `pubDate`. 20,000 unclosed items cost ~4 s | One linear tag pass; an item opened while another is open is dropped and reported (`ecb_item_unclosed`, `fed_item_unclosed`); items over 64,000 chars refused. OFAC / Treasury already handle unclosed containers (their tests cover it) | `backend/news_sources/{ecb,federal_reserve}.ts`, `tests/test_news_feed_structure_mutation.mjs` |
+
+Reviewed with no change needed: the five `isAuthorized` implementations (token unset or empty → refuse; constant-time compare), tracked files for secrets (only placeholder test tokens), `wrangler.toml` and `frontend/index.html` (no secret, empty Supabase / V2 URLs), BLS CPI planner / orchestrator (injected dependencies, errors mapped to `BLOCKED`).
+
 Mutation sweeps (6–18) share `tests/lib/mutation_cases.mjs` (deterministic: node
 replacement by 25 hostile values, removal, unknown key, own `__proto__` key; no
 randomness, clock or I/O).
 
 ## Validation (real runs, this worktree)
 
-- Final state of this handoff: `npm run typecheck` clean; `npm test` **129/129**
+- Final state of this handoff: `npm run typecheck` clean; `npm test` **132/132**
   test files at the last run (all code commits included; later commits are docs-only).
-  Baseline was 115; the 14 new files are the mutation/boundary sweeps above plus the
-  Host-guard test.
+  Baseline was 115; the 17 new files are the mutation/boundary sweeps above, the
+  Host-guard, hostile-files, render-isolation and feed-structure tests.
 - The `.mjs` scripts (capture CLI, terminal server) are covered by tests, not by `tsc`.
 - Each change was followed by a full `npm test` and, for `.ts` edits, `npm run typecheck`.
 - Red-before-fix was observed for changes 6, 7, 8, 9 (the new sweep failed first,
