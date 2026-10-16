@@ -618,6 +618,17 @@ function marketEvidenceOf(replay: MarketEvidenceReplay | null): TerminalMarketEv
 const errorText = (error: { readonly path: string; readonly code: string }) =>
   `${error.path === '' ? '<input>' : error.path}: ${error.code}`;
 
+const FINGERPRINT = /^sha256:[0-9a-f]{64}$/;
+
+/**
+ * The fingerprint comes from an accepted OBS-0 receipt, chosen by the caller.
+ * As defence in depth the view shows it only if it has the fingerprint shape and
+ * the chain it names is internally consistent: a violated chain never carries one.
+ */
+function displayedFingerprint(digest: unknown, integrity: string): string | null {
+  return typeof digest === 'string' && FINGERPRINT.test(digest) && integrity === 'CONSISTENT' ? digest : null;
+}
+
 export function buildTerminalView(
   outcome: DecisionChainOutcome,
   digest: string | null,
@@ -726,7 +737,7 @@ export function buildTerminalView(
       violations: result.violations.map(({ stage, code }) => ({ stage, code })),
       inputFindings: result.inputFindings.map(({ field, code }) => ({ field, code })),
       rejection: null,
-      digest,
+      digest: displayedFingerprint(digest, result.integrity),
     },
     stages,
     market: {

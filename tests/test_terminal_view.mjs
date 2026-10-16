@@ -269,6 +269,16 @@ assert.equal(violated.summary.status, 'INTEGRITY_VIOLATED');
 assert.match(violated.summary.headline, /incohérence interne/);
 console.log('PASS a violated chain marks the offending stage BLOCKED with an INTEGRITY blocker');
 
+// --- A fingerprint is displayed only with the right shape and for a consistent chain.
+for (const bad of ['<script>alert(1)</script>', 'sha256:XYZ', `sha256:${'A'.repeat(64)}`, `sha256:${'a'.repeat(63)}`, `md5:${'a'.repeat(64)}`,
+  '', ' ', `${digest} `, 7, {}, [digest], true]) {
+  assert.equal(tv.buildTerminalView(outcome, bad, ORIGIN, AT).chain.digest, null, `fingerprint ${JSON.stringify(bad)} is not shown`);
+}
+assert.equal(tv.buildTerminalView(outcome, digest, ORIGIN, AT).chain.digest, digest, 'a well-formed fingerprint on a consistent chain is shown');
+assert.equal(tv.buildTerminalView({ kind: 'COMPLETED', result: { ...tampered, integrity: 'VIOLATED', violations } }, digest, ORIGIN, AT).chain.digest,
+  null, 'a violated chain never carries a fingerprint, even a well-formed one');
+console.log('PASS the terminal shows a fingerprint only when well-formed and for a consistent chain');
+
 // --- An unknown reason code is shown unclassified, never dropped.
 const odd = structuredClone(outcome.result);
 odd.trace[0].reasonCodes = [...odd.trace[0].reasonCodes, 'NEW_CODE'];
