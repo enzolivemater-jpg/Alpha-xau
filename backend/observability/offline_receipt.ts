@@ -139,11 +139,18 @@ export async function buildOfflineAuditReceipt(raw: unknown): Promise<OfflineAud
     }
   }
 
+  // A result that cannot be canonically serialized (a non-finite number echoed
+  // by an abstaining stage, say) cannot back a receipt: refuse it, never throw.
+  let fingerprint: string | null = null;
+  if (problems.size === 0) {
+    try {
+      fingerprint = await computeDecisionChainDigest(raw as DecisionChainDryRunResult);
+    } catch {
+      problems.add('STAGE_INTEGRITY_INVALID');
+    }
+  }
   const ordered = PROBLEM_ORDER.filter((p) => problems.has(p));
   const valid = ordered.length === 0;
-  const fingerprint = valid
-    ? await computeDecisionChainDigest(raw as DecisionChainDryRunResult)
-    : null;
   return {
     schemaVersion: OFFLINE_RECEIPT_SCHEMA_VERSION,
     algorithmVersion: OFFLINE_RECEIPT_ALGORITHM_VERSION,

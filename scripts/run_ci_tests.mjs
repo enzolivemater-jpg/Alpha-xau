@@ -68,6 +68,7 @@ const TEST_FILES = [
   'tests/test_contract_version_registry.mjs',
   'tests/test_decision_chain_contract.mjs',
   'tests/test_decision_chain_dry_run.mjs',
+  'tests/test_decision_chain_mutation.mjs',
   'tests/test_decision_chain_scenarios.mjs',
   'tests/test_ecb_collector.mjs',
   'tests/test_ecb_raw_integration.mjs',
