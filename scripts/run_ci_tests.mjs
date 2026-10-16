@@ -75,6 +75,7 @@ const TEST_FILES = [
   'tests/test_ecb_raw_integration.mjs',
   'tests/test_event_cluster_relation_contract.mjs',
   'tests/test_event_deterministic_processor.mjs',
+  'tests/test_event_consumers_mutation.mjs',
   'tests/test_event_facts_adapters_mutation.mjs',
   'tests/test_event_facts_ces_v2_consumers.mjs',
   'tests/test_event_facts_ces_v2_persistence.mjs',
