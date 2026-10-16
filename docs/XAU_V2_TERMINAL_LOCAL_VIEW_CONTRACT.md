@@ -172,6 +172,10 @@ The server:
   disabling it (`tests/test_terminal_local_hostile_files.mjs`);
 - shows a chain fingerprint only if it has the `sha256:<64 hex>` shape and the chain is
   `CONSISTENT`;
+- never leaves a half-drawn view: for 18 views that pass the client guard but carry `null`
+  items, wrong types or minimal sections, the page either draws the whole view or falls back
+  to its refused / error state with nothing of the view visible, and raises no uncaught page
+  error (`tests/test_terminal_render_isolation.mjs`);
 - serves `frontend/` read-only and refuses paths outside it;
 - serves the page with a strict Content-Security-Policy: the only inline
   script allowed is the configuration block, by its SHA-256 after injection;
