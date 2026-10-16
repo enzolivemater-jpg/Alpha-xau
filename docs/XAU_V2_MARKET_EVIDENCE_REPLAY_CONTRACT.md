@@ -151,6 +151,13 @@ archive is `SYNTHETIC_FIXTURE` unless initialized with `--class CAPTURED
 --attest-captured`, the operator's statement that every body came unmodified
 from the provider. Test: `tests/test_market_evidence_capture.mjs`.
 
+`replayMarketEvidence` never throws on untrusted input: a non-string cutoff is
+treated as an invalid cutoff and a non-string pinned digest never matches (both
+would otherwise be echoed into the hashed envelope). `tests/test_market_evidence_mutation.mjs`
+sweeps 4109 hostile archives, cutoffs and pins through replay, CHAIN-0, OBS-0 and
+the terminal view: no exception, HOLD/FORBIDDEN everywhere, and an INVALID replay
+exposes no market value.
+
 `init` and `append` rewrite the whole log, so they take an exclusive writer lock
 (`<log>.lock`, created with `O_EXCL`). A second writer exits 1 immediately and
 leaves the log untouched, instead of silently dropping a capture in a

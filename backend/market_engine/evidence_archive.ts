@@ -341,6 +341,12 @@ export async function replayMarketEvidence(
   knowledgeCutoff: string,
   options: MarketEvidenceReplayOptions = {},
 ): Promise<MarketEvidenceReplay> {
+  // JavaScript callers can pass anything. The replay echoes both values into a
+  // hashed envelope, so a non-string (NaN, an object...) must not reach it: a
+  // non-string cutoff is an invalid (empty) cutoff, a non-string pin never matches.
+  const requestedCutoff: unknown = knowledgeCutoff;
+  knowledgeCutoff = typeof requestedCutoff === 'string' ? requestedCutoff : '';
+  const requestedPin: unknown = options.pinnedArchiveDigest ?? null;
   const findings: MarketEvidenceFinding[] = [];
   const add = (code: MarketEvidenceReasonCode, index: number | null = null, evidenceId: string | null = null) => {
     if (!findings.some((f) => f.code === code && f.index === index)) findings.push({ code, index, evidenceId });
@@ -354,8 +360,8 @@ export async function replayMarketEvidence(
   } catch {
     add('ARCHIVE_SHAPE_INVALID');
   }
-  const pinned = options.pinnedArchiveDigest ?? null;
-  if (pinned !== null && archiveDigest !== pinned) add('ARCHIVE_DIGEST_MISMATCH');
+  const pinned = typeof requestedPin === 'string' ? requestedPin : null;
+  if (requestedPin !== null && (pinned === null || archiveDigest !== pinned)) add('ARCHIVE_DIGEST_MISMATCH');
 
   const shapeOk = archiveShapeValid(archive);
   if (!shapeOk) add('ARCHIVE_SHAPE_INVALID');

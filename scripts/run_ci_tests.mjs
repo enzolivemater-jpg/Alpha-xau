@@ -117,6 +117,7 @@ const TEST_FILES = [
   'tests/test_market_pricing_persistence_contract.mjs',
   'tests/test_market_evidence_replay.mjs',
   'tests/test_market_evidence_capture.mjs',
+  'tests/test_market_evidence_mutation.mjs',
   'tests/test_notification_horizon_provider_circuit.mjs',
   'tests/test_official_source_artifacts_contract.mjs',
   'tests/test_ofac_collector.mjs',
