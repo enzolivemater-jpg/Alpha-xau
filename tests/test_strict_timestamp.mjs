@@ -8,7 +8,8 @@ const { parseStrictTimestamp, isStrictTimestamp } = await loadBackendModule('sha
 for (const value of [
   '2026-10-01T14:15:00Z', '2026-10-01T14:15:00.000Z', '2026-10-01T14:15:00.123456789Z',
   '2026-10-01T16:15:00+02:00', '2026-10-01T09:15:00-05:00', '2024-02-29T00:00:00Z',
-  '2000-02-29T23:59:59Z', '2026-12-31T23:59:59.999Z', '2026-10-01T00:00:00+23:59',
+  '2000-02-29T23:59:59Z', '2026-12-31T23:59:59.999Z', '2026-10-01T00:00:00+14:00',
+  '2026-10-01T00:00:00-12:00', '0001-01-01T00:00:00Z',
 ]) {
   assert.equal(parseStrictTimestamp(value), Date.parse(value), value);
   assert.equal(isStrictTimestamp(value), true, value);
@@ -20,9 +21,41 @@ for (const value of [
   '2026-10-01T24:00:00Z', '2026-10-01T23:60:00Z', '2026-10-01T23:59:60Z', '2026-00-10T00:00:00Z',
   '2026-13-01T00:00:00Z', '2026-10-00T00:00:00Z', '2026-10-01T10:00:00+24:00',
   '2026-10-01T10:00:00+05:60',
+  // Zone and year policy shared with TIME-0: no impossible offsets, no unknown
+  // local offset (-00:00), no year 0000.
+  '2026-10-01T00:00:00+23:59', '2026-10-01T00:00:00+14:01', '2026-10-01T00:00:00-14:30',
+  '2026-10-01T00:00:00+15:00', '2026-10-01T00:00:00-00:00', '0000-01-01T00:00:00Z',
 ]) {
   assert.equal(parseStrictTimestamp(value), null, value);
 }
+assert.notEqual(parseStrictTimestamp('2026-10-01T00:00:00+00:00'), null, '+00:00 stays valid');
+
+// One timestamp policy across both shared parsers: CHAIN-0's parser and TIME-0
+// must accept exactly the same strings and agree on the millisecond instant.
+const temporal = await loadBackendModule('shared/temporal_contract.ts');
+const probes = [];
+for (const year of ['0000', '0001', '1900', '2000', '2024', '2026', '9999']) {
+  for (const md of ['01-01', '02-28', '02-29', '02-30', '04-31', '12-31', '13-01', '00-10']) {
+    for (const hms of ['00:00:00', '23:59:59', '24:00:00', '23:60:00', '12:00:60']) {
+      for (const tail of ['Z', '.5Z', '.123456789Z', '+00:00', '-00:00', '+05:30', '-12:00', '+14:00',
+        '+14:01', '-14:30', '+23:59', '-23:59', '+24:00', '+05:60', 'z', '']) {
+        probes.push(`${year}-${md}T${hms}${tail}`);
+      }
+    }
+  }
+}
+let accepted = 0;
+for (const value of probes) {
+  const strict = parseStrictTimestamp(value);
+  const instant = temporal.parseStrictInstant(value);
+  assert.equal(strict !== null, instant !== null, `parsers disagree on ${value}`);
+  if (instant !== null) {
+    accepted += 1;
+    assert.equal(strict, Number(instant.epochNanoseconds / 1_000_000n
+      - (instant.epochNanoseconds % 1_000_000n < 0n ? 1n : 0n)), `millisecond instant differs on ${value}`);
+  }
+}
+assert.ok(accepted > 200 && accepted < probes.length / 2, `the sweep exercises both outcomes (${accepted}/${probes.length})`);
 
 // Shape is unchanged: zone required, fraction 1-9 digits, colon offsets only.
 for (const value of [

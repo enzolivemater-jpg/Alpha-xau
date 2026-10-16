@@ -26,6 +26,8 @@ Run `node --experimental-strip-types tests/test_temporal_contract.mjs`, `npm run
 
 Only after source review, forward-port uses of TIME-0 to EVIDENCE-0, hardened OBS-0 and UI-0 in an **isolated composite rehearsal**, updating the existing tests/transpilation sources and ARCH-2/ARCH-3 allowlist together. Never replace hardened OBS-0 with a less protected old snapshot (the PR #117 regression). Recheck invalid dates, nano ordering, offset equality and all HOLD / ABSTAIN / FORBIDDEN invariants.
 
+**Parser parity (RC-0 remediation).** `backend/shared/strict_timestamp.ts` (used by CHAIN-0, market, positioning and the V2 gates) and `parseStrictInstant` previously diverged: the former accepted year `0000`, the unknown-offset marker `-00:00` and offsets up to `±23:59`. It now applies the TIME-0 zone and year policy, and `tests/test_strict_timestamp.mjs` sweeps 4480 probe strings to require identical accept/reject decisions and identical millisecond instants. The parsers remain two modules (the committee/retry tests extract `parseStrictTimestamp` verbatim); this is parity by test, not consolidation.
+
 Future broad use by already-merged regime, pricing, positioning or acceptance gates requires separate reviewed localized PRs. A TIME-0 helper does not itself approve any upstream data, methodology, runtime, migration or action.
 
 **Human gates remain closed.**

@@ -8,7 +8,7 @@
  * `YYYY-MM-DDTHH:MM:SS[.f{1,9}](Z|±HH:MM)`.
  */
 
-const SHAPE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/;
+const SHAPE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|([+-])(\d{2}):(\d{2}))$/;
 
 function daysInMonth(year: number, month: number): number {
   const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -21,11 +21,18 @@ export function parseStrictTimestamp(value: unknown): number | null {
   const match = SHAPE.exec(value);
   if (match === null) return null;
   const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
-  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)
+  if (year === 0 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)
       || hour > 23 || minute > 59 || second > 59) {
     return null;
   }
-  if (match[7] !== undefined && (Number(match[7]) > 23 || Number(match[8]) > 59)) return null;
+  // Same zone policy as TIME-0 (temporal_contract.ts): real UTC offsets only,
+  // and RFC3339 `-00:00` (unknown local offset) is not an attested instant.
+  if (match[7] !== undefined) {
+    const zoneHours = Number(match[8]);
+    const zoneMinutes = Number(match[9]);
+    if (zoneHours > 14 || zoneMinutes > 59 || (zoneHours === 14 && zoneMinutes !== 0)) return null;
+    if (match[7] === '-' && zoneHours === 0 && zoneMinutes === 0) return null;
+  }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
