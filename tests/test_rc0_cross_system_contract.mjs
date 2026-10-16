@@ -108,3 +108,53 @@ assert.equal(terminal.chain.digest, unifiedResult.receipt.fingerprint,
 assert.equal(terminal.simulated, true);
 assert.equal(terminal.origin.kind, 'GOLDEN_FIXTURE');
 console.log('PASS RC-0: DATA-4E/F/G + CHAIN-0/OBS-0/terminal/advisory agree on HOLD with no live authority');
+
+// Every non-archive terminal scenario, through both independent entrypoints:
+// the local terminal and the unified rehearsal must accept the same OBS-0
+// receipt (or none) and expose the identical terminal view; nothing actionable.
+const { TERMINAL_SCENARIOS } = await import('../scripts/lib/terminal_scenarios.mjs');
+const readAt = '2026-12-31T00:00:00.000Z'; // not before any scenario cutoff (golden + 7 days)
+const scenarioView = await buildLocalView({now: () => ({toISOString: () => readAt})});
+const outcomes = {COMPLETED: 0, REJECTED: 0};
+let refusedReceipts = 0;
+for (const scenario of TERMINAL_SCENARIOS.filter((item) => item.build)) {
+  const document = scenario.build(golden);
+  const envelope = {
+    chainInput: document.input, knowledgeCutoff: document.knowledgeCutoff, evidenceClaims: [],
+    origin: {kind: 'LOCAL_SCENARIO', label: scenario.id}, generatedAt: readAt,
+  };
+  const rehearsal = await unified.runUnifiedOfflineRehearsal(envelope);
+  const shown = await scenarioView(scenario.id);
+  assert.deepEqual(shown, rehearsal.terminal, `${scenario.id}: terminal and rehearsal present the same view`);
+  assert.deepEqual(await unified.runUnifiedOfflineRehearsal(envelope), rehearsal, `${scenario.id}: replay is deterministic`);
+  assert.equal(rehearsal.decision, 'HOLD', scenario.id);
+  assert.equal(rehearsal.execution, 'FORBIDDEN', scenario.id);
+  assert.equal(rehearsal.authorization, 'NONE', scenario.id);
+  assert.equal(shown.chain.chainState, 'HOLD', scenario.id);
+  assert.equal(shown.chain.execution, 'FORBIDDEN', scenario.id);
+  assert.equal(shown.simulated, true, scenario.id);
+  assert.equal(rehearsal.advisory.tradeTicket, null, scenario.id);
+  assert.ok(rehearsal.transport.packet === null || rehearsal.transport.packet.actionability === 'NONE', scenario.id);
+  outcomes[rehearsal.outcome] += 1;
+  if (rehearsal.outcome === 'COMPLETED') {
+    const accepted = rehearsal.receipt.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED';
+    assert.equal(accepted, scenario.id !== 'everything-granted',
+      `${scenario.id}: ${rehearsal.receipt.verification} ${JSON.stringify(rehearsal.receipt.problems)}`);
+    if (!accepted) {
+      // Spoofed grants make the chain emit runtime ids and acceptance evidence: OBS-0 refuses the receipt.
+      assert.ok(rehearsal.receipt.problems.includes('UNSAFE_OUTPUT_PRESENT'), scenario.id);
+      assert.equal(rehearsal.receipt.fingerprint, null, scenario.id);
+      refusedReceipts += 1;
+    }
+    assert.equal(shown.chain.digest ?? null, accepted ? rehearsal.receipt.fingerprint : null,
+      `${scenario.id}: only an accepted OBS-0 receipt supplies a fingerprint`);
+  } else {
+    assert.equal(rehearsal.receipt, null, `${scenario.id}: a rejected input mints no receipt`);
+    assert.equal(shown.chain.digest ?? null, null, `${scenario.id}: and shows no fingerprint`);
+    assert.equal(rehearsal.advisory.tradeTicket, null, scenario.id);
+  }
+}
+assert.ok(outcomes.COMPLETED >= 4 && outcomes.REJECTED >= 1, `scenarios exercise both outcomes ${JSON.stringify(outcomes)}`);
+assert.equal(refusedReceipts, 1, 'exactly the spoofed-grants scenario loses its receipt');
+console.log(`PASS RC-0: ${outcomes.COMPLETED + outcomes.REJECTED} terminal scenarios agree across terminal and rehearsal `
+  + `(${outcomes.COMPLETED - refusedReceipts} accepted receipts, ${refusedReceipts} receipt refused, ${outcomes.REJECTED} input rejected)`);
