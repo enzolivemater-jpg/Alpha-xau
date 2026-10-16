@@ -53,6 +53,15 @@ Rows are emitted in fixed field/source-time/ingestion/source/id order, then the
 MP-1 selector applies its no-lookahead, ambiguity, book and availability rules.
 The adapter records this invariant as `historyCompleteness=COMPLETE_OR_ERROR`.
 
+Adapter input hardening (RC-0 remediation, `tests/test_market_data_ingest_mutation.mjs`):
+a result that is not an array (an RPC error object, `null`) raises
+`MP2_RPC_RESULT_INVALID` instead of a `TypeError`; text fields are checked with
+`typeof` before any regular expression (`RegExp.test` coerces `undefined` or an
+array into text); a NUMERIC given as text must be a plain decimal, so `"0x10"`,
+`"0b11"` or `"0o7"` are refused rather than read as 16, 3 or 7; a non-string
+cutoff is an invalid (empty) cutoff and a non-array candidate history is an
+invalid, empty one. None of this adds a data source or activates the runtime.
+
 ## Access and mutation boundary
 
 The table has RLS enabled with no client policy. `anon` and `authenticated`

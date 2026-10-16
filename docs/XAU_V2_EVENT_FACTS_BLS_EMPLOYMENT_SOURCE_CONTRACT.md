@@ -161,6 +161,12 @@ separate review; this adapter does not infer equivalence.
 
 No non-resolved state emits partial facts or a fallback identity.
 
+The adapter never throws: a missing (`undefined`) `summary.payroll` is `MALFORMED`,
+not a `TypeError`. `tests/test_event_facts_adapters_mutation.mjs` sweeps the BLS
+CPI, BLS employment, DOL claims and BEA PCE fixtures with 7150 hostile mutations:
+no exception, no input mutation, deterministic output, and every resolved state
+keeps `UNKNOWN` consensus and carries no directional field.
+
 ## 8. Security and activation boundary
 
 `backend/event_facts/bls_employment_situation_adapter.ts` is pure: no imports,

@@ -6,6 +6,7 @@ import {
   type PositioningEvidenceInput,
   type PositioningUnit,
 } from './evidence_contract.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const POSITIONING_PERSISTENCE_SCHEMA_VERSION = 'xau.positioning-persistence.v1' as const;
 export const POSITIONING_PERSISTENCE_ALGORITHM_VERSION = 'positioning-persisted-evidence-adapter-1.0.0' as const;
@@ -48,7 +49,6 @@ const CODE = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 const INSTRUMENT = /^[A-Z0-9][A-Z0-9_.:/-]{0,31}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const REVISION = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/;
 const UNITS: ReadonlySet<string> = new Set(['CONTRACTS', 'PERCENT', 'RATIO', 'INDEX']);
 
@@ -56,6 +56,8 @@ function exactKeys(row: object): boolean {
   const keys = Object.keys(row).sort();
   return keys.length === RPC_KEYS.length && keys.every((key, index) => key === RPC_KEYS[index]);
 }
+
+const text = (value: unknown, pattern: RegExp): boolean => typeof value === 'string' && pattern.test(value);
 
 function civilDate(value: unknown): value is string {
   if (typeof value !== 'string') return false;
@@ -70,22 +72,27 @@ function civilDate(value: unknown): value is string {
 }
 
 function timestamp(value: unknown): { readonly ms: number; readonly canonical: string } | null {
-  if (typeof value !== 'string' || !TIMESTAMP.test(value) || !civilDate(value.slice(0, 10))) return null;
-  const ms = Date.parse(value);
-  if (!Number.isFinite(ms)) return null;
+  const ms = parseStrictTimestamp(value);
+  if (ms === null) return null;
   return { ms, canonical: new Date(ms).toISOString() };
 }
+
+/** PostgREST NUMERIC arrives as plain decimal text; `Number()` would also read "0x10" as 16. */
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 export function normalizePositioningEvidenceRows(
   rows: readonly PositioningEvidenceRpcRow[],
 ): readonly PositioningEvidenceInput[] {
+  // An RPC error object or null is not a row set.
+  if (!Array.isArray(rows)) throw new Error('P1_RPC_RESULT_INVALID');
   return rows.map((row, index) => {
     if (typeof row !== 'object' || row === null || !exactKeys(row)) {
       throw new Error(`P1_RPC_ROW_${index}_SHAPE_INVALID`);
     }
-    if (!UUID.test(row.evidence_id) || !CODE.test(row.source_authority)
-        || !CODE.test(row.dataset_code) || !INSTRUMENT.test(row.instrument_code)
-        || !CODE.test(row.metric_code) || !UNITS.has(row.unit)
+    // RegExp.test() coerces: an undefined, an array or an object would pass as text.
+    if (!text(row.evidence_id, UUID) || !text(row.source_authority, CODE)
+        || !text(row.dataset_code, CODE) || !text(row.instrument_code, INSTRUMENT)
+        || !text(row.metric_code, CODE) || !UNITS.has(row.unit)
         || !civilDate(row.period_end) || typeof row.artifact_id !== 'string'
         || row.artifact_id.trim() !== row.artifact_id
         || row.artifact_id.length < 1 || row.artifact_id.length > 256
@@ -94,8 +101,8 @@ export function normalizePositioningEvidenceRows(
       throw new Error(`P1_RPC_ROW_${index}_IDENTITY_INVALID`);
     }
     const value = typeof row.value === 'number' ? row.value
-      : typeof row.value === 'string' && row.value.trim().length > 0
-        ? Number(row.value) : Number.NaN;
+      : typeof row.value === 'string' && DECIMAL.test(row.value.trim())
+        ? Number(row.value.trim()) : Number.NaN;
     const published = timestamp(row.published_at);
     const observed = timestamp(row.observed_at);
     if (!Number.isFinite(value) || published === null || observed === null
@@ -120,8 +127,10 @@ export function normalizePositioningEvidenceRows(
 
 export function buildPersistedPositioningEvidence(
   rows: readonly PositioningEvidenceRpcRow[],
-  knowledgeCutoff: string,
+  requestedCutoff: string,
 ): PersistedPositioningEvidence {
+  // Echoed below: a non-string cutoff is an invalid (empty) cutoff, never an unhashable value.
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
   const inputs = normalizePositioningEvidenceRows(rows);
   return {
     schemaVersion: POSITIONING_PERSISTENCE_SCHEMA_VERSION,

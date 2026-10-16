@@ -36,18 +36,26 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
+/**
+ * The strong identity key is SHA-256 of the three fields joined by U+001F, here
+ * and in the SQL functions (`chr(31)`). A field containing that separator makes
+ * two different triples hash alike, so it is refused at this boundary.
+ */
+const KEY_SEPARATOR = '\u001f';
+
+function identityField(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.trim() === value
+    && !value.includes(KEY_SEPARATOR);
+}
+
 function validateProposal(value: unknown): value is StrongIdentityClaimProposal {
   return isRecord(value)
     && hasExactKeys(value, ['authorityNamespace', 'identityType', 'identityValue'])
-    && typeof value.authorityNamespace === 'string'
-    && value.authorityNamespace.length > 0
-    && value.authorityNamespace.trim() === value.authorityNamespace
-    && typeof value.identityType === 'string'
-    && value.identityType.length > 0
-    && value.identityType.trim() === value.identityType
-    && typeof value.identityValue === 'string'
-    && value.identityValue.length > 0
-    && value.identityValue.trim() === value.identityValue;
+    && identityField(value.authorityNamespace)
+    && identityField(value.identityType)
+    && identityField(value.identityValue);
 }
 
 async function strongIdentityKey(proposal: StrongIdentityClaimProposal): Promise<string> {

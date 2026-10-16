@@ -264,7 +264,8 @@ export function mapBlsEmploymentReleaseToEventFacts(input: unknown):
     || summary.payroll === null
     || summary.unemploymentRate === null
     || summary.averageHourlyEarningsMom === null
-    || summary.payroll.priorRevisions === null
+    // `payroll` may be absent (undefined): the shape check below reports it.
+    || summary.payroll?.priorRevisions === null
   ) {
     return nonResolved('UNAVAILABLE', 'REQUIRED_OFFICIAL_EVIDENCE_UNAVAILABLE');
   }

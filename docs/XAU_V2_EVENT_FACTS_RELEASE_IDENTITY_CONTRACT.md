@@ -447,6 +447,22 @@ For identical reviewed evidence and strategy version:
 - Identity claims remain service-role-only under the existing database
   contract; EF-1 changes no grants or RLS.
 - Unknown or malformed evidence fails closed and is observable.
+- **Key separator (RC-0 remediation).** The strong identity key is SHA-256 of
+  `authority_namespace`, `identity_type` and `identity_value` joined by U+001F
+  (`chr(31)` in migrations 0012, 0018, 0031, 0032). That join is ambiguous if a
+  field may contain U+001F: `("a\u001fb","c","d")` and `("a","b\u001fc","d")` hash
+  alike. The migrations are frozen and applied, so the application boundary now
+  refuses U+001F in any identity field (`resolveActiveReleaseIdentity`,
+  `persistBlsCpiProduction`). Official adapters never emit it (JSON-escaped text
+  carries the six characters `\u001f`, not the control character), so no legitimate
+  identity changes. Whether the SQL functions should also reject it is a schema
+  decision for the human migration gate; nothing was migrated.
+- **Strict JSON at the write boundary.** The CPI production writer accepts a
+  canonical event state only if it is plain JSON (plain objects and arrays, data
+  properties, finite numbers): a `Map`, `Set`, `Date`, class instance, getter or
+  sparse array used to pass the check and be sent as something else.
+  `tests/test_event_facts_write_boundary_mutation.mjs` sweeps both boundaries with
+  1,253 hostile inputs and database answers against a mock database.
 
 ## 13. Compatibility
 

@@ -121,6 +121,7 @@ function daysInMonth(year: number, month: number): number {
 /** Existence RÉELLE de la date civile — pas seulement un format reconnu.
  *  Rejette 2026-04-31, 2026-02-29 (non bissextile), etc. */
 function isValidCivilDate(year: number, month: number, day: number): boolean {
+  if (year < 1) return false; // l'année 0000 n'existe pas en RFC 3339
   if (month < 1 || month > 12) return false;
   if (day < 1 || day > daysInMonth(year, month)) return false;
   return true;
@@ -130,13 +131,18 @@ function isValidTimeOfDay(hour: number, minute: number, second: number): boolean
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 && second >= 0 && second <= 59;
 }
 
-/** ±HHMM ou ±HH:MM, bornes horaires/minutes réelles. */
+/**
+ * ±HHMM ou ±HH:MM d'un fuseau RÉEL : au plus ±14:00, minutes < 60. « -00:00 »
+ * (fuseau local inconnu au sens RFC 3339 / RFC 5322) n'est pas un fuseau
+ * explicite. Même politique que shared/strict_timestamp.ts et TIME-0.
+ */
 function isValidNumericOffset(offset: string): boolean {
   const m = /^([+-])(\d{2}):?(\d{2})$/.exec(offset);
   if (!m) return false;
   const hour = Number(m[2]);
   const minute = Number(m[3]);
-  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+  if (hour > 14 || minute > 59 || (hour === 14 && minute !== 0)) return false;
+  return !(m[1] === '-' && hour === 0 && minute === 0);
 }
 
 /** Extraction STRING-LEVEL d'une date civile — jamais via Date/TZ, pour ne
@@ -339,7 +345,17 @@ const VALID_PUBLICATION_PRECISIONS: ReadonlySet<string> = new Set(['timestamp', 
 const VALID_QUALITY_STATES: ReadonlySet<string> = new Set(['VALID', 'DEGRADED', 'UNVERIFIED']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** NUL ou demi-paire de substitution isolée : PostgreSQL rejette ce texte. */
+const UNSTORABLE_TEXT = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function hasUnstorableText(input: RawNewsObservationInput): boolean {
+  return Object.values(input).some((value) => (typeof value === 'string' && UNSTORABLE_TEXT.test(value))
+    || (Array.isArray(value) && value.some((item) => typeof item === 'string' && UNSTORABLE_TEXT.test(item))));
+}
+
 export function normalizeRawNewsObservation(input: RawNewsObservationInput): NormalizeResult {
+  // Rejet explicite plutôt qu'une erreur d'écriture opaque côté base.
+  if (hasUnstorableText(input)) return { ok: false, reason: 'text_not_storable' };
   // TypeScript n'est pas une validation runtime : un appelant dynamique
   // (ou mal typé) peut fournir une valeur hors union. Vérifié AVANT tout
   // usage, notamment avant resolvePublication().

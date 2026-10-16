@@ -35,6 +35,7 @@ import {
 import { fetchMarketSnapshot } from '../market_engine/context.js';
 // Correctif P0-CONCURRENCY : verrou partagé, arbitré par PostgreSQL.
 import { acquireLock, releaseLock, isUniqueViolation } from '../shared/run_lock.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 /* -------------------------------------------------------------------------- */
 /*  1. ENVIRONNEMENT ET CONFIGURATION                                          */
@@ -676,6 +677,20 @@ function asNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+const STORED_DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/**
+ * Nombre lu dans une colonne jsonb ou NUMERIC (PostgREST renvoie du texte).
+ * `Number()` lirait null, "", [] et false comme 0, true comme 1 et "0x10"
+ * comme 16 : une valeur absente deviendrait une valeur stockée. Ici, tout ce
+ * qui n'est pas un nombre ou une écriture décimale donne NaN.
+ */
+function storedNumber(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && STORED_DECIMAL.test(value.trim())) return Number(value.trim());
+  return Number.NaN;
+}
+
 function asDirection(value: unknown): Direction {
   return value === 'bullish' || value === 'bearish' ? value : 'neutral';
 }
@@ -1233,9 +1248,11 @@ export function validateCommitteeEvent(raw: unknown): EventValidation {
   const source = typeof body['source'] === 'string' ? body['source'].trim() : '';
   if (source.length === 0) errors.push('source manquante.');
 
+  // Horodatage strict à fuseau explicite : Date.parse lirait 2026-02-30
+  // comme le 2 mars et une heure sans fuseau comme une heure locale.
   const triggeredRaw = body['triggered_at'];
-  const triggeredMs = typeof triggeredRaw === 'string' ? Date.parse(triggeredRaw) : NaN;
-  if (!Number.isFinite(triggeredMs)) {
+  const triggeredMs = parseStrictTimestamp(triggeredRaw);
+  if (triggeredMs === null) {
     errors.push(`triggered_at invalide : ${JSON.stringify(triggeredRaw)}.`);
   }
 
@@ -1260,7 +1277,7 @@ export function validateCommitteeEvent(raw: unknown): EventValidation {
     }
   }
 
-  if (errors.length > 0 || !eventType) return { ok: false, errors };
+  if (errors.length > 0 || !eventType || triggeredMs === null) return { ok: false, errors };
 
   return {
     ok: true,
@@ -1280,7 +1297,8 @@ export function validateCommitteeEvent(raw: unknown): EventValidation {
  * leur valeur de référence, ceux du périmètre sont remplacés.
  *
  * CONSERVATION DE LA MASSE DE PROBABILITÉ — point le plus délicat.
- * La base impose que les cinq probabilités totalisent 1.00. Un recalcul
+ * La base impose que les cinq probabilités totalisent 1.00 (100 points de
+ * pourcentage entiers ici, divisés par 100 à la persistance). Un recalcul
  * partiel ne peut donc pas redistribuer librement : il doit rendre
  * exactement la masse qu'il a empruntée. Les horizons recalculés se
  * repartagent le budget que la référence leur allouait, et les horizons
@@ -1377,9 +1395,9 @@ export async function fetchBaselineScenarios(
     if (!raw) return null;
 
     // La base stocke des probabilités en [0,1], le contrat frontend en 0-100.
-    const probability = Math.round(asNumber(Number(raw.probability), NaN) * 100);
-    const target = Number(raw.target);
-    const invalidation = Number(raw.invalidation);
+    const probability = Math.round(asNumber(storedNumber(raw.probability), NaN) * 100);
+    const target = storedNumber(raw.target);
+    const invalidation = storedNumber(raw.invalidation);
     if (!Number.isFinite(probability) || !Number.isFinite(target) || !Number.isFinite(invalidation)) {
       return null;
     }
@@ -1394,7 +1412,7 @@ export async function fetchBaselineScenarios(
         raw.activation_condition,
         'Condition d\'activation de référence non disponible.',
       ),
-      confidence: Math.round(asNumber(Number(raw.confidence), 0) * 100),
+      confidence: Math.round(asNumber(storedNumber(raw.confidence), 0) * 100),
       reasoning: asString(raw.reasoning, 'Scénario de référence conservé.'),
     };
   }
