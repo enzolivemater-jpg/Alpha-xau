@@ -120,6 +120,17 @@ randomness, clock or I/O).
    (mock-database sweeps), and `backend/worker.ts` routes (deploy-gated). Note: the CPI
    test uses synthetic workbooks built in the test; the real retained XLSX/HTML bytes are
    not in the repository, so a real-artifact replay is still owed once they are retained.
-4. Open design question, not changed: the SQL key derivation (`chr(31)` join) stays
+4. **Recommendations that need a human decision (nothing changed):**
+   - *Plausibility bounds in the official-release adapters.* BLS CPI / employment, BEA PCE
+     and DOL claims accept any finite one-decimal percent or any safe integer. A column mix-up
+     in a parser (an index level such as 314.8 read where a percent change belongs) would
+     resolve as a valid fact. A bound such as |percent| ≤ 100 and a non-negative unemployment
+     rate would catch that class, but the adapters are versioned and frozen
+     (`…-adapter-v1` is asserted) and thresholds are a methodology choice: this belongs in a
+     reviewed `v2` adapter, not a silent edit.
+   - *V1 `cleanText`* (`backend/ingest.ts:618`) still uses a lazy `<script>…</script>` pattern,
+     quadratic on unterminated tags; its inputs are API titles and truncated content, so the
+     exposure is small. A length cap before the regex would remove it.
+5. Open design question, not changed: the SQL key derivation (`chr(31)` join) stays
    ambiguous in the database; only the application boundary refuses U+001F. A SQL
    `CHECK` or a length-prefixed key is a schema decision for the migration gate.
