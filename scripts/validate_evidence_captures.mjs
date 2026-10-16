@@ -141,7 +141,13 @@ async function main() {
     process.stderr.write(`no capture archive found (looked in ${DEFAULT_DIR})\n`);
     return 2;
   }
-  if (sources.some((f) => path.resolve(outDir).startsWith(path.dirname(f)))) {
+  // Inside a source directory (or equal to it), by path segments: a sibling such
+  // as `evidence/a-out` is not inside `evidence/a`.
+  const insideSourceDir = (f) => {
+    const relative = path.relative(path.dirname(f), outDir);
+    return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  };
+  if (sources.some(insideSourceDir)) {
     process.stderr.write('--out must not be a source directory\n');
     return 1;
   }

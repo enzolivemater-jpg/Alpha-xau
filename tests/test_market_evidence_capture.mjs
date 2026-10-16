@@ -253,6 +253,44 @@ console.log('PASS capture reads no network, clock, environment or provider');
     r = run('replay', '--archive', log, '--cutoff', '2026-10-01T14:14:03Z', '--digest', `sha256:${'0'.repeat(64)}`);
     assert.equal(r.status, 1, 'a pinned digest that does not match');
     assert.equal(JSON.parse(r.stdout).status, 'INVALID');
+
+    // Writer lock: a second writer fails fast and leaves the log byte for byte.
+    const { readdirSync } = await import('node:fs');
+    const { spawn } = await import('node:child_process');
+    const lockFile = `${log}.lock`;
+    const appendArgs = (body, at) => ['append', '--archive', log, '--provider', 'fred', '--symbol', 'US10Y',
+      '--series', 'DGS10', '--body', body, '--ingested-at', at];
+    assert.equal(existsSync(lockFile), false, 'no lock left after successful or rejected runs');
+    const beforeLock = read(log, 'utf8');
+    write(lockFile, '');
+    r = run(...appendArgs(path.join(dir, 'dgs10.json'), '2026-10-01T15:00:00Z'));
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /another writer is active/);
+    assert.equal(read(log, 'utf8'), beforeLock, 'a locked log is not touched');
+    assert.equal(existsSync(lockFile), true, 'a lock held by someone else is never removed');
+    const other = path.join(dir, 'other.json');
+    r = run('init', '--archive', other, '--id', 'x', '--created-at', '2026-09-29T00:00:00Z', '--statement', 't');
+    assert.equal(r.status, 0, 'a lock on one log does not block another');
+    rmSync(lockFile);
+    assert.equal(run('replay', '--archive', log, '--cutoff', '2026-10-01T14:14:03Z').status, 0, 'replay is read-only and needs no lock');
+    assert.deepEqual(readdirSync(dir).filter((n) => /\.(lock|tmp-\d+)$/.test(n)), [], 'no lock or temporary file left');
+
+    // Concurrent writers: every append that reports success is in the log.
+    const payloads = (text) => Object.keys(JSON.parse(text).rawPayloads).length;
+    const baseline = payloads(read(log, 'utf8'));
+    const bodies = [0, 1, 2, 3, 4, 5].map((i) => {
+      const file = path.join(dir, `race-${i}.json`);
+      write(file, fredBody('2026-10-02', [['2026-10-01', `4.${20 + i}`]]));
+      return file;
+    });
+    const exits = await Promise.all(bodies.map((body, i) => new Promise((resolve) => {
+      const child = spawn(process.execPath, [cli, ...appendArgs(body, `2026-10-02T0${i}:00:00Z`)], { cwd: dir });
+      child.on('close', (code) => resolve(code));
+    })));
+    const succeeded = exits.filter((code) => code === 0).length;
+    assert.ok(succeeded >= 1, `at least one concurrent append wins (${exits})`);
+    assert.equal(payloads(read(log, 'utf8')) - baseline, succeeded, 'no successful append is lost to a concurrent writer');
+    assert.equal(existsSync(lockFile), false, 'the lock is released after concurrent runs');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -327,6 +365,17 @@ console.log('PASS capture CLI: explicit attestation for CAPTURED, never overwrit
     // Writing next to the sources is refused.
     assert.equal(spawnSync(process.execPath, [new URL('../scripts/validate_evidence_captures.mjs', import.meta.url).pathname,
       '--out', path.join(dir, 'out'), ...files], { encoding: 'utf8' }).status, 1);
+    assert.equal(spawnSync(process.execPath, [new URL('../scripts/validate_evidence_captures.mjs', import.meta.url).pathname,
+      '--out', dir, ...files], { encoding: 'utf8' }).status, 1, 'the source directory itself is refused');
+    // A sibling whose name merely starts like the source directory is not inside it.
+    const sibling = `${dir}-sibling`;
+    try {
+      const siblingRun = spawnSync(process.execPath, [new URL('../scripts/validate_evidence_captures.mjs', import.meta.url).pathname,
+        '--out', sibling, ...files], { encoding: 'utf8' });
+      assert.equal(siblingRun.status, 0, siblingRun.stdout + siblingRun.stderr);
+    } finally {
+      rmSync(sibling, { recursive: true, force: true });
+    }
     const run = spawnSync(process.execPath, [new URL('../scripts/validate_evidence_captures.mjs', import.meta.url).pathname, '--out', out, ...files], { encoding: 'utf8' });
     assert.equal(run.status, 0, run.stdout + run.stderr);
     assert.match(run.stdout, /(\d+)\/\1 checks passed/);

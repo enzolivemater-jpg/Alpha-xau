@@ -151,6 +151,15 @@ archive is `SYNTHETIC_FIXTURE` unless initialized with `--class CAPTURED
 --attest-captured`, the operator's statement that every body came unmodified
 from the provider. Test: `tests/test_market_evidence_capture.mjs`.
 
+`init` and `append` rewrite the whole log, so they take an exclusive writer lock
+(`<log>.lock`, created with `O_EXCL`). A second writer exits 1 immediately and
+leaves the log untouched, instead of silently dropping a capture in a
+read-modify-write race. A lock left by a crashed run is never removed by the
+script: the operator checks the log, then removes it. The new log is flushed to
+disk (`fsync`) before it replaces the old one. `replay` is read-only and takes
+no lock. This protects one machine's file; it is not a distributed lock and
+proves nothing about provider authenticity or coverage.
+
 ## Not established
 
 - **No authentic market archive exists in this repository:** every replay

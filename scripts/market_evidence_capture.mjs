@@ -18,7 +18,9 @@
  * received, never the file's modification time.
  */
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync,
+} from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -41,14 +43,63 @@ function parse(argv) {
   return options;
 }
 
-/** Writes through a temporary file so a failed write never leaves half an archive. */
+/**
+ * Writes through a temporary file so a failed write never leaves half an
+ * archive. The bytes are flushed to disk before the rename, so a crash cannot
+ * leave a renamed but empty log that looks like a completed capture.
+ */
 function writeArchive(file, archive) {
   const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, `${JSON.stringify(archive, null, 2)}\n`);
+  const fd = openSync(tmp, 'w');
+  try {
+    writeSync(fd, `${JSON.stringify(archive, null, 2)}\n`);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
   renameSync(tmp, file);
 }
 
+/**
+ * Exclusive writer lock. `init` and `append` read, change and rewrite the whole
+ * log, so two concurrent writers would silently drop one capture. The lock is
+ * a sibling file created with O_EXCL; a second writer fails fast instead of
+ * waiting. A crashed run leaves the lock behind on purpose: it is removed by
+ * the operator after checking the log, never by this script.
+ */
+function acquireArchiveLock(file) {
+  const lock = `${file}.lock`;
+  try {
+    closeSync(openSync(lock, 'wx'));
+  } catch (error) {
+    return {
+      error: error.code === 'EEXIST'
+        ? `${lock} exists: another writer is active, or a crashed run left it; check the log, then remove the lock`
+        : `cannot lock ${file}: ${error.message}`,
+    };
+  }
+  return { release: () => { try { unlinkSync(lock); } catch { /* already gone */ } } };
+}
+
+/** Commands that rewrite the log hold the writer lock for their whole run. */
 export async function run(argv) {
+  const o = parse(argv);
+  if (o && o.archive && (o.command === 'init' || o.command === 'append')) {
+    const lock = acquireArchiveLock(path.resolve(o.archive));
+    if (lock.error) {
+      process.stderr.write(`${lock.error}\n`);
+      return 1;
+    }
+    try {
+      return await execute(argv);
+    } finally {
+      lock.release();
+    }
+  }
+  return execute(argv);
+}
+
+async function execute(argv) {
   const o = parse(argv);
   const out = (value) => process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
   const fail = (message) => { process.stderr.write(`${message}\n`); return 1; };
