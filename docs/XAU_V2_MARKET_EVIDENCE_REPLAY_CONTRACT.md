@@ -151,6 +151,13 @@ archive is `SYNTHETIC_FIXTURE` unless initialized with `--class CAPTURED
 --attest-captured`, the operator's statement that every body came unmodified
 from the provider. Test: `tests/test_market_evidence_capture.mjs`.
 
+The provider parsers that re-derive values from kept raw bodies
+(`parseFred`, `parseFredObservations`, `parseTwelveData`) never throw on a hostile
+body: a non-text FRED `date` is an unusable observation (it used to raise a
+`TypeError` in `toUtcIso`), and a quote time whose ISO form is not RFC3339 (year
+above 9999 or below 0) is no timestamp at all. An available point always has a
+finite value and a strict observation time (`tests/test_provider_parsers_mutation.mjs`).
+
 `replayMarketEvidence` never throws on untrusted input: a non-string cutoff is
 treated as an invalid cutoff and a non-string pinned digest never matches (both
 would otherwise be echoed into the hashed envelope). `tests/test_market_evidence_mutation.mjs`

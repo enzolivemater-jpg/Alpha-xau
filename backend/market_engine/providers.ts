@@ -188,7 +188,11 @@ export function toNumberOrNull(raw: unknown): number | null {
 function epochSecondsToIso(seconds: unknown): string | null {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return null;
   const date = new Date(seconds * 1000);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  if (Number.isNaN(date.getTime())) return null;
+  // Years outside 0001-9999 serialize as "+275760-..." / "-000001-...": not an
+  // RFC3339 instant any downstream gate accepts, so never a usable timestamp.
+  const iso = date.toISOString();
+  return parseStrictTimestamp(iso) === null ? null : iso;
 }
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -201,6 +205,8 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
  * un horodatage de remplacement.
  */
 export function toUtcIso(date: string, time?: string): string | null {
+  // Une réponse fournisseur peut porter n'importe quel type JSON dans ces champs.
+  if (typeof date !== 'string' || (time !== undefined && typeof time !== 'string')) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return null;
   // Sans heure, la date seule vaut minuit UTC. Une heure fournie mais
   // malformée rend l'instant inexploitable : jamais un repli sur minuit.
