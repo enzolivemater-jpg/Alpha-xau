@@ -63,19 +63,24 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
  * would pass a loose check and then be sent as something else (`{}`, a string,
  * a computed value, `null`).
  */
-function isJsonValue(value: unknown): boolean {
+function isJsonValue(value: unknown, depth = 0): boolean {
+  // A canonical event state is a few levels deep; the bound also refuses a circular state
+  // and a hostile nesting with a plain `false` instead of a stack overflow.
+  if (depth > MAX_STATE_DEPTH) return false;
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) {
     return Object.getPrototypeOf(value) === Array.prototype
-      && Object.keys(value).length === value.length && value.every(isJsonValue);
+      && Object.keys(value).length === value.length && value.every((item) => isJsonValue(item, depth + 1));
   }
   if (!isRecord(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Object.values(Object.getOwnPropertyDescriptors(value)).every((descriptor) =>
-    'value' in descriptor && isJsonValue(descriptor.value));
+    'value' in descriptor && isJsonValue(descriptor.value, depth + 1));
 }
+
+const MAX_STATE_DEPTH = 64;
 
 function isReadyPlan(value: unknown): value is Extract<BlsCpiProducerPlan, { readonly kind: 'READY' }> {
   if (!isRecord(value) || !hasExactKeys(value, PLAN_KEYS)

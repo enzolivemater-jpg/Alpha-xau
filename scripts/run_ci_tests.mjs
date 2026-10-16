@@ -71,6 +71,7 @@ const TEST_FILES = [
   'tests/test_decision_chain_contract.mjs',
   'tests/test_decision_chain_dry_run.mjs',
   'tests/test_decision_chain_mutation.mjs',
+  'tests/test_deep_nesting.mjs',
   'tests/test_decision_gates_forged_upstream.mjs',
   'tests/test_decision_chain_scenarios.mjs',
   'tests/test_ecb_collector.mjs',

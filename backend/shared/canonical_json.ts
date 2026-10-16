@@ -9,6 +9,18 @@
  * silently coerced, so two equal digests imply equal chain content.
  */
 export function canonicalJson(value: unknown): string {
+  return encode(value, 0);
+}
+
+/**
+ * Deepest nesting accepted. Real chain, archive and event structures are under
+ * twenty levels. A fixed bound refuses a hostile or circular structure with a
+ * typed error at the same depth everywhere; the host's stack size would not.
+ */
+const MAX_DEPTH = 256;
+
+function encode(value: unknown, depth: number): string {
+  if (depth > MAX_DEPTH) throw new TypeError('canonicalJson: nesting too deep');
   if (value === null) return 'null';
   switch (typeof value) {
     case 'string':
@@ -18,7 +30,7 @@ export function canonicalJson(value: unknown): string {
       if (!Number.isFinite(value)) throw new TypeError('canonicalJson: non-finite number');
       return JSON.stringify(value);
     case 'object': {
-      if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+      if (Array.isArray(value)) return `[${value.map((item) => encode(item, depth + 1)).join(',')}]`;
       const prototype = Object.getPrototypeOf(value);
       if (prototype !== Object.prototype && prototype !== null) {
         throw new TypeError('canonicalJson: unsupported object');
@@ -26,7 +38,7 @@ export function canonicalJson(value: unknown): string {
       const record = value as Record<string, unknown>;
       return `{${Object.keys(record).sort().map((key) => {
         if (record[key] === undefined) throw new TypeError(`canonicalJson: undefined at ${key}`);
-        return `${JSON.stringify(key)}:${canonicalJson(record[key])}`;
+        return `${JSON.stringify(key)}:${encode(record[key], depth + 1)}`;
       }).join(',')}}`;
     }
     default:
