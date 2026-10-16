@@ -168,17 +168,20 @@ export class MarketDb {
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: controller.signal,
         });
+        // Le délai doit couvrir le CORPS aussi : un serveur qui envoie ses
+        // en-têtes puis bloque le corps garderait cet appel, et le verrou du
+        // run, jusqu'au rattrapage à 15 minutes.
+        const text = await response.text();
         clearTimeout(timer);
 
         if (response.status === 429 || response.status >= 500) {
           throw new Error(`Supabase HTTP ${response.status}`);
         }
         if (!response.ok) {
-          const detail = (await response.text().catch(() => '')).slice(0, 300);
+          const detail = text.slice(0, 300);
           // 4xx : erreur de contrat, inutile de réessayer.
           throw Object.assign(new Error(`Supabase HTTP ${response.status}: ${detail}`), { fatal: true });
         }
-        const text = await response.text();
         return (text ? JSON.parse(text) : []) as T;
       } catch (err) {
         clearTimeout(timer);

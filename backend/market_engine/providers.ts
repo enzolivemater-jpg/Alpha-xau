@@ -134,7 +134,9 @@ export async function fetchText(url: string): Promise<string> {
           'user-agent': 'Mozilla/5.0 (compatible; AlphaXauMarketEngine/1.0; +https://github.com/)',
         },
       });
-      clearTimeout(timer);
+      // Le minuteur reste armé pendant la lecture du corps : un fournisseur qui
+      // envoie ses en-têtes puis bloque le corps ne doit pas figer le run.
+      // Il est coupé après la lecture ; le `catch` le coupe sur erreur.
 
       if (response.status === 429) {
         const wait = parseRetryAfter(response.headers.get('retry-after'));
@@ -149,7 +151,9 @@ export async function fetchText(url: string): Promise<string> {
       if (!response.ok) {
         throw new ProviderError(`HTTP ${response.status}`, false);
       }
-      return await response.text();
+      const text = await response.text();
+      clearTimeout(timer);
+      return text;
     } catch (err) {
       clearTimeout(timer);
       const isAbort = err instanceof Error && err.name === 'AbortError';

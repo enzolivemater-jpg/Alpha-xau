@@ -515,8 +515,10 @@ async function fetchJsonWithRetry<T>(
     const startedAt = Date.now();
 
     try {
+      // Le minuteur reste armé pendant la lecture du corps : un fournisseur qui
+      // envoie ses en-têtes puis bloque le corps ne doit pas figer le run. Il
+      // est coupé après la lecture réussie ; le `catch` le coupe sur erreur.
       const response = await fetch(url, { ...init, signal: controller.signal });
-      clearTimeout(timer);
 
       if (response.status === 429) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
@@ -544,6 +546,7 @@ async function fetchJsonWithRetry<T>(
       // Certains fournisseurs renvoient du HTML (page d'erreur, captcha) avec
       // un statut 200 : le parsing JSON doit être protégé.
       const raw = await response.text();
+      clearTimeout(timer);
       try {
         const data = JSON.parse(raw) as T;
         log.debug(`${label} OK`, {
@@ -1601,7 +1604,8 @@ class SupabaseClient {
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: controller.signal,
         });
-        clearTimeout(timer);
+        // Le minuteur reste armé pendant la lecture du corps (voir
+        // fetchJsonWithRetry) ; le `catch` le coupe sur erreur.
 
         if (response.status === 429 || response.status >= 500) {
           throw new HttpError(`Supabase HTTP ${response.status}`, response.status, true);
@@ -1612,6 +1616,7 @@ class SupabaseClient {
         }
 
         const text = await response.text();
+        clearTimeout(timer);
         return (text ? JSON.parse(text) : []) as T;
       } catch (err) {
         clearTimeout(timer);

@@ -525,7 +525,10 @@ async function callClaude(
         }),
         signal: controller.signal,
       });
-      clearTimeout(timer);
+      // Le minuteur reste armé pendant la lecture du corps : un fournisseur qui
+      // envoie ses en-têtes puis bloque le corps ne doit pas figer le comité
+      // (et son verrou). Il est coupé après la lecture ; le `catch` le coupe
+      // sur erreur.
 
       if (response.status === 429) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
@@ -548,6 +551,7 @@ async function callClaude(
       }
 
       const data = (await response.json()) as AnthropicResponse;
+      clearTimeout(timer);
 
       // Une troncature produit un JSON syntaxiquement invalide : il faut la
       // détecter explicitement pour ne pas la confondre avec une désobéissance
@@ -978,7 +982,8 @@ class SupabaseClient {
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: controller.signal,
         });
-        clearTimeout(timer);
+        // Le minuteur reste armé pendant la lecture du corps (voir l'appel
+        // Anthropic) ; le `catch` le coupe sur erreur.
 
         if (response.status === 429 || response.status >= 500) {
           throw new AnthropicError(`Supabase HTTP ${response.status}`, response.status, true);
@@ -988,6 +993,7 @@ class SupabaseClient {
           throw new AnthropicError(`Supabase HTTP ${response.status}: ${detail}`, response.status, false);
         }
         const text = await response.text();
+        clearTimeout(timer);
         return (text ? JSON.parse(text) : []) as T;
       } catch (err) {
         clearTimeout(timer);

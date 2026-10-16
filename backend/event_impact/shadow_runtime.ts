@@ -398,6 +398,7 @@ export class PostgrestEventImpactShadowDb implements EventImpactShadowBatchDb {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), POSTGREST_TIMEOUT_MS);
     let response: Response;
+    let bodyText: string;
     try {
       response = await fetch(`${this.base}/${path}`, {
         method,
@@ -405,6 +406,10 @@ export class PostgrestEventImpactShadowDb implements EventImpactShadowBatchDb {
         body: hasBody ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
+      // The timeout must cover the BODY too: a server that sends its headers
+      // and then stalls would otherwise hold this call, and the run lock it
+      // protects, until the 15-minute stale reclaim.
+      bodyText = await response.text();
     } catch (err) {
       const isAbort = err instanceof Error && err.name === 'AbortError';
       throw new EventImpactShadowDbError(
@@ -435,7 +440,7 @@ export class PostgrestEventImpactShadowDb implements EventImpactShadowBatchDb {
       // (never the raw body) preserved so run_lock.ts's isUniqueViolation()
       // keeps working for the lock-acquisition path — survive into the
       // thrown error.
-      const detail = (await response.text().catch(() => '')).slice(0, MAX_ERROR_DETAIL_LENGTH);
+      const detail = bodyText.slice(0, MAX_ERROR_DETAIL_LENGTH);
       // PostgREST answers a unique violation with 409; the shared predicate
       // recognizes the error CODE or the constraint wording, not bare digits.
       const isDuplicateConflict = response.status === 409 && UNIQUE_VIOLATION.test(detail);
@@ -447,7 +452,7 @@ export class PostgrestEventImpactShadowDb implements EventImpactShadowBatchDb {
       );
     }
 
-    const text = await response.text();
+    const text = bodyText;
     if (text.length === 0) return undefined as T;
     try {
       return JSON.parse(text) as T;

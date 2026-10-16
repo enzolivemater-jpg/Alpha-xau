@@ -49,6 +49,7 @@ const TEST_FILES = [
   'tests/test_worker_routes_security.mjs',
   'tests/test_shadow_routes_authorized_bodies.mjs',
   'tests/test_shadow_lock_conflict_classification.mjs',
+  'tests/test_database_client_body_timeout.mjs',
   'tests/test_unified_input_boundary.mjs',
   'tests/test_unified_offline_rehearsal.mjs',
   'tests/test_unified_receipt_gate.mjs',
