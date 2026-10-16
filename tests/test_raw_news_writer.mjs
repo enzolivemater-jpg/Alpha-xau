@@ -158,6 +158,30 @@ for (const tz of ['EST', 'EDT', 'CET']) {
       && r.row.ingest_quality_reasons.includes('publication_timestamp_parse_failed'), JSON.stringify(r));
 }
 
+// Un « fuseau explicite » doit être un vrai fuseau : pas de décalage > 14 h, pas de
+// « -00:00 » (fuseau local inconnu au sens RFC), pas d'année 0000.
+for (const raw of [
+  '2026-08-25T18:00:00+23:59', '2026-08-25T18:00:00+15:00', '2026-08-25T18:00:00+14:30', '2026-08-25T18:00:00-00:00',
+  '2026-08-25T18:00:00-0000', '0000-08-25T18:00:00Z',
+  'Tue, 25 Aug 2026 18:00:00 +2359', 'Tue, 25 Aug 2026 18:00:00 -0000', 'Tue, 25 Aug 2026 18:00:00 +1500',
+]) {
+  const r = normalizeRawNewsObservation({ ...baseInput(), publicationPrecision: 'timestamp', providerPublishedRaw: raw });
+  t(`fuseau ou année impossible ${raw} -> DEGRADED`,
+    r.ok && r.row.published_at === null && r.row.ingest_quality_state === 'DEGRADED'
+      && r.row.ingest_quality_reasons.includes('publication_timestamp_parse_failed'), JSON.stringify(r));
+}
+for (const [raw, utc] of [
+  ['2026-08-25T18:00:00+14:00', '2026-08-25T04:00:00.000Z'], ['2026-08-25T18:00:00-12:00', '2026-08-26T06:00:00.000Z'],
+  ['2026-08-25T18:00:00+00:00', '2026-08-25T18:00:00.000Z'], ['Tue, 25 Aug 2026 18:00:00 +0530', '2026-08-25T12:30:00.000Z'],
+]) {
+  const r = normalizeRawNewsObservation({ ...baseInput(), publicationPrecision: 'timestamp', providerPublishedRaw: raw });
+  t(`fuseau réel ${raw} -> ${utc}`, r.ok && r.row.published_at === utc, JSON.stringify(r));
+}
+{
+  const r = normalizeRawNewsObservation({ ...baseInput(), publicationPrecision: 'date', providerPublishedRaw: '0000-01-01' });
+  t('date civile en année 0000 -> DEGRADED', r.ok && r.row.published_date === null && r.row.ingest_quality_state === 'DEGRADED', JSON.stringify(r));
+}
+
 console.log('--- PUBLICATION (DATE) ---');
 {
   const r = normalizeRawNewsObservation({ ...baseInput(), publicationPrecision: 'date', providerPublishedRaw: 'August 25, 2026' });
