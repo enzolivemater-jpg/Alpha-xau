@@ -44,6 +44,13 @@ silently truncates history. Ordering matches the P-0 evidence identity and is
 independent of insertion order. The adapter exposes this as
 `historyCompleteness=COMPLETE_OR_ERROR`.
 
+Adapter and P-0 input hardening (RC-0 remediation, `tests/test_market_data_ingest_mutation.mjs`):
+a non-array RPC result raises `P1_RPC_RESULT_INVALID`; identity fields are checked with
+`typeof` before the regular expression (an `undefined` source authority used to pass
+as the text "undefined" and reach the evidence set); a NUMERIC given as text must be a
+plain decimal (`"0x10"` is refused, not read as 16); a non-string cutoff is an invalid
+(empty) cutoff and non-array evidence is malformed evidence.
+
 ## Deliberate semantic boundary
 
 P-1 persists attributable evidence only. Its adapter always delegates to P-0,

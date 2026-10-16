@@ -57,6 +57,8 @@ function exactKeys(row: object): boolean {
   return keys.length === RPC_KEYS.length && keys.every((key, index) => key === RPC_KEYS[index]);
 }
 
+const text = (value: unknown, pattern: RegExp): boolean => typeof value === 'string' && pattern.test(value);
+
 function civilDate(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const match = DATE.exec(value);
@@ -75,16 +77,22 @@ function timestamp(value: unknown): { readonly ms: number; readonly canonical: s
   return { ms, canonical: new Date(ms).toISOString() };
 }
 
+/** PostgREST NUMERIC arrives as plain decimal text; `Number()` would also read "0x10" as 16. */
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
 export function normalizePositioningEvidenceRows(
   rows: readonly PositioningEvidenceRpcRow[],
 ): readonly PositioningEvidenceInput[] {
+  // An RPC error object or null is not a row set.
+  if (!Array.isArray(rows)) throw new Error('P1_RPC_RESULT_INVALID');
   return rows.map((row, index) => {
     if (typeof row !== 'object' || row === null || !exactKeys(row)) {
       throw new Error(`P1_RPC_ROW_${index}_SHAPE_INVALID`);
     }
-    if (!UUID.test(row.evidence_id) || !CODE.test(row.source_authority)
-        || !CODE.test(row.dataset_code) || !INSTRUMENT.test(row.instrument_code)
-        || !CODE.test(row.metric_code) || !UNITS.has(row.unit)
+    // RegExp.test() coerces: an undefined, an array or an object would pass as text.
+    if (!text(row.evidence_id, UUID) || !text(row.source_authority, CODE)
+        || !text(row.dataset_code, CODE) || !text(row.instrument_code, INSTRUMENT)
+        || !text(row.metric_code, CODE) || !UNITS.has(row.unit)
         || !civilDate(row.period_end) || typeof row.artifact_id !== 'string'
         || row.artifact_id.trim() !== row.artifact_id
         || row.artifact_id.length < 1 || row.artifact_id.length > 256
@@ -93,8 +101,8 @@ export function normalizePositioningEvidenceRows(
       throw new Error(`P1_RPC_ROW_${index}_IDENTITY_INVALID`);
     }
     const value = typeof row.value === 'number' ? row.value
-      : typeof row.value === 'string' && row.value.trim().length > 0
-        ? Number(row.value) : Number.NaN;
+      : typeof row.value === 'string' && DECIMAL.test(row.value.trim())
+        ? Number(row.value.trim()) : Number.NaN;
     const published = timestamp(row.published_at);
     const observed = timestamp(row.observed_at);
     if (!Number.isFinite(value) || published === null || observed === null
@@ -119,8 +127,10 @@ export function normalizePositioningEvidenceRows(
 
 export function buildPersistedPositioningEvidence(
   rows: readonly PositioningEvidenceRpcRow[],
-  knowledgeCutoff: string,
+  requestedCutoff: string,
 ): PersistedPositioningEvidence {
+  // Echoed below: a non-string cutoff is an invalid (empty) cutoff, never an unhashable value.
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
   const inputs = normalizePositioningEvidenceRows(rows);
   return {
     schemaVersion: POSITIONING_PERSISTENCE_SCHEMA_VERSION,

@@ -84,11 +84,14 @@ export function classifyFreshness(ageSeconds: number, rule: SymbolRule): Freshne
  * @param now Injecté pour rendre la fonction testable de façon déterministe.
  */
 export function validatePoint(raw: RawDataPoint, now: Date = new Date()): ValidationOutcome {
-  const rule = SYMBOL_RULES[raw.symbol];
   const reject = (reason: string): ValidationOutcome => ({
     ok: false,
     rejection: { symbol: raw.symbol, source: raw.source, reason },
   });
+  // Own-property lookup: "constructor" or an unconfigured symbol has no plausibility
+  // rule, and a point without a rule is rejected, never read through the prototype.
+  if (!Object.hasOwn(SYMBOL_RULES, raw.symbol)) return reject('Symbole sans règle de plausibilité');
+  const rule = SYMBOL_RULES[raw.symbol];
 
   // 1. Valeur présente. Une absence reste une absence.
   if (raw.value === null || raw.value === undefined) {

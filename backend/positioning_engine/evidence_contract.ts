@@ -106,13 +106,17 @@ function publishedNotAfterObserved(value: PositioningEvidenceInput): boolean {
     && !isStrictlyAfter(value.publishedAt, value.observedAt);
 }
 
+/** RegExp.test() coerces its argument: undefined, an array or an object would pass as text. */
+const text = (value: unknown, pattern: RegExp): boolean => typeof value === 'string' && pattern.test(value);
+
 function validShape(value: PositioningEvidenceInput): boolean {
   return exactInputShape(value)
-    && CODE.test(value.sourceAuthority)
-    && CODE.test(value.datasetCode)
-    && INSTRUMENT.test(value.instrumentCode)
-    && CODE.test(value.metricCode)
+    && text(value.sourceAuthority, CODE)
+    && text(value.datasetCode, CODE)
+    && text(value.instrumentCode, INSTRUMENT)
+    && text(value.metricCode, CODE)
     && UNITS.has(value.unit)
+    && typeof value.periodEnd === 'string'
     && isCivilDate(value.periodEnd)
     && publishedNotAfterObserved(value)
     && typeof value.artifactId === 'string'
@@ -129,10 +133,16 @@ function validShape(value: PositioningEvidenceInput): boolean {
  * source is not the same decision as approving a directional methodology.
  */
 export function buildPositioningEvidenceEnvelope(
-  inputs: readonly PositioningEvidenceInput[],
-  knowledgeCutoff: string,
+  rawInputs: readonly PositioningEvidenceInput[],
+  requestedCutoff: string,
 ): PositioningEvidenceEnvelope {
   const reasons = new Set<PositioningReasonCode>();
+  // A JavaScript caller can pass anything. The cutoff is echoed into the hashed
+  // envelope (a non-string is an invalid, empty cutoff) and the evidence must be
+  // an array (anything else is no evidence, reported as malformed).
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
+  const inputs: readonly PositioningEvidenceInput[] = Array.isArray(rawInputs) ? rawInputs : [];
+  if (!Array.isArray(rawInputs)) reasons.add('INVALID_EVIDENCE_SHAPE');
   const cutoffMs = timestampMs(knowledgeCutoff);
   if (cutoffMs === null) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   if (inputs.length === 0) reasons.add('NO_POSITIONING_EVIDENCE');

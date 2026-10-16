@@ -145,10 +145,16 @@ function canonicalTimestamp(milliseconds: number): string {
  * from after the cutoff already known by the cutoff, fails closed.
  */
 export function selectMarketPricingAsOf(
-  candidates: readonly MarketPricingAsOfCandidate[],
-  knowledgeCutoff: string,
+  rawCandidates: readonly MarketPricingAsOfCandidate[],
+  requestedCutoff: string,
 ): MarketPricingAsOfSelection {
   const reasons = new Set<MarketPricingAsOfReasonCode>();
+  // Both are echoed or iterated, and a JavaScript caller can pass anything: a
+  // non-string cutoff is an invalid (empty) cutoff, a non-array history is an
+  // invalid, empty history. Neither may throw or reach the hashed envelope.
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
+  const candidates: readonly MarketPricingAsOfCandidate[] = Array.isArray(rawCandidates) ? rawCandidates : [];
+  if (!Array.isArray(rawCandidates)) reasons.add('INVALID_CANDIDATE_HISTORY');
   const cutoffMs = parseExplicitTimestamp(knowledgeCutoff);
   if (cutoffMs === null) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
 

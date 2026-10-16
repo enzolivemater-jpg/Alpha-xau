@@ -125,6 +125,19 @@ function latestRevision(records: readonly MarketEvidenceRecord[], field: string,
   return same.find((r) => !superseded.has(r.evidenceId)) ?? null;
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * Just enough structure to read a log's last instant. The full contract belongs
+ * to `replayMarketEvidence`, which rejects everything else; a log file holding
+ * `null`, an array or records that are not objects must be refused, not crash.
+ */
+function hasLogStructure(archive: unknown): archive is MarketEvidenceArchive {
+  return isObject(archive) && Array.isArray(archive.records) && isObject(archive.rawPayloads)
+    && archive.records.every((record) => isObject(record) && typeof record.ingestedAt === 'string');
+}
+
 export async function appendProviderCapture(
   archive: MarketEvidenceArchive,
   capture: ProviderCapture,
@@ -133,7 +146,14 @@ export async function appendProviderCapture(
   const result = (partial: Partial<CaptureResult> & Pick<CaptureResult, 'outcome'>): CaptureResult => ({
     archive, rawPayloadDigest: null, added: [], revised: [], unchanged: 0, skipped: [], rejection: null, replayReasons: [], ...partial,
   });
+  if (!isObject(parsers) || typeof parsers.fred !== 'function' || typeof parsers.twelve_data !== 'function') {
+    throw new Error('CAPTURE_PARSERS_INVALID');
+  }
   const verifyParsers = { fred: parsers.fred, twelve_data: parsers.twelve_data };
+  if (!hasLogStructure(archive)) {
+    return result({ outcome: 'REJECTED', rejection: 'ARCHIVE_INVALID', replayReasons: ['ARCHIVE_SHAPE_INVALID'] });
+  }
+  if (!isObject(capture)) return result({ outcome: 'REJECTED', rejection: 'UNKNOWN_SERIES' });
 
   const ingestedMs = parseStrictTimestamp(capture.ingestedAt);
   if (ingestedMs === null) return result({ outcome: 'REJECTED', rejection: 'INVALID_INGESTED_AT' });
@@ -154,6 +174,8 @@ export async function appendProviderCapture(
   const series = CAPTURE_SERIES.find((s) => s.provider === capture.provider && s.symbol === capture.symbol
     && s.sourceRecordId === capture.sourceRecordId);
   if (!series) return result({ outcome: 'REJECTED', rejection: 'UNKNOWN_SERIES' });
+  // The exact response body is text; anything else cannot be hashed or re-read.
+  if (typeof capture.body !== 'string') return result({ outcome: 'REJECTED', rejection: 'NO_USABLE_OBSERVATION' });
 
   const digest = await sha256Text(capture.body);
   if (Object.prototype.hasOwnProperty.call(archive.rawPayloads, digest)) {
@@ -263,10 +285,19 @@ export async function mergeCaptureArchives(
   options: { readonly archiveId: string; readonly parsers: CaptureParsers },
 ): Promise<MergeResult> {
   const problems: string[] = [];
+  if (!isObject(options) || !isObject(options.parsers) || typeof options.parsers.fred !== 'function'
+      || typeof options.parsers.twelve_data !== 'function') {
+    throw new Error('CAPTURE_PARSERS_INVALID');
+  }
   const verifyParsers = { fred: options.parsers.fred, twelve_data: options.parsers.twelve_data };
   const pending: { digest: string; provider: 'fred' | 'twelve_data'; symbol: MarketSymbol; sourceRecordId: string;
     body: string; ingestedAt: string; fromArchive: string }[] = [];
+  if (!Array.isArray(sources)) return { outcome: 'REJECTED', archive: null, captures: [], problems: ['SOURCES_INVALID'] };
   for (const source of sources) {
+    if (!hasLogStructure(source)) {
+      problems.push('SOURCE_INVALID:STRUCTURE');
+      continue;
+    }
     const latest = source.records.map((r) => r.ingestedAt).sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1);
     const check = latest ? await replayMarketEvidence(source, latest, { parsers: verifyParsers }) : null;
     if (check === null || check.status === 'INVALID') {

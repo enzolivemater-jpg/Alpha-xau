@@ -151,6 +151,13 @@ archive is `SYNTHETIC_FIXTURE` unless initialized with `--class CAPTURED
 --attest-captured`, the operator's statement that every body came unmodified
 from the provider. Test: `tests/test_market_evidence_capture.mjs`.
 
+`appendProviderCapture` and `mergeCaptureArchives` refuse (`ARCHIVE_INVALID`,
+`SOURCE_INVALID:STRUCTURE`, `SOURCES_INVALID`) a log that is not an object with a
+`records` array and a `rawPayloads` object, such as a log file holding `null` or an
+array; they used to raise a `TypeError`. `validatePoint` rejects a symbol that has
+no plausibility rule (own-property lookup) instead of reading it through the
+prototype.
+
 The provider parsers that re-derive values from kept raw bodies
 (`parseFred`, `parseFredObservations`, `parseTwelveData`) never throw on a hostile
 body: a non-text FRED `date` is an unusable observation (it used to raise a
