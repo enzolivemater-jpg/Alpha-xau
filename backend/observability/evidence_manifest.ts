@@ -112,9 +112,12 @@ function compareClaim(a: EvidenceClaim, b: EvidenceClaim): number {
  */
 export function buildEvidenceEligibilityManifest(
   input: readonly unknown[],
-  knowledgeCutoff: string,
+  requestedCutoff: string,
 ): EvidenceEligibilityManifest {
   const reasons = new Set<EvidenceManifestReason>();
+  // Echoed into the manifest: a non-string (NaN, undefined...) from a JavaScript
+  // caller is an invalid cutoff reported with an empty echo, never an unhashable value.
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
   const cutoff = instant(knowledgeCutoff);
   if (cutoff === null) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   if (!Array.isArray(input) || input.length === 0) reasons.add('NO_EVIDENCE');
