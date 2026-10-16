@@ -306,6 +306,23 @@ Committee, LLM, or consensus dependency. EF-5B adds no collector, persistence
 or identity lookup orchestration, live migration, production write, deploy, or
 CES V2 activation.
 
+**Sequential XML (RC-0 remediation).** Worksheet cells, shared-string items,
+their `<t>` parts and a cell's `<v>` are read in one linear pass that requires
+strictly sequential elements. A cell opened while another is open, a stray
+closing tag or an unclosed element fails the whole parse. The previous lazy
+`<c>([\s\S]*?)</c>` let a cell left open take the value of the next cell: with an
+unrelated column between the reviewed ones, "All items" read a YoY of 1.1 instead
+of 3.4 and the table still parsed. An empty `<si/>` (which shifted every later
+string index) is refused. The same lazy patterns cost 52 s, 43 s and 128 s on
+1.5 MB of unclosed cells, items and values (the cap is 2 MiB), and the HTML
+header cleaning was quadratic on unterminated comments, scripts and styles: both
+are now linear, and an unterminated comment, script or style swallows the rest of
+the page as in HTML itself, so the evidence after it is not found.
+`tests/test_bls_cpi_artifact_structure_mutation.mjs` checks every cell and string
+under closing-tag removal, opener removal, left-open, duplication, self-closing and
+shifted indexes, plus the cost ceilings. Authentication of the artifact bytes (EF-5A
+hashes) is unchanged and remains the integrity boundary.
+
 ## 15. EF-7 bounded producer-planning boundary
 
 Planner version `bls-cpi-producer-planner-v1` composes the reviewed EF-5B

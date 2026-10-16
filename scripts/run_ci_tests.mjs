@@ -59,6 +59,7 @@ const TEST_FILES = [
   'tests/test_dol_ui_weekly_claims_text_parser.mjs',
   'tests/test_dol_ui_weekly_claims_pdf_artifact.mjs',
   'tests/test_bls_cpi_artifact_parser.mjs',
+  'tests/test_bls_cpi_artifact_structure_mutation.mjs',
   'tests/test_bls_cpi_producer_planner.mjs',
   'tests/test_bls_cpi_production_writer.mjs',
   'tests/test_bls_cpi_production_orchestrator.mjs',
