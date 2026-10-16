@@ -162,6 +162,9 @@ view. Each scenario is a simulation, never market data.
 
 The server:
 - binds `127.0.0.1` only and accepts only `GET` and `HEAD`;
+- refuses with `403` any request whose `Host` header is not exactly
+  `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding guard, every route,
+  including a missing `Host`); proven by `tests/test_terminal_local_host_guard.mjs`;
 - serves `frontend/` read-only and refuses paths outside it;
 - serves the page with a strict Content-Security-Policy: the only inline
   script allowed is the configuration block, by its SHA-256 after injection;

@@ -170,12 +170,26 @@ function send(response, status, type, body, method, extraHeaders = {}) {
   response.end(method === 'HEAD' ? undefined : body);
 }
 
+/**
+ * DNS-rebinding guard: the socket is loopback-only, but a hostile page can
+ * still reach it through a rebound hostname. Only this server's exact
+ * loopback origin is served; the comparison is byte-exact on purpose.
+ */
+export function isLoopbackHost(host, port) {
+  return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+}
+
 export async function createTerminalServer(options = {}) {
   const view = await buildLocalView(options);
   const index = localIndexHtml();
   const csp = contentSecurityPolicy(index);
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     const method = request.method ?? 'GET';
+    const address = server.address();
+    if (address === null || typeof address === 'string' || !isLoopbackHost(request.headers.host, address.port)) {
+      send(response, 403, 'text/plain; charset=utf-8', 'forbidden host', method);
+      return;
+    }
     if (method !== 'GET' && method !== 'HEAD') {
       send(response, 405, 'text/plain; charset=utf-8', 'method not allowed', method);
       return;
@@ -224,6 +238,7 @@ export async function createTerminalServer(options = {}) {
       send(response, 404, 'text/plain; charset=utf-8', 'not found', method);
     }
   });
+  return server;
 }
 
 function parseArgs(argv) {
