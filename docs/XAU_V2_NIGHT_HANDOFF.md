@@ -39,6 +39,7 @@ offline contracts behave as written; every human gate in
 | 20 empty archive pin disabled the pin; hostile `--input`/`--archive` files | `1f738ee` |
 | 21 render isolation: guard-passing hostile views never half-drawn | `dd65100` |
 | 22 ECB / Fed RSS: unclosed item took the next item's date and description | `5326ea3` |
+| 23 BLS CPI workbook: a cell could borrow its neighbour's value; quadratic cost | `880f59a` |
 
 ## Changes
 
@@ -69,6 +70,8 @@ offline contracts behave as written; every human gate in
 | 21 | Terminal front | none found: 18 views passing `v2Problem` with `null` items, wrong types, minimal sections → 17 drawn whole, 1 safe fallback, no uncaught page error, no leaked marker | Test only | `tests/test_terminal_render_isolation.mjs` |
 | 22 | Macro / news | **Wrong publication date accepted.** ECB and Fed extracted items with a lazy `<item>…</item>`; a missing `</item>` merged two items and the first took the second's description and `pubDate`. 20,000 unclosed items cost ~4 s | One linear tag pass; an item opened while another is open is dropped and reported (`ecb_item_unclosed`, `fed_item_unclosed`); items over 64,000 chars refused. OFAC / Treasury already handle unclosed containers (their tests cover it) | `backend/news_sources/{ecb,federal_reserve}.ts`, `tests/test_news_feed_structure_mutation.mjs` |
 
+| 23 | Macro facts (CPI) | **Wrong CPI figure accepted.** `worksheetCells` used a lazy `<c>…</c>`: a cell left open took the next cell's value. With an unrelated column between the reviewed ones, "All items" YoY read 1.1 instead of 3.4 (or 9.9 instead of 2.4) and the table still parsed; empty `<si/>` shifted every shared-string index. Measured on 1.5 MB (cap 2 MiB): unclosed cells 52 s, unclosed items 43 s, unclosed values 128 s. The old HTML header cleaning, measured separately on unterminated input at 1.5 MB (cap 10 MiB): comments 377 s, scripts 67 s, styles 92 s (quadratic: doubling the size ×4) | Cells, items, parts and values read in one linear pass requiring strictly sequential elements; `<si/>` refused; HTML header cleaning (comments / scripts / styles) linear. Reviewed table or refusal, never other figures | `backend/event_facts/bls_cpi_artifact_parser.ts`, `tests/test_bls_cpi_artifact_structure_mutation.mjs` |
+
 Reviewed with no change needed: the five `isAuthorized` implementations (token unset or empty → refuse; constant-time compare), tracked files for secrets (only placeholder test tokens), `wrangler.toml` and `frontend/index.html` (no secret, empty Supabase / V2 URLs), BLS CPI planner / orchestrator (injected dependencies, errors mapped to `BLOCKED`).
 
 Mutation sweeps (6–18) share `tests/lib/mutation_cases.mjs` (deterministic: node
@@ -77,10 +80,14 @@ randomness, clock or I/O).
 
 ## Validation (real runs, this worktree)
 
-- Final state of this handoff: `npm run typecheck` clean; `npm test` **132/132**
+- Final state of this handoff: `npm run typecheck` clean; `npm test` **133/133**
   test files at the last run (all code commits included; later commits are docs-only).
-  Baseline was 115; the 17 new files are the mutation/boundary sweeps above, the
-  Host-guard, hostile-files, render-isolation and feed-structure tests.
+  Baseline was 115; the 18 new files are the mutation/boundary sweeps above, the
+  Host-guard, hostile-files, render-isolation, feed-structure and CPI-structure tests.
+- A full `npm test` measured **3 min 19 s** (`real 3m18.7s`) on this machine at 133 files.
+  The baseline duration was not measured; the new files add noticeable time (cost ceilings
+  run hostile 1.5 MB inputs with a 3 s limit each, the render-isolation test boots 18
+  jsdom pages, the mutation sweeps run thousands of calls).
 - The `.mjs` scripts (capture CLI, terminal server) are covered by tests, not by `tsc`.
 - Each change was followed by a full `npm test` and, for `.ts` edits, `npm run typecheck`.
 - Red-before-fix was observed for changes 6, 7, 8, 9 (the new sweep failed first,
@@ -108,12 +115,11 @@ randomness, clock or I/O).
 2. Known and left alone: `validate_evidence_captures.mjs` picks each source's
    latest `ingestedAt` with a lexical `sort()` (mis-orders `…:00Z` against
    `…:00.500Z`); it only affects which cutoff the per-source check replays at.
-3. Not yet swept: BLS CPI raw artifact parser (`bls_cpi_artifact_parser.ts`: regex gaps
-   over XML are tag-delimited, but unclosed tags look quadratic on a 2 MB cap; the
-   raw artifacts are not in the repository), the CPI producer planner and
-   orchestrator, frontend rendering under hostile views (jsdom retains ~90 MB per
-   instance), committee / orchestrator legacy paths, news collectors, and
-   `backend/worker.ts` routes (deploy-gated).
+3. Not yet swept: committee / orchestrator legacy paths (`committee_orchestrator.ts`, 2,000+
+   lines), `backend/ingest.ts` (V1 news pipeline), the event shadow batches / orchestrators
+   (mock-database sweeps), and `backend/worker.ts` routes (deploy-gated). Note: the CPI
+   test uses synthetic workbooks built in the test; the real retained XLSX/HTML bytes are
+   not in the repository, so a real-artifact replay is still owed once they are retained.
 4. Open design question, not changed: the SQL key derivation (`chr(31)` join) stays
    ambiguous in the database; only the application boundary refuses U+001F. A SQL
    `CHECK` or a length-prefixed key is a schema decision for the migration gate.

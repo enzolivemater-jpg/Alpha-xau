@@ -314,10 +314,13 @@ closing tag or an unclosed element fails the whole parse. The previous lazy
 unrelated column between the reviewed ones, "All items" read a YoY of 1.1 instead
 of 3.4 and the table still parsed. An empty `<si/>` (which shifted every later
 string index) is refused. The same lazy patterns cost 52 s, 43 s and 128 s on
-1.5 MB of unclosed cells, items and values (the cap is 2 MiB), and the HTML
-header cleaning was quadratic on unterminated comments, scripts and styles: both
-are now linear, and an unterminated comment, script or style swallows the rest of
-the page as in HTML itself, so the evidence after it is not found.
+1.5 MB of unclosed cells, items and values (the cap is 2 MiB). The HTML header
+cleaning was quadratic too, measured on unterminated input: 377 s for comments,
+67 s for scripts and 92 s for styles at 1.5 MB, and doubling the size multiplied
+the time by about four (3.9 s → 15.9 s for comments from 150,000 to 300,000
+characters); the header cap is 10 MiB. Both are now linear, and an unterminated
+comment, script or style swallows the rest of the page as in HTML itself, so the
+evidence after it is not found.
 `tests/test_bls_cpi_artifact_structure_mutation.mjs` checks every cell and string
 under closing-tag removal, opener removal, left-open, duplication, self-closing and
 shifted indexes, plus the cost ceilings. Authentication of the artifact bytes (EF-5A
