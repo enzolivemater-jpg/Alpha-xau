@@ -51,8 +51,8 @@ randomness, clock or I/O).
 
 ## Validation (real runs, this worktree)
 
-- Final state of this handoff: `npm run typecheck` clean; `npm test` **121/121**
-  test files at the last run (before the final docs-only commit).
+- Final state of this handoff: `npm run typecheck` clean; `npm test` **122/122**
+  test files at the last run (all code commits included; later commits are docs-only).
 - Each change was followed by a full `npm test` and, for `.ts` edits, `npm run typecheck`.
 - Red-before-fix was observed for changes 6, 7, 8, 9 (the new sweep failed first,
   with the stack naming the defect). It was **not** observed in isolation for
