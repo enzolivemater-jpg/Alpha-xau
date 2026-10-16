@@ -26,6 +26,7 @@ import {
   type ProviderEnv,
 } from './providers.js';
 import { dedupKey, validatePoint } from './validate.js';
+import { isUniqueViolation } from '../shared/run_lock.js';
 import type {
   MarketIngestReport,
   MarketSymbol,
@@ -224,7 +225,9 @@ export async function acquireRunLock(
     return rows[0]?.id ?? null;
   } catch (err) {
     // 23505 = violation d'unicité => un run est déjà actif. Cas nominal.
-    if (/23505|duplicate key/i.test(errorMessage(err))) return null;
+    // Prédicat partagé : le code d'erreur ou le libellé de contrainte, jamais
+    // une suite de chiffres quelconque dans un message de panne.
+    if (isUniqueViolation(errorMessage(err))) return null;
     throw err;
   }
 }

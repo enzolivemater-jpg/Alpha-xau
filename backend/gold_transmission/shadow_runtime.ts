@@ -62,6 +62,9 @@ import {
   type GoldTransmissionShadowBatchDb,
 } from './shadow_batch.js';
 
+/** Same predicate as shared/run_lock.ts isUniqueViolation (kept local: this runtime is self-contained by design). */
+const UNIQUE_VIOLATION = /\bcode\W{0,6}23505\b|duplicate key value violates unique constraint|\bduplicate key\b/i;
+
 // ---------------------------------------------------------------------------
 // Runtime environment — Cloudflare env injection is authoritative, never
 // process.env.
@@ -437,7 +440,9 @@ export class PostgrestGoldTransmissionShadowDb implements GoldTransmissionShadow
       // keeps working for the lock-acquisition path — survive into the
       // thrown error.
       const detail = (await response.text().catch(() => '')).slice(0, MAX_ERROR_DETAIL_LENGTH);
-      const isDuplicateConflict = /23505|duplicate key|already exists/i.test(detail);
+      // PostgREST answers a unique violation with 409; the shared predicate
+      // recognizes the error CODE or the constraint wording, not bare digits.
+      const isDuplicateConflict = response.status === 409 && UNIQUE_VIOLATION.test(detail);
       throw new GoldTransmissionShadowDbError(
         isDuplicateConflict
           ? `PostgREST request failed with HTTP ${response.status} (duplicate key).`
