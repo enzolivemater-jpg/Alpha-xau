@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
+import { mutationCases } from './lib/mutation_cases.mjs';
 
 const chain = await loadBackendModule('decision_chain/dry_run.ts');
 const obs = await loadBackendModule('observability/offline_receipt.ts');
@@ -17,55 +18,7 @@ const unified = await loadBackendModule('observability/unified_rehearsal.ts');
 const golden = JSON.parse(readFileSync(new URL('./fixtures/decision_chain_dry_run_baseline.json', import.meta.url), 'utf8'));
 const readAt = '2026-12-31T00:00:00.000Z';
 
-const HOSTILE = [
-  null, undefined, NaN, Infinity, -Infinity, -0, 0, -1, 1e308, Number.MAX_SAFE_INTEGER + 2,
-  '', ' ', 'x'.repeat(300), '__proto__', 'constructor', '\u0000', '2026-02-30T00:00:00Z',
-  '2026-10-01T14:15:00.000500Z', true, false, [], {}, [null], { value: 1 },
-];
-
-/** Every [path] of the document, containers included. */
-function paths(node, prefix = [], out = []) {
-  out.push(prefix);
-  if (node !== null && typeof node === 'object') {
-    for (const key of Object.keys(node)) paths(node[key], [...prefix, key], out);
-  }
-  return out;
-}
-const at = (root, path) => path.reduce((node, key) => node[key], root);
-function withMutation(path, mutate) {
-  const copy = structuredClone(golden.input);
-  if (path.length === 0) return mutate(copy, null, copy);
-  const parent = at(copy, path.slice(0, -1));
-  const key = path.at(-1);
-  const replaced = mutate(parent, key, copy);
-  return replaced === undefined ? copy : replaced;
-}
-
-const cases = [];
-for (const path of paths(golden.input)) {
-  const label = path.join('.') || '<root>';
-  for (const [index, value] of HOSTILE.entries()) {
-    cases.push([`${label} <- hostile#${index}`, path.length === 0
-      ? structuredClone(value)
-      : withMutation(path, (parent, key, copy) => { parent[key] = structuredClone(value); return copy; })]);
-  }
-  if (path.length > 0 && !Array.isArray(at(golden.input, path.slice(0, -1)))) {
-    cases.push([`${label} <- deleted`, withMutation(path, (parent, key, copy) => { delete parent[key]; return copy; })]);
-  }
-  const node = at(golden.input, path);
-  if (node !== null && typeof node === 'object' && !Array.isArray(node)) {
-    cases.push([`${label} <- unknown key`, withMutation(path, (parent, key, copy) => {
-      const target = path.length === 0 ? copy : parent[key];
-      target.unexpectedKey = true;
-      return path.length === 0 ? copy : copy;
-    })]);
-    cases.push([`${label} <- own __proto__ key`, withMutation(path, (parent, key, copy) => {
-      const target = path.length === 0 ? copy : parent[key];
-      Object.defineProperty(target, '__proto__', { value: { polluted: true }, enumerable: true, configurable: true, writable: true });
-      return copy;
-    })]);
-  }
-}
+const cases = mutationCases(golden.input);
 
 const failures = [];
 const note = (label, message) => { if (failures.length < 20) failures.push(`${label}: ${message}`); };

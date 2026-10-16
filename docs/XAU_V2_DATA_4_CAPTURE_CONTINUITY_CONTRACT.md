@@ -124,3 +124,8 @@ et des tests PostgreSQL éphémères pourront être préparés, **sans apply**.
 3. Aucun chemin de code réseau/secret/horloge/DB ou d'exécution trading.
 4. Les statuts d'audit ne peuvent pas produire la confiance \`VERIFIED\`
    ou \`LIVE\` du marché, ni autoriser un ordre ou une alerte directionnelle.
+5. Balayage de mutation (`tests/test_capture_chain_mutation.mjs`, 12 227 appels
+   hostiles sur DATA-4A/4E/4F/4G et les reçus persistés) : chaque module renvoie
+   un résultat HOLD / FORBIDDEN hachable ou refuse par une erreur nommée, jamais
+   une erreur interne. Un cutoff non textuel est un cutoff invalide (écho vide
+   dans l'audit), jamais un résultat non sérialisable.

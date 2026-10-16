@@ -86,9 +86,13 @@ const parseTime = (v: unknown) => parseStrictTimestampNanos(v);
 
 /** Deterministic and as-of: receipts learned after cutoff are not used. */
 export function auditCaptureContinuity(
-  planInput: unknown, receiptsInput: unknown, knowledgeCutoff: string,
+  planInput: unknown, receiptsInput: unknown, requestedCutoff: string,
 ): CaptureContinuityAudit {
   const reasons = new Set<ContinuityAuditReason>();
+  // The cutoff is echoed into the audit. JavaScript callers can pass a
+  // non-string (NaN, undefined...) that no canonical hash accepts: it is an
+  // invalid cutoff, reported as such with an empty echo.
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
   const cutoff = parseTime(knowledgeCutoff);
   if (cutoff === null) reasons.add('INVALID_CUTOFF');
   const result = (counts: {

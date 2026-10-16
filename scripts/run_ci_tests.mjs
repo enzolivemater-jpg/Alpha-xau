@@ -36,6 +36,7 @@ const TEST_FILES = [
   'tests/test_capture_continuity_contract.mjs',
   'tests/test_collector_readiness_contract.mjs',
   'tests/test_capture_schedule_contract.mjs',
+  'tests/test_capture_chain_mutation.mjs',
   'tests/test_offline_capture_replay_contract.mjs',
   'tests/test_persisted_capture_receipts_contract.mjs',
   'tests/test_ci_inventory.mjs',
