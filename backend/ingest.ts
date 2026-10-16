@@ -613,10 +613,18 @@ const HTML_ENTITIES: Record<string, string> = {
 function cleanText(raw: string | null | undefined, maxLength: number): string | null {
   if (typeof raw !== 'string') return null;
 
-  let text = raw
+  // Borne d'entrée : le motif script/style ci-dessous est paresseux, donc
+  // quadratique sur des balises ouvertes jamais refermées (150 000 caractères
+  // coûtent des secondes, 1,5 million des minutes). La sortie est de toute
+  // façon plafonnée à maxLength (quelques milliers de caractères).
+  const bounded = raw.length > 100_000 ? raw.slice(0, 100_000) : raw;
+
+  let text = bounded
     // Blocs script/style avant suppression des balises.
-    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
+    .replace(/<(script|style)[^>]{0,2000}>[\s\S]*?<\/\1>/gi, ' ')
+    // Une balise réelle fait quelques centaines de caractères au plus : borner
+    // sa longueur évite de rescanner jusqu'à la fin depuis chaque `<` sans `>`.
+    .replace(/<[^>]{1,2000}>/g, ' ')
     .replace(/&#(\d+);/g, (_m, code: string) => {
       // Valeurs scalaires Unicode uniquement : une demi-paire de substitution
       // isolée (U+D800-U+DFFF) donnerait un JSON que PostgreSQL rejette.

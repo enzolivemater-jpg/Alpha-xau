@@ -337,6 +337,18 @@ results.clean_text = ['caf&#233;', 'a&#55296;b', 'a&#57343;b', 'x&#1114111;y', '
   return { raw, text, wellFormed: text === null || text.isWellFormed() };
 });
 
+// cleanText() : coût borné sur des balises ouvertes jamais refermées.
+results.clean_cost = ['<script>', '<style>', '<!--', '<a '].map((noise) => {
+  const raw = noise.repeat(Math.floor(1500000 / noise.length));
+  const started = performance.now();
+  const text = cleanText(raw, 200);
+  return { noise, ms: performance.now() - started, length: raw.length, textLength: text === null ? 0 : text.length };
+});
+results.clean_long = (() => {
+  const text = cleanText('a'.repeat(150000), 200);
+  return { length: text.length, endsWithEllipsis: text.endsWith('…') };
+})();
+
 process.stdout.write(JSON.stringify(results));
 process.exit(0);
 `;
@@ -433,6 +445,14 @@ console.log('--- cleanText : jamais de chaîne UTF-16 mal formée ---');
     r['raw\uD800high'].text === 'raw high' && r['raw\uDC00low'].text === 'raw low');
   t('paire de substitution complète conservée', r['pair \u{1F4C8} ok'].text === 'pair \u{1F4C8} ok');
   t('toutes les sorties sont bien formées', output.clean_text.every((c) => c.wellFormed));
+}
+
+console.log('--- cleanText : coût borné sur balises ouvertes jamais refermées ---');
+{
+  for (const c of output.clean_cost) {
+    t(`1,5 M caractères de "${c.noise}" nettoyés en moins de 3 s`, c.ms < 3000, `${Math.round(c.ms)} ms sur ${c.length} caractères`);
+  }
+  t('une entrée très longue reste plafonnée à maxLength avec ellipse', output.clean_long.length <= 200 && output.clean_long.endsWithEllipsis);
 }
 
 console.log('--- parseTimestamp STRICT : jamais décalé ni lu en heure locale ---');

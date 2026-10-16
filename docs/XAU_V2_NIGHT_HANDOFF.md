@@ -72,6 +72,8 @@ offline contracts behave as written; every human gate in
 
 | 23 | Macro facts (CPI) | **Wrong CPI figure accepted.** `worksheetCells` used a lazy `<c>…</c>`: a cell left open took the next cell's value. With an unrelated column between the reviewed ones, "All items" YoY read 1.1 instead of 3.4 (or 9.9 instead of 2.4) and the table still parsed; empty `<si/>` shifted every shared-string index. Measured on 1.5 MB (cap 2 MiB): unclosed cells 52 s, unclosed items 43 s, unclosed values 128 s. The old HTML header cleaning, measured separately on unterminated input at 1.5 MB (cap 10 MiB): comments 377 s, scripts 67 s, styles 92 s (quadratic: doubling the size ×4) | Cells, items, parts and values read in one linear pass requiring strictly sequential elements; `<si/>` refused; HTML header cleaning (comments / scripts / styles) linear. Reviewed table or refusal, never other figures | `backend/event_facts/bls_cpi_artifact_parser.ts`, `tests/test_bls_cpi_artifact_structure_mutation.mjs` |
 
+| 24 | V1 news cleaning | `cleanText` (`backend/ingest.ts`) used a lazy `<script>…</script>` pattern and an unbounded `/<[^>]+>/g`: both rescan to the end from every unterminated opener (150,000 characters of `<script>` cost 0.7 s, `<!--` 3.9 s, doubling the size ×4; 1.5 M characters minutes). Inputs are API titles and content, so the exposure was small | Input capped at 100,000 characters (output is capped at a few thousand anyway), tag length bounded to 2,000. 1.5 M characters of `<script>`, `<style>`, `<!--` and `<a ` now clean in under 3 s | `backend/ingest.ts`, `tests/test_gdelt_429_retry_policy.mjs` |
+
 Reviewed with no change needed: the five `isAuthorized` implementations (token unset or empty → refuse; constant-time compare), tracked files for secrets (only placeholder test tokens), `wrangler.toml` and `frontend/index.html` (no secret, empty Supabase / V2 URLs), BLS CPI planner / orchestrator (injected dependencies, errors mapped to `BLOCKED`).
 
 Mutation sweeps (6–18) share `tests/lib/mutation_cases.mjs` (deterministic: node
@@ -109,6 +111,32 @@ randomness, clock or I/O).
 | Database / migrations | NOT_MIGRATED; none touched |
 | Recovery / security | FROZEN; REC-1 human gate |
 
+## Integration with the cloud branch (not done: permission)
+
+`origin/claude/xau-v2-nightly-20261016` = `84e5374be7c979c1407ede51ecd3ee7ab6360964`, one commit
+on the shared base `e1e70225`: `tests/test_canonical_json_contract.mjs` (new) and one line in
+`scripts/run_ci_tests.mjs`. By reading the diffs there is no textual overlap (the cloud line is
+at least 5 unchanged lines away from mine) and the cloud test is compatible with the 256-level
+`canonicalJson` bound (it covers neither depth nor cycles). **Not verified by git:** `git
+merge-tree` and `git switch -c` were refused by the session policy (don't-ask mode), so the
+integration branch `integration/pr-149-plus-cloud-canonical-json` was never created and `84e5374`
+is not in this branch. To do it: `git switch -c integration/pr-149-plus-cloud-canonical-json
+c34ff0a`, `git cherry-pick 84e5374` (union of the `TEST_FILES` lines on conflict), then
+`npm run typecheck` and `npm test` (134 files expected), then cherry-pick the later commits of
+this branch (change 24).
+
+## PostgreSQL validation (17 tests, CI only)
+
+No PostgreSQL toolchain is installed locally (`which psql pg_ctl postgres initdb` finds
+nothing), so the 17 `*_postgres.mjs` tests only run in CI. `quality-gate.yml` runs exactly 17
+`node tests/*_postgres.mjs` commands over 11 jobs on `postgres:17.6`, but only for pull
+requests to `main` and pushes to `main`: obtaining a run needs a pull request, which needs a
+separate authorization. Static check that this branch cannot change their outcome: no file under
+`database/` differs from `e1e70225`, no PostgreSQL test imports `backend/`, and the one that
+imports application code (`test_data_api_default_acl_preflight_postgres.mjs` →
+`scripts/evaluate_data_api_default_acl_preflight.mjs`) imports a file this branch did not touch.
+This is a reading, not a run.
+
 ## Remaining / next
 
 1. Confirm in CI (ephemeral PostgreSQL included) on the exact head commit.
@@ -128,9 +156,7 @@ randomness, clock or I/O).
      rate would catch that class, but the adapters are versioned and frozen
      (`…-adapter-v1` is asserted) and thresholds are a methodology choice: this belongs in a
      reviewed `v2` adapter, not a silent edit.
-   - *V1 `cleanText`* (`backend/ingest.ts:618`) still uses a lazy `<script>…</script>` pattern,
-     quadratic on unterminated tags; its inputs are API titles and truncated content, so the
-     exposure is small. A length cap before the regex would remove it.
+   - *(Done, see change 24)* V1 `cleanText` quadratic on unterminated tags.
 5. Open design question, not changed: the SQL key derivation (`chr(31)` join) stays
    ambiguous in the database; only the application boundary refuses U+001F. A SQL
    `CHECK` or a length-prefixed key is a schema decision for the migration gate.
