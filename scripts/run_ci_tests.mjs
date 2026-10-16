@@ -44,6 +44,7 @@ const TEST_FILES = [
   'tests/test_evidence_manifest_contract.mjs',
   'tests/test_institutional_purity_guard.mjs',
   'tests/test_institutional_transitive_imports.mjs',
+  'tests/test_canonical_json_contract.mjs',
   'tests/test_temporal_contract.mjs',
   'tests/test_unified_input_boundary.mjs',
   'tests/test_unified_offline_rehearsal.mjs',
