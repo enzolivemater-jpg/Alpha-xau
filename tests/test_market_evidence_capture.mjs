@@ -253,6 +253,10 @@ console.log('PASS capture reads no network, clock, environment or provider');
     r = run('replay', '--archive', log, '--cutoff', '2026-10-01T14:14:03Z', '--digest', `sha256:${'0'.repeat(64)}`);
     assert.equal(r.status, 1, 'a pinned digest that does not match');
     assert.equal(JSON.parse(r.stdout).status, 'INVALID');
+    // An empty pin is still a pin: it must fail the replay, never switch the pin off.
+    r = run('replay', '--archive', log, '--cutoff', '2026-10-01T14:14:03Z', '--digest', '');
+    assert.equal(r.status, 1, 'an empty --digest is a pin that cannot match');
+    assert.equal(JSON.parse(r.stdout).status, 'INVALID');
 
     // Writer lock: a second writer fails fast and leaves the log byte for byte.
     const { readdirSync } = await import('node:fs');

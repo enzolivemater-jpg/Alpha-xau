@@ -89,7 +89,9 @@ export async function buildLocalView({
   /** Replays an archive, then runs CHAIN-0 on its snapshot. */
   const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned) => {
     const replay = await evidence.replayMarketEvidence(archive, knowledgeCutoff,
-      { parsers, ...(pinned ? { pinnedArchiveDigest: pinned } : {}) });
+      // A pin that was asked for is always applied: an empty or malformed one must fail the
+      // replay (digest mismatch), never silently turn the pin off.
+      { parsers, ...(pinned !== undefined ? { pinnedArchiveDigest: pinned } : {}) });
     const outcome = bridge.evaluateDecisionChainOnMarketEvidence(baseInput, replay);
     const receipt = outcome.kind === 'COMPLETED'
       ? await obs.buildOfflineAuditReceipt(outcome.result) : null;

@@ -165,6 +165,13 @@ The server:
 - refuses with `403` any request whose `Host` header is not exactly
   `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding guard, every route,
   including a missing `Host`); proven by `tests/test_terminal_local_host_guard.mjs`;
+- turns any `--input` / `--archive` content (invalid JSON, `null`, an array, a BOM,
+  100,000 levels of nesting, binary bytes, a directory, a missing path) into a
+  simulated HOLD / FORBIDDEN view, never a `500`; a requested archive pin is always
+  applied, so an empty or wrong `--archive-digest` fails the replay instead of
+  disabling it (`tests/test_terminal_local_hostile_files.mjs`);
+- shows a chain fingerprint only if it has the `sha256:<64 hex>` shape and the chain is
+  `CONSISTENT`;
 - serves `frontend/` read-only and refuses paths outside it;
 - serves the page with a strict Content-Security-Policy: the only inline
   script allowed is the configuration block, by its SHA-256 after injection;

@@ -147,7 +147,8 @@ async function execute(argv) {
   if (o.command === 'replay') {
     if (!o.cutoff) return fail('replay needs --cutoff');
     const replay = await ev.replayMarketEvidence(archive, o.cutoff,
-      { parsers, ...(o.digest ? { pinnedArchiveDigest: o.digest } : {}) });
+      // `--digest ""` is still a pin: it must fail the replay, not switch the pin off.
+      { parsers, ...(o.digest !== undefined ? { pinnedArchiveDigest: o.digest } : {}) });
     out({
       status: replay.status, nature: replay.nature, reproducible: replay.reproducible,
       archiveDigest: replay.archive.digest, replayDigest: replay.digest, reasonCodes: replay.reasonCodes,

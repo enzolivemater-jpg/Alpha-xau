@@ -155,6 +155,7 @@ const TEST_FILES = [
   'tests/test_terminal_contrast.mjs',
   'tests/test_terminal_local.mjs',
   'tests/test_terminal_local_host_guard.mjs',
+  'tests/test_terminal_local_hostile_files.mjs',
   'tests/test_terminal_view.mjs',
   'tests/test_us_treasury_collector.mjs',
   'tests/test_us_treasury_raw_adapter.mjs',
