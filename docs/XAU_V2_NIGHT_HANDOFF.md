@@ -40,6 +40,9 @@ offline contracts behave as written; every human gate in
 | 21 render isolation: guard-passing hostile views never half-drawn | `dd65100` |
 | 22 ECB / Fed RSS: unclosed item took the next item's date and description | `5326ea3` |
 | 23 BLS CPI workbook: a cell could borrow its neighbour's value; quadratic cost | `880f59a` |
+| 24 V1 `cleanText` quadratic on unterminated tags | `4e132f4` |
+| integration: cloud `84e5374` cherry-picked (branch `integration/pr-149-plus-cloud-canonical-json`) | `979d601`, handoff `8670c87` |
+| 25 + 26 `Number()` read blank/non-decimal text as 0 (database read path, committee baseline) | see `git log` on the integration branch |
 
 ## Changes
 
@@ -73,6 +76,9 @@ offline contracts behave as written; every human gate in
 | 23 | Macro facts (CPI) | **Wrong CPI figure accepted.** `worksheetCells` used a lazy `<c>…</c>`: a cell left open took the next cell's value. With an unrelated column between the reviewed ones, "All items" YoY read 1.1 instead of 3.4 (or 9.9 instead of 2.4) and the table still parsed; empty `<si/>` shifted every shared-string index. Measured on 1.5 MB (cap 2 MiB): unclosed cells 52 s, unclosed items 43 s, unclosed values 128 s. The old HTML header cleaning, measured separately on unterminated input at 1.5 MB (cap 10 MiB): comments 377 s, scripts 67 s, styles 92 s (quadratic: doubling the size ×4) | Cells, items, parts and values read in one linear pass requiring strictly sequential elements; `<si/>` refused; HTML header cleaning (comments / scripts / styles) linear. Reviewed table or refusal, never other figures | `backend/event_facts/bls_cpi_artifact_parser.ts`, `tests/test_bls_cpi_artifact_structure_mutation.mjs` |
 
 | 24 | V1 news cleaning | `cleanText` (`backend/ingest.ts`) used a lazy `<script>…</script>` pattern and an unbounded `/<[^>]+>/g`: both rescan to the end from every unterminated opener (150,000 characters of `<script>` cost 0.7 s, `<!--` 3.9 s, doubling the size ×4; 1.5 M characters minutes). Inputs are API titles and content, so the exposure was small | Input capped at 100,000 characters (output is capped at a few thousand anyway), tag length bounded to 2,000. 1.5 M characters of `<script>`, `<style>`, `<!--` and `<a ` now clean in under 3 s | `backend/ingest.ts`, `tests/test_gdelt_429_retry_policy.mjs` |
+
+| 25 | DATA (database read path) | **Unreadable freshness read as perfectly fresh.** `market_engine/context.ts` `num()` converted `v_market_latest` text with `Number()`: `""`, `" "` and `"\n"` became **0**, `"0x10"` became 16. A blank `staleness_seconds` therefore became "0 seconds old" (the 3900 spot stayed LIVE) and a blank `close`/`bid` became a price of 0 | Only plain decimal text (or a finite number) is read; anything else is `null`, so the field is UNAVAILABLE / the snapshot unavailable | `backend/market_engine/context.ts`, `tests/test_market_data_ingest_mutation.mjs` |
+| 26 | Committee (legacy partial recalculation) | `fetchBaselineScenarios` read the stored jsonb scenarios with `Number()`: a null/empty/`[]`/`false` target or invalidation became a baseline of **0**, `true` became 1, `"0x10"` became 16, instead of making the baseline unavailable | Strict `storedNumber()`; the explicit fallback of `confidence` to 0 is unchanged | `backend/ai_engine/committee_orchestrator.ts`, `tests/test_committee_baseline_numbers.mjs` |
 
 Reviewed with no change needed: the five `isAuthorized` implementations (token unset or empty → refuse; constant-time compare), tracked files for secrets (only placeholder test tokens), `wrangler.toml` and `frontend/index.html` (no secret, empty Supabase / V2 URLs), BLS CPI planner / orchestrator (injected dependencies, errors mapped to `BLOCKED`).
 

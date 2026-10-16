@@ -45,10 +45,20 @@ export interface MarketLatestRow {
   readonly staleness_seconds: number | string | null;
 }
 
+/**
+ * Écriture décimale uniquement. `Number()` lit aussi "" et "  " comme 0 (une
+ * fraîcheur vide deviendrait « 0 seconde », donc parfaitement fraîche) et
+ * "0x10" comme 16.
+ */
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
 /** PostgREST sérialise NUMERIC en chaîne : la conversion est explicite. */
 function num(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined) return null;
-  const parsed = typeof value === 'number' ? value : Number(value);
+  let parsed: number;
+  if (typeof value === 'number') parsed = value;
+  else if (typeof value === 'string' && DECIMAL.test(value.trim())) parsed = Number(value.trim());
+  else return null;
   return Number.isFinite(parsed) ? parsed : null;
 }
 

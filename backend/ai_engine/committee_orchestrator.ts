@@ -677,6 +677,20 @@ function asNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+const STORED_DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/**
+ * Nombre lu dans une colonne jsonb ou NUMERIC (PostgREST renvoie du texte).
+ * `Number()` lirait null, "", [] et false comme 0, true comme 1 et "0x10"
+ * comme 16 : une valeur absente deviendrait une valeur stockée. Ici, tout ce
+ * qui n'est pas un nombre ou une écriture décimale donne NaN.
+ */
+function storedNumber(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && STORED_DECIMAL.test(value.trim())) return Number(value.trim());
+  return Number.NaN;
+}
+
 function asDirection(value: unknown): Direction {
   return value === 'bullish' || value === 'bearish' ? value : 'neutral';
 }
@@ -1381,9 +1395,9 @@ export async function fetchBaselineScenarios(
     if (!raw) return null;
 
     // La base stocke des probabilités en [0,1], le contrat frontend en 0-100.
-    const probability = Math.round(asNumber(Number(raw.probability), NaN) * 100);
-    const target = Number(raw.target);
-    const invalidation = Number(raw.invalidation);
+    const probability = Math.round(asNumber(storedNumber(raw.probability), NaN) * 100);
+    const target = storedNumber(raw.target);
+    const invalidation = storedNumber(raw.invalidation);
     if (!Number.isFinite(probability) || !Number.isFinite(target) || !Number.isFinite(invalidation)) {
       return null;
     }
@@ -1398,7 +1412,7 @@ export async function fetchBaselineScenarios(
         raw.activation_condition,
         'Condition d\'activation de référence non disponible.',
       ),
-      confidence: Math.round(asNumber(Number(raw.confidence), 0) * 100),
+      confidence: Math.round(asNumber(storedNumber(raw.confidence), 0) * 100),
       reasoning: asString(raw.reasoning, 'Scénario de référence conservé.'),
     };
   }
