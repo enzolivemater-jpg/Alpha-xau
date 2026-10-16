@@ -57,11 +57,24 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
+/**
+ * JSON exactly as it will be serialized: plain objects and arrays only, with
+ * data properties. A Map, Set, Date, class instance, getter or sparse array
+ * would pass a loose check and then be sent as something else (`{}`, a string,
+ * a computed value, `null`).
+ */
 function isJsonValue(value: unknown): boolean {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isRecord(value) && Object.values(value).every(isJsonValue);
+  if (Array.isArray(value)) {
+    return Object.getPrototypeOf(value) === Array.prototype
+      && Object.keys(value).length === value.length && value.every(isJsonValue);
+  }
+  if (!isRecord(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  return Object.values(Object.getOwnPropertyDescriptors(value)).every((descriptor) =>
+    'value' in descriptor && isJsonValue(descriptor.value));
 }
 
 function isReadyPlan(value: unknown): value is Extract<BlsCpiProducerPlan, { readonly kind: 'READY' }> {
@@ -79,6 +92,8 @@ function isReadyPlan(value: unknown): value is Extract<BlsCpiProducerPlan, { rea
     && typeof identity.identityValue === 'string'
     && identity.identityValue.length > 0
     && identity.identityValue.trim() === identity.identityValue
+    // U+001F joins the key fields (here and in SQL): a value holding it is ambiguous.
+    && !identity.identityValue.includes('\u001f')
     && Array.isArray(identity.candidateClusterIds)
     && identity.candidateClusterIds.length <= 1
     && identity.candidateClusterIds.every(candidate => typeof candidate === 'string' && UUID.test(candidate));
