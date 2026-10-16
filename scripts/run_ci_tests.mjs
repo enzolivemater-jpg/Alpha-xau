@@ -120,6 +120,7 @@ const TEST_FILES = [
   'tests/test_market_pricing_as_of_contract.mjs',
   'tests/test_market_provider_parsing.mjs',
   'tests/test_provider_parsers_mutation.mjs',
+  'tests/test_news_feed_structure_mutation.mjs',
   'tests/test_news_source_entity_decoding.mjs',
   'tests/test_news_dedup_accounting.mjs',
   'tests/test_market_pricing_institutional_contract.mjs',

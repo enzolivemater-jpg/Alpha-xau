@@ -142,12 +142,45 @@ function extractTag(block: string, tag: string): string | null {
   return text.length > 0 ? text : null;
 }
 
-/** Extraction bornée, non gourmande : un seul niveau, pas de motif
- *  imbriqué — pas un parseur XML générique, seulement une extraction de
- *  blocs <item> pour la forme RSS 2.0 ECB connue. */
-function extractItemBlocks(xml: string): string[] {
-  const matches = xml.match(/<item\b[^>]*>[\s\S]*?<\/item>/g);
-  return matches ?? [];
+/** Un item réel fait quelques kilo-octets ; au-delà, le bloc est refusé. */
+const MAX_ITEM_CHARS = 64_000;
+
+interface ItemBlocks {
+  readonly blocks: string[];
+  readonly unclosed: number;
+  readonly oversized: number;
+}
+
+/**
+ * Un seul passage linéaire sur les balises <item> et </item> — pas un parseur
+ * XML générique, seulement l'extraction de blocs pour la forme RSS 2.0 ECB
+ * connue. Un item n'existe qu'entre SON <item> et le premier </item> qui suit
+ * sans autre <item> entre-temps. Un <item> rencontré alors qu'un autre est
+ * encore ouvert laisse le premier non fermé : il est écarté et compté, jamais
+ * fusionné avec le suivant (un bloc fusionné donnerait au premier item la
+ * description et la date de publication du suivant). Un `</item>` littéral
+ * dans un CDATA coupe l'item : les champs suivants sont perdus (null), jamais
+ * attribués à un autre.
+ */
+function extractItemBlocks(xml: string): ItemBlocks {
+  const blocks: string[] = [];
+  let unclosed = 0;
+  let oversized = 0;
+  let open: number | null = null;
+  for (const tag of xml.matchAll(/<(\/?)item\b[^>]{0,1000}>/gi)) {
+    const at = tag.index ?? 0;
+    if (tag[1] === '') {
+      if (open !== null) unclosed += 1;
+      open = at;
+    } else if (open !== null) {
+      const end = at + tag[0].length;
+      if (end - open > MAX_ITEM_CHARS) oversized += 1;
+      else blocks.push(xml.slice(open, end));
+      open = null;
+    }
+  }
+  if (open !== null) unclosed += 1;
+  return { blocks, unclosed, oversized };
 }
 
 function looksLikeRss(xml: string): boolean {
@@ -273,13 +306,15 @@ async function collectSingleFeed(
     throw new Error('malformed feed: missing rss/channel structure');
   }
 
-  const itemBlocks = extractItemBlocks(body);
+  const { blocks: itemBlocks, unclosed, oversized } = extractItemBlocks(body);
   if (itemBlocks.length === 0) {
     throw new Error('malformed feed: no item blocks');
   }
 
   const observations: RawNewsObservationInput[] = [];
   const rejected: EcbRejectedItem[] = [];
+  for (let i = 0; i < unclosed; i += 1) rejected.push({ feed: feedConfig.id, reason: 'ecb_item_unclosed' });
+  for (let i = 0; i < oversized; i += 1) rejected.push({ feed: feedConfig.id, reason: 'ecb_item_oversized' });
 
   for (const block of itemBlocks) {
     try {
