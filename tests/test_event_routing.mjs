@@ -102,6 +102,21 @@ console.log('--- Detection 23505 (idempotence + verrou) ---');
 t('code 23505 detecte', isUniqueViolation('Supabase HTTP 409: {"code":"23505","message":"duplicate key value..."}'));
 t('libelle duplicate key detecte', isUniqueViolation('duplicate key value violates unique constraint'));
 t('erreur sans rapport non confondue', !isUniqueViolation('Supabase HTTP 500: internal error'));
+t('code=23505 (forme PostgREST abregee) detecte', isUniqueViolation('PostgREST 409 code=23505 duplicate key'));
+t('code 23505 seul, entre guillemets, detecte', isUniqueViolation('Supabase HTTP 409: {"code": "23505"}'));
+// Une VRAIE panne ne doit jamais passer pour « un run est deja actif » (SKIPPED silencieux).
+for (const message of [
+  'Supabase HTTP 500: request id 1235057 failed',
+  'timeout after 23505ms',
+  'Supabase HTTP 503: upstream connect error 23505',
+  'Supabase HTTP 500: relation "ingestion_runs" already exists',
+  'Supabase HTTP 400: {"code":"42P07","message":"relation \\"x\\" already exists"}',
+  'Supabase HTTP 500: {"code":"23503","message":"foreign key violation"}',
+  'Supabase HTTP 500: {"code":"23502","message":"null value violates not-null constraint"}',
+  '',
+]) {
+  t(`faux positif refuse : ${JSON.stringify(message).slice(0, 70)}`, !isUniqueViolation(message));
+}
 
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f?1:0);

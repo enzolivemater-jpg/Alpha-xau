@@ -56,11 +56,19 @@ export const DEFAULT_STALE_LOCK_MINUTES = 15;
 /**
  * Détecte une violation d'unicité PostgreSQL dans un message d'erreur
  * PostgREST. PostgREST répond 409 avec un corps contenant `"code":"23505"`
- * et le libellé « duplicate key ». Les deux sont recherchés : le libellé
- * peut être localisé sur certaines instances, le code ne l'est jamais.
+ * et le libellé « duplicate key value violates unique constraint ». Les deux
+ * sont recherchés : le libellé peut être localisé sur certaines instances, le
+ * code ne l'est jamais.
+ *
+ * Un faux positif est coûteux : il fait passer une VRAIE panne pour « un run
+ * est déjà actif », donc un SKIPPED nominal silencieux. Le code doit donc être
+ * présenté comme code d'erreur (`code=23505`, `"code":"23505"`), jamais comme
+ * une suite de chiffres quelconque (identifiant de requête, durée), et
+ * « already exists » (relation ou fonction déjà créée, SQLSTATE 42P07/42723)
+ * n'est pas une violation d'unicité.
  */
 export function isUniqueViolation(message: string): boolean {
-  return /23505|duplicate key|already exists/i.test(message);
+  return /\bcode\W{0,6}23505\b|duplicate key value violates unique constraint|\bduplicate key\b/i.test(message);
 }
 
 /**
