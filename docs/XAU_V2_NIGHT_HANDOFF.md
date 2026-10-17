@@ -153,6 +153,8 @@ randomness, clock or I/O).
 | Database / migrations | NOT_MIGRATED; none touched |
 | Recovery / security | FROZEN; REC-1 human gate |
 
+| 34 | DATA-3 tooling | `validate_evidence_captures.mjs` chose each source's replay cutoff by lexical `sort()`: `…:00Z` ranked after `…:00.500Z`, so the source was replayed at an earlier instant than its latest capture | `latestIngestedAt()` compares instants (`Date.parse`); unparseable values never win | `scripts/validate_evidence_captures.mjs`, `tests/test_validate_evidence_latest_ingest.mjs` (red-before-fix only as a missing export; behaviour asserted after) |
+
 ## Integration with the cloud branch (DONE locally on `integration/pr-149-plus-cloud-canonical-json`)
 
 Created from `4e132f4`; `84e5374` cherry-picked as `979d601` with no conflict (git auto-merged
@@ -192,9 +194,7 @@ This is a reading, not a run.
 ## Remaining / next
 
 1. Confirm in CI (ephemeral PostgreSQL included) on the exact head commit.
-2. Known and left alone: `validate_evidence_captures.mjs` picks each source's
-   latest `ingestedAt` with a lexical `sort()` (mis-orders `…:00Z` against
-   `…:00.500Z`); it only affects which cutoff the per-source check replays at.
+2. *(Done, see change 34)* `validate_evidence_captures.mjs` latest-`ingestedAt` lexical sort.
 3. Not yet swept: committee / orchestrator legacy paths (`committee_orchestrator.ts`, 2,000+
    lines), `backend/ingest.ts` (V1 news pipeline), the event shadow batches / orchestrators
    (mock-database sweeps), and `backend/worker.ts` routes (deploy-gated). Note: the CPI
