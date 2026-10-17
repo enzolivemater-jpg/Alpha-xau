@@ -41,7 +41,8 @@ on every root cause. Version 4 (DATA-1) adds `marketEvidence` and the origin
 
 - `temporal`: `HISTORICAL` when the cutoff precedes generation by more than
   the existing XAUUSD LIVE window (360 s), `AT_GENERATION` within it,
-  `UNKNOWN` when either time is unreadable.
+  `UNKNOWN` when either time is unreadable or the cutoff is after generation
+  (an impossible boundary: no negative age is ever shown).
 - `holdRationale`: the first blocking stage, and the root causes grouped by
   category (every reason that is not `UPSTREAM`, distinct codes in stage
   order, with their stages). Inherited (`UPSTREAM`) reasons are counted.

@@ -122,7 +122,11 @@ assert.equal(at('2026-10-01T14:21:01.000Z').classification, 'HISTORICAL', '361 s
 assert.deepEqual(at('2026-10-01T14:15:00.000Z'), { classification: 'AT_GENERATION', cutoffAgeSeconds: 0, currentWindowSeconds: 360 });
 assert.equal(at('not a time').classification, 'UNKNOWN');
 assert.equal(at('not a time').cutoffAgeSeconds, null);
-console.log('PASS temporal class: HISTORICAL beyond the XAUUSD LIVE window, UNKNOWN when unreadable');
+// A cutoff AFTER generation is impossible: never a negative age, never "at generation".
+for (const early of ['2026-10-01T14:14:59.999Z', '2026-10-01T14:14:59.000Z', '2026-10-01T14:00:00.000Z', '2026-09-01T00:00:00.000Z']) {
+  assert.deepEqual(at(early), { classification: 'UNKNOWN', cutoffAgeSeconds: null, currentWindowSeconds: 360 }, `generated ${early} before the cutoff`);
+}
+console.log('PASS temporal class: HISTORICAL beyond the XAUUSD LIVE window, UNKNOWN when unreadable or when the cutoff is in the future');
 
 // --- Why HOLD: root causes are the non-upstream reasons, grouped, in stage order.
 const why = view.holdRationale;

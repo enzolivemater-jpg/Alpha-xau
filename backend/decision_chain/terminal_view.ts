@@ -494,7 +494,8 @@ function capabilities(stages: readonly TerminalStageView[], completed: boolean):
 function temporalOf(knowledgeCutoff: string | null, generatedAt: string): TerminalView['temporal'] {
   const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
   const generatedMs = parseStrictTimestamp(generatedAt);
-  if (cutoffMs === null || generatedMs === null) {
+  // A cutoff after generation cannot be a past knowledge boundary: no negative age, never "current".
+  if (cutoffMs === null || generatedMs === null || cutoffMs > generatedMs) {
     return { classification: 'UNKNOWN', cutoffAgeSeconds: null, currentWindowSeconds: TERMINAL_VIEW_CURRENT_WINDOW_SECONDS };
   }
   const cutoffAgeSeconds = Math.floor((generatedMs - cutoffMs) / 1000);

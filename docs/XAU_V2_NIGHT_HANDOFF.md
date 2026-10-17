@@ -96,6 +96,8 @@ Audited with no defect (regression guards added on branch `audit/shadow-worker-h
 
 Reviewed with no change needed: the five `isAuthorized` implementations (token unset or empty → refuse; constant-time compare), tracked files for secrets (only placeholder test tokens), `wrangler.toml` and `frontend/index.html` (no secret, empty Supabase / V2 URLs), BLS CPI planner / orchestrator (injected dependencies, errors mapped to `BLOCKED`).
 
+31. Terminal temporal integrity (branch `verify/terminal-demo-offline`): a cutoff AFTER `generatedAt` (e.g. `--cutoff` in the future) gave a negative `cutoffAgeSeconds`, was classed `AT_GENERATION` and displayed "CUTOFF À LA GÉNÉRATION" with an age like "-12 s". Red first in `tests/test_terminal_view.mjs` (4 cases), fixed in `temporalOf` (`terminal_view.ts`): such a cutoff is now `UNKNOWN` with a null age. Still a fixed-vocabulary change (no new enum value, no schema bump); a distinct `FUTURE_CUTOFF` class would need a v5 view and is left to a human decision. Visual tests: still impossible (no Chromium/Chrome/Edge executable, no `playwright-core`; nothing installed).
+
 Mutation sweeps (6–18) share `tests/lib/mutation_cases.mjs` (deterministic: node
 replacement by 25 hostile values, removal, unknown key, own `__proto__` key; no
 randomness, clock or I/O).
