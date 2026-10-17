@@ -162,6 +162,13 @@ view. Each scenario is a simulation, never market data.
 
 The server:
 - binds `127.0.0.1` only and accepts only `GET` and `HEAD`;
+- starts as `npm run terminal:local` does and is checked on the REAL process
+  (`tests/test_terminal_cli_process.mjs`): the ready line gives the URL, HOLD and how to
+  stop (`Ctrl+C`); every scenario returns a simulated HOLD / FORBIDDEN view with the 12
+  CHAIN-0 stages in order, an origin, a cutoff and a fingerprint only for an accepted
+  receipt (or a stated rejection with no stage and no fingerprint); a port already in use
+  or forbidden prints one readable line and exits 1 (no stack trace); invalid arguments
+  print the usage and exit 1; SIGTERM stops it and frees the port;
 - refuses with `403` any request whose `Host` header is not exactly
   `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding guard, every route,
   including a missing `Host`); proven by `tests/test_terminal_local_host_guard.mjs`;

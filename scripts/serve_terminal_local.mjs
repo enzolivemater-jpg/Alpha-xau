@@ -273,8 +273,20 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   } else {
     const { port: _port, ...serverOptions } = options;
     const server = await createTerminalServer(serverOptions);
+    // A busy or forbidden port is the usual first-run problem (the demo is
+    // often restarted): say so in one line instead of an unhandled 'error'
+    // event with a raw stack trace.
+    server.on('error', (error) => {
+      const reason = error.code === 'EADDRINUSE'
+        ? `le port ${options.port} est déjà utilisé (EADDRINUSE) ; un autre terminal local tourne peut-être déjà. Choisissez un autre port avec --port <numéro>.`
+        : error.code === 'EACCES'
+          ? `le port ${options.port} n'est pas autorisé (EACCES). Choisissez un port supérieur à 1024 avec --port <numéro>.`
+          : `${error.code ?? 'erreur'} : ${error.message}`;
+      process.stderr.write(`terminal local : impossible de démarrer, ${reason}\n`);
+      process.exitCode = 1;
+    });
     server.listen(options.port, '127.0.0.1', () => {
-      process.stdout.write(`terminal local : http://127.0.0.1:${options.port}/ (CHAIN-0 DRY RUN, HOLD, exécution interdite)\n`);
+      process.stdout.write(`terminal local : http://127.0.0.1:${options.port}/ (CHAIN-0 DRY RUN, HOLD, exécution interdite) — Ctrl+C pour arrêter\n`);
     });
   }
 }
