@@ -126,6 +126,10 @@ assert.doesNotMatch(csp, /https?:|\*/, 'CSP names no foreign origin');
 assert.doesNotMatch(served, /<(link|script|img|iframe|source)\b[^>]*\b(href|src)\s*=\s*["']?(https?:)?\/\//i,
   'the served page loads nothing from a foreign origin');
 assert.doesNotMatch(served, /preconnect|dns-prefetch|prefetch/i, 'the served page opens no early connection');
+// A browser asks the server for /favicon.ico unless the page names an icon: that was a 404 in the
+// console on every first load (seen in headless Chromium). An inline data: icon needs no request.
+assert.match(served, /<link rel="icon" href="data:[^"]+">/, 'the page declares an inline icon, so no /favicon.ico request is made');
+assert.ok(directives['img-src'].includes('data:'), 'the CSP allows the inline icon');
 const stylesheet = await (await fetch(`${base}/css/style.css`)).text();
 assert.doesNotMatch(stylesheet, /@import|url\(\s*["']?(https?:)?\/\//i, 'the stylesheet fetches nothing from a foreign origin');
 assert.doesNotMatch(stylesheet, /@font-face/i, 'no web font is declared: system fonts only');
