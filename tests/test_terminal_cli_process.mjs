@@ -101,6 +101,8 @@ assert.equal(await main.ready, 'ready', `the server starts: ${JSON.stringify(mai
   for (const directive of ["default-src 'none'", "frame-ancestors 'none'", "connect-src 'self'", "base-uri 'none'"]) {
     if (!csp.includes(directive)) note('page', `CSP lacks ${directive}`);
   }
+  if (/https?:/.test(csp)) note('page', `CSP names a foreign origin: ${csp}`);
+  if (/(href|src)\s*=\s*["']?(https?:)?\/\//i.test(page.body)) note('page', 'the page loads a resource from a foreign origin (no network needed offline)');
   if (page.headers['x-frame-options'] !== 'DENY') note('page', 'no X-Frame-Options DENY');
   if (page.headers['cache-control'] !== 'no-store') note('page', 'page is cacheable');
   if (!page.body.includes("V2_VIEW_URL: '/local/v2/terminal.json'")) note('page', 'view URL not injected');

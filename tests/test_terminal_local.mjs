@@ -59,6 +59,25 @@ assert.throws(() => contentSecurityPolicy(`${served}<script>alert(1)</script>`),
 assert.notEqual(contentSecurityPolicy(served.replace("POLL_INTERVAL_MS: 5000", "POLL_INTERVAL_MS: 5001")), csp,
   'any change to the inline script changes its hash');
 
+// Network independence: nothing of the page, its policy or its stylesheet reaches a foreign origin.
+for (const [directive, sources] of Object.entries(directives)) {
+  for (const source of sources) {
+    assert.match(source, /^('self'|'none'|'unsafe-inline'|'sha256-[A-Za-z0-9+/=]+'|data:)$/, `CSP ${directive} allows ${source}`);
+  }
+}
+assert.doesNotMatch(csp, /https?:|\*/, 'CSP names no foreign origin');
+assert.doesNotMatch(served, /<(link|script|img|iframe|source)\b[^>]*\b(href|src)\s*=\s*["']?(https?:)?\/\//i,
+  'the served page loads nothing from a foreign origin');
+assert.doesNotMatch(served, /preconnect|dns-prefetch|prefetch/i, 'the served page opens no early connection');
+const stylesheet = await (await fetch(`${base}/css/style.css`)).text();
+assert.doesNotMatch(stylesheet, /@import|url\(\s*["']?(https?:)?\/\//i, 'the stylesheet fetches nothing from a foreign origin');
+assert.doesNotMatch(stylesheet, /@font-face/i, 'no web font is declared: system fonts only');
+for (const family of ['--mono', '--sans']) {
+  const stack = new RegExp(`${family}:\\s*([^;]+);`).exec(stylesheet)?.[1] ?? '';
+  assert.match(stack, /(^|,)\s*(monospace|sans-serif)\s*$/, `${family} ends with a generic family`);
+  assert.ok(stack.split(',').length >= 5, `${family} lists several local fallbacks`);
+}
+
 response = await fetch(`${base}${VIEW_PATH}`);
 assert.equal(response.status, 200);
 const view = await response.json();

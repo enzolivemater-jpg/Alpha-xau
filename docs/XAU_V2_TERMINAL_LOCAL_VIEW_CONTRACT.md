@@ -187,8 +187,9 @@ The server:
 - serves `frontend/` read-only and refuses paths outside it;
 - serves the page with a strict Content-Security-Policy: the only inline
   script allowed is the configuration block, by its SHA-256 after injection;
-  network access is limited to this server and Google Fonts; framing is
-  denied;
+  network access is limited to this server (no web font, no foreign
+  stylesheet: the typography is the system's, `IBM Plex` only if already
+  installed); framing is denied;
 - injects `V2_VIEW_URL` only into the page it serves.
 
 It makes no database, provider, broker or network call. The Supabase settings

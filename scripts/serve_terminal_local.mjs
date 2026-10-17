@@ -142,7 +142,7 @@ export async function buildLocalView({
  * Content-Security-Policy of the served page. The only inline script is the
  * configuration block, allowed by its exact SHA-256 after injection; any
  * other inline or foreign script is refused. Network access is limited to
- * this server (and the Google Fonts stylesheet the page already uses).
+ * this server: no web font, no foreign stylesheet (system fonts only).
  */
 export function contentSecurityPolicy(html) {
   const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(([, body]) => body);
@@ -151,8 +151,7 @@ export function contentSecurityPolicy(html) {
   return [
     "default-src 'none'",
     `script-src 'self' 'sha256-${hash}'`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    'font-src https://fonts.gstatic.com',
+    "style-src 'self' 'unsafe-inline'",
     "connect-src 'self'",
     "img-src 'self' data:",
     "base-uri 'none'",

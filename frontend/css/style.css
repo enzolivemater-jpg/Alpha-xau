@@ -51,8 +51,10 @@
   --accent:        #d8a13a;
 
   /* Typographie */
-  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Polices du système uniquement : aucun téléchargement, la page reste lisible hors ligne.
+     IBM Plex n'est utilisée que si elle est déjà installée sur le poste. */
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'DejaVu Sans', 'Helvetica Neue', Arial, sans-serif;
 
   /* Échelle — resserrée : un terminal se lit à 11-13px */
   --fs-micro:  10.5px;
