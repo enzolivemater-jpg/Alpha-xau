@@ -203,6 +203,9 @@
     v2PositioningSources: $('v2-positioning-sources'),
     v2Capabilities: $('v2-capabilities'),
     v2Mev: $('v2-mev'),
+    v2Prov: $('v2-prov'),
+    v2ProvStatus: $('v2-prov-status'),
+    v2ProvList: $('v2-prov-list'),
     v2MevStatus: $('v2-mev-status'),
     v2MevArchive: $('v2-mev-archive'),
     v2MevCoverage: $('v2-mev-coverage'),
@@ -1176,6 +1179,28 @@ let pollTimer = null;
   const V2_EVIDENCE_STATUS = { VERIFIED: 'REJEU VÉRIFIÉ', INCOMPLETE: 'REJEU INCOMPLET', INVALID: 'ARCHIVE REJETÉE' };
   const V2_RAW_STATES = { RAW_VERIFIED: 'BRUT RELU', RAW_DIGEST_ONLY: 'EMPREINTE SEULE', RAW_UNKNOWN: 'BRUT INCONNU' };
 
+  /* B4 : provenance par entrée. Seul le marché peut venir d'une archive ; rien n'est dit observé ni validé. */
+  const V2_INPUTS = ['MARKET', 'POSITIONING', 'EVENT_IMPACT', 'GOLD_TRANSMISSION', 'EVIDENCE_GRAPH', 'AUTHORIZATIONS'];
+  const V2_INPUT_LABELS = {
+    MARKET: 'MARCHÉ',
+    POSITIONING: 'POSITIONNEMENT',
+    EVENT_IMPACT: 'EVENT IMPACT',
+    GOLD_TRANSMISSION: 'GOLD TRANSMISSION',
+    EVIDENCE_GRAPH: 'GRAPHE DE PREUVES',
+    AUTHORIZATIONS: 'AUTORISATIONS',
+  };
+  const V2_SOURCE_LABELS = {
+    CAPTURED_ARCHIVE: 'ARCHIVE CAPTURÉE — NON CERTIFIÉE',
+    SYNTHETIC_FIXTURE: 'FIXTURE SYNTHÉTIQUE',
+    LOCAL_INPUT_UNVERIFIED: 'FICHIER LOCAL NON VÉRIFIÉ',
+    UNAVAILABLE: 'NON DISPONIBLE',
+    UNKNOWN: 'PROVENANCE INCONNUE',
+  };
+
+  /** Sources des entrées non marché, sans les entrées absentes ; null si la vue ne les donne pas. */
+  const otherSources = (prov) => (prov === undefined ? null
+    : [...new Set(prov.slice(1).filter((e) => e.source !== 'UNAVAILABLE').map((e) => V2_SOURCE_LABELS[e.source]))]);
+
   /** Libellé d'origine ; un scénario est nommé par son identifiant. */
   const originText = (origin) => (origin.kind === 'LOCAL_SCENARIO' && isText(origin.label)
     ? `${V2_ORIGIN_LABELS[origin.kind]} ${origin.label.toUpperCase()}` : V2_ORIGIN_LABELS[origin.kind]);
@@ -1252,6 +1277,17 @@ let pollTimer = null;
       if (mev.nature !== 'SIMULATION' && mev.provenanceClass !== 'CAPTURED') return 'nature de marché incohérente';
       if (mev.nature === 'HISTORICAL_VERIFIED' && (mev.status !== 'VERIFIED' || mev.observations.length === 0
           || mev.observations.some((o) => o.raw !== 'RAW_VERIFIED'))) return 'historique vérifié non prouvé';
+    }
+    const prov = view.inputProvenance;
+    if (prov !== undefined) {
+      if (!isList(prov) || prov.length !== V2_INPUTS.length
+          || prov.some((e, i) => !e || e.input !== V2_INPUTS[i] || !has(V2_SOURCE_LABELS, e.source) || typeof e.detail !== 'string')) {
+        return 'provenance des entrées non conforme';
+      }
+      // Seul le marché peut venir d'une archive, et seulement si son manifeste le dit.
+      if (prov.slice(1).some((e) => e.source === 'CAPTURED_ARCHIVE')) return 'provenance contradictoire (entrée non marché attribuée à une archive)';
+      if (prov[0].source === 'CAPTURED_ARCHIVE' && (!mev || mev.provenanceClass !== 'CAPTURED')) return 'provenance du marché contradictoire';
+      if (prov[0].source === 'SYNTHETIC_FIXTURE' && mev && mev.provenanceClass === 'CAPTURED') return 'provenance du marché contradictoire';
     }
     for (const h of view.horizons) {
       // Une direction n'existe qu'avec une méthode approuvée ; il n'y en a aucune.
@@ -1334,6 +1370,8 @@ let pollTimer = null;
     el.v2Summary.hidden = true;
     el.v2Mev.hidden = true;
     el.v2MevObs.replaceChildren();
+    el.v2Prov.hidden = true;
+    el.v2ProvList.replaceChildren();
     for (const n of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2CutoffAge, el.v2Digest,
       el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningThrough, el.v2PositioningSources, el.v2MarketState]) {
       setText(n, '—');
@@ -1481,8 +1519,13 @@ let pollTimer = null;
     const mev = view.marketEvidence;
     // Données de marché rejouées : leur nature prime ; la chaîne reste un dry run.
     const market = mev ? `${V2_EVIDENCE_NATURE[mev.nature]} · ${V2_EVIDENCE_STATUS[mev.status]}` : null;
+    // B4 : l'archive ne porte que le marché ; les autres entrées sont nommées à côté.
+    const others = view.origin.kind === 'LOCAL_MARKET_ARCHIVE' ? otherSources(view.inputProvenance) : undefined;
+    const othersText = others === undefined ? ''
+      : others === null ? 'PROVENANCE DES AUTRES ENTRÉES NON FOURNIE · '
+        : `AUTRES ENTRÉES : ${others.length ? others.join(' / ') : 'NON DISPONIBLES'} · `;
     setChainMode(historical ? 'historical' : 'simulated', market ? `${V2_EVIDENCE_NATURE[mev.nature]} · DRY RUN` : `SIMULATION · ${when}`,
-      `${originText(view.origin)} · ${market ? `${market} · ` : ''}`
+      `${originText(view.origin)} · ${othersText}${market ? `${market} · ` : ''}`
         + `${historical ? `HISTORIQUE — cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)}` : when}`
         + ' · PAS UNE ANALYSE RÉELLE');
 
@@ -1544,6 +1587,7 @@ let pollTimer = null;
 
     renderReadiness(view);
     renderMarketEvidence(view.marketEvidence);
+    renderInputProvenance(view.inputProvenance);
 
     const counts = {};
     for (const c of view.capabilities) counts[c.status] = (counts[c.status] || 0) + 1;
@@ -1565,6 +1609,28 @@ let pollTimer = null;
   const shortTime = (v) => (isText(v) ? v.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'INCONNU');
 
   /** DATA-1 : provenance complète de chaque valeur retenue au cutoff. */
+  /** B4 : une ligne par entrée ; une vue sans ce champ le dit, sans rien supposer. */
+  function renderInputProvenance(prov) {
+    el.v2Prov.hidden = false;
+    if (prov === undefined) {
+      setText(el.v2ProvStatus, 'PROVENANCE PAR ENTRÉE NON FOURNIE — considérer chaque entrée comme d\'origine inconnue.');
+      el.v2ProvList.replaceChildren();
+      return;
+    }
+    const others = otherSources(prov);
+    setText(el.v2ProvStatus, `MARCHÉ : ${V2_SOURCE_LABELS[prov[0].source]} · AUTRES ENTRÉES : `
+      + `${others.length ? others.join(' / ') : 'NON DISPONIBLES'}`);
+    el.v2ProvList.replaceChildren(fragmentOf(prov, (e) => {
+      const li = node('li', 'prov__item', undefined, { 'data-input': e.input, 'data-source': e.source });
+      const head = node('div', 'prov__head');
+      head.appendChild(node('span', 'prov__input', V2_INPUT_LABELS[e.input]));
+      head.appendChild(node('span', 'prov__source', V2_SOURCE_LABELS[e.source]));
+      li.appendChild(head);
+      li.appendChild(node('p', 'prov__detail', e.detail));
+      return li;
+    }));
+  }
+
   function renderMarketEvidence(mev) {
     el.v2Mev.hidden = mev === null;
     if (mev === null) {

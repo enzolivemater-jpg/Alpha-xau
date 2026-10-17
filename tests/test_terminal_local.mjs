@@ -535,6 +535,8 @@ dom.window.close();
 const historical = structuredClone(archiveView);
 Object.assign(historical.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED' });
 for (const o of historical.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
+// B4: a coherent captured view also names the archive as the market's source.
+Object.assign(historical.inputProvenance[0], { source: 'CAPTURED_ARCHIVE', detail: 'archive capturée localement (test)' });
 dom = boot(LOCAL, serveView(historical));
 await settle();
 d = dom.window.document;
