@@ -172,6 +172,7 @@
     v2Origin: $('v2-origin'),
     v2ScenarioWrap: $('v2-scenario-wrap'),
     v2Scenario: $('v2-scenario'),
+    v2ScenarioHint: $('v2-scenario-hint'),
     v2Status: $('v2-status'),
     v2State: $('v2-state'),
     v2Detail: $('v2-detail'),
@@ -1677,6 +1678,8 @@ let pollTimer = null;
         options.push(node('option', '', `${item.id} — ${item.label}`, { value: item.id }));
       }
       el.v2Scenario.replaceChildren(...options);
+      const count = options.length - 1;
+      setText(el.v2ScenarioHint, `${count} scénario${count > 1 ? 's' : ''} ${count > 1 ? 'locaux' : 'local'} à comparer : chacun est une simulation, jamais une donnée de marché, et reste HOLD, exécution interdite.`);
       el.v2ScenarioWrap.hidden = options.length < 2;
       el.v2Scenario.addEventListener('change', () => {
         v2Scenario = el.v2Scenario.value || null;

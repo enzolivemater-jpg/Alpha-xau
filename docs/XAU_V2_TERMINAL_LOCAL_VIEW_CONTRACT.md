@@ -158,7 +158,10 @@ golden fixture (`scripts/lib/terminal_scenarios.mjs`). `GET
 - `lookahead` (price 500 µs after the cutoff);
 - `invalid-input`.
 
-The terminal offers them in a selector and shows only the latest requested
+The terminal offers them in a selector, **SCÉNARIO DE SIMULATION**, which opens the
+CHAÎNE V2 panel (above the status) with a one-line count and a reminder that every
+scenario is a simulation that stays HOLD. The ready line of the server says where it
+is (`http://127.0.0.1:<port>/#chaine`). The terminal shows only the latest requested
 view. Each scenario is a simulation, never market data.
 
 The server:

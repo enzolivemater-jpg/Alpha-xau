@@ -332,15 +332,17 @@
     <div class="panel__head">
       <h2 class="panel__title" id="p5-title">CHAÎNE DÉCISIONNELLE V2</h2>
       <span class="v2__head-right">
-        <label class="v2__scenario" id="v2-scenario-wrap" hidden>
-          <span class="v2__scenario-key">SCÉNARIO</span>
-          <select id="v2-scenario"></select>
-        </label>
         <span class="badge" id="v2-origin" data-state="unknown">—</span>
       </span>
     </div>
 
     <div class="panel__body v2">
+      <div class="v2__scenario" id="v2-scenario-wrap" hidden>
+        <label class="v2__scenario-key" for="v2-scenario">SCÉNARIO DE SIMULATION</label>
+        <select id="v2-scenario" aria-describedby="v2-scenario-hint"></select>
+        <span class="v2__scenario-hint" id="v2-scenario-hint"></span>
+      </div>
+
       <div class="v2__status" id="v2-status" data-state="unavailable" role="status">
         <span class="v2__state" id="v2-state">INDISPONIBLE</span>
         <span class="v2__detail" id="v2-detail">Aucun runtime V2 déployé.</span>

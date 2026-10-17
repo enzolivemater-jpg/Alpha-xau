@@ -772,6 +772,23 @@ assert.equal(d.querySelectorAll('#v2-stages .stage').length, 12);
 assert.equal(d.getElementById('v2-scenario-wrap').hidden, false);
 const options = [...d.querySelectorAll('#v2-scenario option')].map((o) => o.value);
 assert.deepEqual(options, ['', ...TERMINAL_SCENARIO_IDS]);
+{
+  // Easy to find: first thing in the CHAÎNE V2 panel body, named, explained, counted.
+  const wrap = d.getElementById('v2-scenario-wrap');
+  const body = d.querySelector('.panel--chain .panel__body');
+  assert.equal(body.firstElementChild, wrap, 'the selector opens the panel body, above the status');
+  assert.equal(wrap.nextElementSibling.id, 'v2-status');
+  const label = wrap.querySelector('label[for="v2-scenario"]');
+  assert.ok(label, 'the select has a visible label bound to it');
+  assert.match(label.textContent, /SCÉNARIO DE SIMULATION/);
+  assert.ok(!d.querySelector('.panel--chain .panel__head #v2-scenario'), 'no longer hidden in the panel header');
+  const hint = text(d, 'v2-scenario-hint');
+  assert.match(hint, new RegExp(`${TERMINAL_SCENARIO_IDS.length} scénarios`), hint);
+  assert.match(hint, /HOLD/);
+  assert.match(hint, /exécution interdite/i);
+  assert.doesNotMatch(hint, /\b(achat|vente|buy|sell|signal)\b/i);
+  assert.equal(d.getElementById('v2-scenario').getAttribute('aria-describedby'), 'v2-scenario-hint');
+}
 const select = d.getElementById('v2-scenario');
 select.value = 'invalid-input';
 select.dispatchEvent(new dom.window.Event('change'));

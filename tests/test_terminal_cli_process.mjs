@@ -94,6 +94,8 @@ assert.equal(await main.ready, 'ready', `the server starts: ${JSON.stringify(mai
   const { stdout } = main.out();
   if (!stdout.includes(`http://127.0.0.1:${port}/`)) note('ready line', 'does not show the URL to open');
   if (!/HOLD/.test(stdout) || !/interdite/.test(stdout)) note('ready line', 'does not state HOLD and forbidden execution');
+  if (!stdout.includes(`http://127.0.0.1:${port}/#chaine`) || !stdout.includes('SCÉNARIO DE SIMULATION')) note('ready line', 'does not tell where the scenario selector is');
+  if (/https?:\/\/(?!127\.0\.0\.1:)/.test(stdout)) note('ready line', 'prints a non-loopback URL');
 }
 
 // The page a browser loads.

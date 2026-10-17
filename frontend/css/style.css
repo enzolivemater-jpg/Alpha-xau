@@ -1044,22 +1044,35 @@ body {
 .workspace--chain .panel__body { flex: none; overflow: visible; }
 
 .v2__head-right { flex: 1 1 auto; display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--sp-2) var(--sp-3); min-width: 0; }
-.v2__scenario { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; max-width: 100%; }
+/* Sélecteur de scénarios : première ligne du panneau, avant l'état, pour qu'on le trouve sans chercher. */
+.v2__scenario {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  min-width: 0;
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--accent);
+  background: var(--panel-alt);
+}
 .v2__scenario[hidden] { display: none; }
-.v2__scenario-key { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.1em; color: var(--text-faint); }
+.v2__scenario-key { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; color: var(--accent); }
+.v2__scenario-hint { flex: 1 1 100%; font-family: var(--sans); font-size: var(--fs-xs); color: var(--text-dim); }
 .workspace--chain .panel__head { flex-wrap: wrap; }
 .v2__scenario select {
+  flex: 1 1 280px;
   min-width: 0;
-  width: 240px;
   max-width: 100%;
   font-family: var(--mono);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   color: var(--text);
   background: var(--panel);
-  border: 1px solid var(--rule-strong);
-  padding: 2px var(--sp-2);
+  border: 1px solid var(--accent);
+  padding: var(--sp-1) var(--sp-2);
 }
-.v2__scenario select:focus-visible { outline: 1px solid var(--accent); }
+.v2__scenario select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .v2 { font-size: var(--fs-sm); }
 
