@@ -11,7 +11,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
 import { createHash } from 'node:crypto';
-import { contentSecurityPolicy, createTerminalServer, localIndexHtml, SCENARIOS_PATH, VIEW_PATH } from '../scripts/serve_terminal_local.mjs';
+import { createServer as createNetServer } from 'node:net';
+import {
+  contentSecurityPolicy, createTerminalServer, DEFAULT_PORT, DEFAULT_PORT_RANGE, listenOnLoopback, localIndexHtml,
+  MAX_PORT_RANGE, parseArgs, SCENARIOS_PATH, VIEW_PATH,
+} from '../scripts/serve_terminal_local.mjs';
 import { TERMINAL_SCENARIO_IDS } from '../scripts/lib/terminal_scenarios.mjs';
 
 const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
@@ -34,6 +38,59 @@ assert.ok(!localIndexHtml().includes("V2_VIEW_URL: '',"));
 assert.ok(localIndexHtml().includes("SUPABASE_URL: '',"), 'local page keeps Supabase empty (V1 demo mode)');
 assert.equal(html.split("V2_SCENARIOS_URL: '',").length, 2);
 assert.ok(localIndexHtml().includes(`V2_SCENARIOS_URL: '${SCENARIOS_PATH}',`));
+
+// --- Port selection: a default range, an explicit strict port, an explicit bounded range.
+{
+  const defaults = parseArgs([]);
+  assert.equal(defaults.port, DEFAULT_PORT);
+  assert.equal(defaults.port, 4173);
+  assert.equal(defaults.portRange, DEFAULT_PORT_RANGE);
+  assert.deepEqual([parseArgs(['--port', '5000']).port, parseArgs(['--port', '5000']).portRange], [5000, 1], 'an explicit port is strict');
+  assert.deepEqual([parseArgs(['--port', '5000', '--port-range', '4']).port, parseArgs(['--port', '5000', '--port-range', '4']).portRange], [5000, 4]);
+  assert.equal(parseArgs(['--port-range', '4', '--port', '5000']).portRange, 4, 'flag order does not matter');
+  for (const bad of [['--port-range', '4'], ['--port', '5000', '--port-range', '0'], ['--port', '5000', '--port-range', String(MAX_PORT_RANGE + 1)],
+    ['--port', '5000', '--port-range', '-1'], ['--port', '5000', '--port-range', '1.5'], ['--port', '5000', '--port-range', ''],
+    ['--host', '0.0.0.0'], ['--port', '5000', '--host', '0.0.0.0'], ['--address', '0.0.0.0']]) {
+    assert.equal(parseArgs(bad), null, `refused: ${bad.join(' ')}`);
+  }
+  const source = readFileSync(new URL('../scripts/serve_terminal_local.mjs', import.meta.url), 'utf8');
+  assert.deepEqual([...source.matchAll(/\.listen\(([^)]*)\)/g)].map((m) => m[1]), ['candidate, LOOPBACK_ADDRESS'],
+    'the only listen call takes the fixed loopback address');
+  assert.doesNotMatch(source, /0\.0\.0\.0|'::'|--host|--bind/, 'no way to listen beyond the loopback');
+
+  // listenOnLoopback on real sockets.
+  const holders = [];
+  const hold = (p) => new Promise((resolve, reject) => {
+    const holder = createNetServer();
+    holder.once('error', reject);
+    holder.listen(p, '127.0.0.1', () => { holders.push(holder); resolve(holder.address().port); });
+  });
+  let first = 0;
+  for (let attempt = 0; attempt < 20 && first === 0; attempt += 1) {
+    try {
+      const p = await hold(0);
+      await hold(p + 1);
+      first = p;
+    } catch { await Promise.all(holders.splice(0).map((h) => new Promise((r) => h.close(r)))); }
+  }
+  assert.notEqual(first, 0, 'two consecutive busy ports');
+  const probe = await createTerminalServer();
+  const taken = await listenOnLoopback(probe, { port: first, range: 5 });
+  assert.ok(taken.port >= first + 2 && taken.port <= first + 4, `moved past the two busy ports (${taken.port})`);
+  assert.equal(taken.requested, first);
+  assert.equal(probe.address().address, '127.0.0.1', 'bound to the loopback only');
+  await close(probe);
+  const strictProbe = await createTerminalServer();
+  await assert.rejects(listenOnLoopback(strictProbe, { port: first }), (error) => error.code === 'EADDRINUSE' && error.firstPort === first && error.lastPort === first);
+  assert.equal(strictProbe.listening, false, 'a strict busy port leaves the server closed');
+  const shortProbe = await createTerminalServer();
+  await assert.rejects(listenOnLoopback(shortProbe, { port: first, range: 2 }), (error) => error.code === 'EADDRINUSE' && error.lastPort === first + 1);
+  assert.equal(shortProbe.listening, false);
+  // Only EADDRINUSE moves on: a malformed port is not retried.
+  const badProbe = await createTerminalServer();
+  await assert.rejects(listenOnLoopback(badProbe, { port: 70000, range: 5 }), (error) => error.code === 'ERR_SOCKET_BAD_PORT' || error instanceof RangeError);
+  await Promise.all(holders.map((h) => new Promise((r) => h.close(r))));
+}
 
 // --- Server.
 const { server, base } = await listen();

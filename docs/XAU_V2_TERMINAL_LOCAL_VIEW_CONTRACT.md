@@ -162,7 +162,11 @@ The terminal offers them in a selector and shows only the latest requested
 view. Each scenario is a simulation, never market data.
 
 The server:
-- binds `127.0.0.1` only and accepts only `GET` and `HEAD`;
+- binds `127.0.0.1` only (fixed in code, no option widens it) and accepts only `GET` and `HEAD`;
+- port: without `--port` it takes 4173 or, if busy, the next free port among the 10 starting
+  there (the ready line shows the port actually used, and a line says the first was busy);
+  an explicit `--port N` is strict, and `--port N --port-range K` (1–50) allows the next K-1
+  ports; when none is free it prints one readable line and exits 1;
 - starts as `npm run terminal:local` does and is checked on the REAL process
   (`tests/test_terminal_cli_process.mjs`): the ready line gives the URL, HOLD and how to
   stop (`Ctrl+C`); every scenario returns a simulated HOLD / FORBIDDEN view with the 12

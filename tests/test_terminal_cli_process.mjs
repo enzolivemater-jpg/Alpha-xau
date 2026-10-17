@@ -11,7 +11,8 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
+import { connect, createServer } from 'node:net';
+import { networkInterfaces } from 'node:os';
 import { request } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -72,6 +73,8 @@ for (const [label, args] of [
   ['non-numeric port', ['--port', 'abc']], ['port 0', ['--port', '0']], ['port 70000', ['--port', '70000']],
   ['negative port', ['--port', '-1']], ['unknown flag', ['--bogus', '1']], ['missing value', ['--port']],
   ['odd arguments', ['--port', '4173', '--input']], ['bad digest', ['--archive', 'x.json', '--archive-digest', 'nope']],
+  ['port range 0', ['--port', '4173', '--port-range', '0']], ['port range 51', ['--port', '4173', '--port-range', '51']],
+  ['port range not a number', ['--port', '4173', '--port-range', 'many']], ['port range alone', ['--port-range', '5']],
 ]) {
   const server = start(args);
   const state = await server.ready;
@@ -230,6 +233,67 @@ for (const [label, extra, check] of [
   await stop(server);
 }
 
+// Port fallback: only the next ports, only the loopback, and a clear refusal when none is free.
+{
+  const holders = [];
+  const hold = (p) => new Promise((resolve, reject) => {
+    const holder = createServer();
+    holder.once('error', reject);
+    holder.listen(p, '127.0.0.1', () => { holders.push(holder); resolve(); });
+  });
+  let base = 0;
+  for (let attempt = 0; attempt < 20 && base === 0; attempt += 1) {
+    const candidate = await freePort();
+    try { await hold(candidate); await hold(candidate + 1); base = candidate; } catch { await Promise.all(holders.splice(0).map((h) => new Promise((r) => h.close(r)))); }
+  }
+  assert.notEqual(base, 0, 'two consecutive free ports for the fallback test');
+
+  const moved = start(['--port', String(base), '--port-range', '5']);
+  const state = await moved.ready;
+  const { stdout, stderr } = moved.out();
+  const chosen = Number(/terminal local : http:\/\/127\.0\.0\.1:(\d+)\//.exec(stdout)?.[1] ?? 0);
+  if (state !== 'ready') note('port fallback', `did not start: ${JSON.stringify(stderr.slice(0, 200))}`);
+  else {
+    if (chosen < base + 2 || chosen > base + 4) note('port fallback', `port ${chosen} is outside the allowed range ${base + 2}..${base + 4}`);
+    if (!new RegExp(`le port ${base} est occupé`).test(stdout)) note('port fallback', 'does not say that the requested port was busy');
+    if (/\n\s+at .*\(/.test(stderr)) note('port fallback', 'stack trace on stderr');
+    const page = await raw(chosen, '/');
+    if (page.status !== 200 || !page.body.includes("V2_VIEW_URL: '/local/v2/terminal.json'")) note('port fallback', 'the moved server does not serve the terminal');
+    if ((await raw(chosen, '/', { host: `127.0.0.1:${base}` })).status !== 403) note('port fallback', 'the Host of the busy port is accepted on the moved server');
+    // Never exposed beyond the loopback: no other local address answers on the chosen port.
+    for (const addresses of Object.values(networkInterfaces())) {
+      for (const { address, family, internal } of addresses ?? []) {
+        if (internal || family !== 'IPv4') continue;
+        const reachable = await new Promise((resolve) => {
+          const socket = connect({ host: address, port: chosen, timeout: 1000 });
+          socket.once('connect', () => { socket.destroy(); resolve(true); });
+          socket.once('error', () => resolve(false));
+          socket.once('timeout', () => { socket.destroy(); resolve(false); });
+        });
+        if (reachable) note('port fallback', `reachable on the non-loopback address ${address}`);
+      }
+    }
+  }
+  await stop(moved);
+
+  const exhausted = start(['--port', String(base), '--port-range', '2']);
+  const exhaustedState = await exhausted.ready;
+  const exhaustedOut = exhausted.out();
+  const exhaustedResult = await stop(exhausted);
+  if (exhaustedState === 'ready') note('port fallback exhausted', 'claims to be ready although both ports are busy');
+  if (exhaustedResult.code !== 1) note('port fallback exhausted', `exit code ${JSON.stringify(exhaustedResult)}`);
+  if (!/aucun port libre entre/.test(exhaustedOut.stderr)) note('port fallback exhausted', `unclear message ${JSON.stringify(exhaustedOut.stderr.slice(0, 200))}`);
+  if (/\n\s+at .*\(/.test(exhaustedOut.stderr)) note('port fallback exhausted', 'stack trace on stderr');
+
+  // An explicit port without --port-range stays strict.
+  const strict = start(['--port', String(base)]);
+  const strictState = await strict.ready;
+  const strictOut = strict.out();
+  await stop(strict);
+  if (strictState === 'ready' || /le port libre/.test(strictOut.stdout)) note('port strict', 'an explicit --port moved to another port');
+  await Promise.all(holders.map((h) => new Promise((r) => h.close(r))));
+}
+
 assert.deepEqual(failures, [], `TERMINAL PROCESS findings (${failures.length}):\n${failures.join('\n')}`);
 console.log(`PASS terminal demo process: real CLI, ${scenarios.length} scenarios + default each HOLD / FORBIDDEN with 12 ordered stages or a stated rejection; `
-  + 'error paths, bad arguments, port conflict and clean stop checked');
+  + 'error paths, bad arguments, port conflict, bounded loopback-only port fallback and clean stop checked');
