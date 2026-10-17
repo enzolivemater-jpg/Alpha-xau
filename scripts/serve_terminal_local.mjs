@@ -3,8 +3,13 @@
  * Local terminal server: serves frontend/ and the CHAIN-0 terminal view on
  * the loopback interface only.
  *
- *   node scripts/serve_terminal_local.mjs [--port 4173] [--input chain-input.json]
+ *   node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]
  *     [--archive market-evidence-archive.json [--archive-digest sha256:...] [--cutoff ISO]]
+ *
+ * Port: without --port the server takes 4173, or the next free port among the
+ * next 9 when it is busy (loopback only, whatever the port). An explicit --port
+ * is strict (one port, a busy one is an error) unless --port-range N allows
+ * the next N-1 ports too.
  *
  * With --archive, the chain's market snapshot comes from a DATA-1 replay of
  * that archive at --cutoff (default: the input document's cutoff); every
@@ -32,6 +37,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FRONTEND = path.join(ROOT, 'frontend');
 export const GOLDEN_FIXTURE = path.join(ROOT, 'tests', 'fixtures', 'decision_chain_dry_run_baseline.json');
 export const SYNTHETIC_ARCHIVE = path.join(ROOT, 'tests', 'fixtures', 'market_evidence_archive_synthetic.json');
+export const DEFAULT_PORT = 4173;
+export const DEFAULT_PORT_RANGE = 10;
+export const MAX_PORT_RANGE = 50;
+export const LOOPBACK_ADDRESS = '127.0.0.1';
 export const VIEW_PATH = '/local/v2/terminal.json';
 export const SCENARIOS_PATH = '/local/v2/scenarios.json';
 const VIEW_URL_PLACEHOLDER = "V2_VIEW_URL: '',";
@@ -142,7 +151,7 @@ export async function buildLocalView({
  * Content-Security-Policy of the served page. The only inline script is the
  * configuration block, allowed by its exact SHA-256 after injection; any
  * other inline or foreign script is refused. Network access is limited to
- * this server (and the Google Fonts stylesheet the page already uses).
+ * this server: no web font, no foreign stylesheet (system fonts only).
  */
 export function contentSecurityPolicy(html) {
   const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(([, body]) => body);
@@ -151,8 +160,7 @@ export function contentSecurityPolicy(html) {
   return [
     "default-src 'none'",
     `script-src 'self' 'sha256-${hash}'`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    'font-src https://fonts.gstatic.com',
+    "style-src 'self' 'unsafe-inline'",
     "connect-src 'self'",
     "img-src 'self' data:",
     "base-uri 'none'",
@@ -179,6 +187,33 @@ function send(response, status, type, body, method, extraHeaders = {}) {
  */
 export function isLoopbackHost(host, port) {
   return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+}
+
+/**
+ * Listens on the loopback address only, on `port` or, when it is busy
+ * (EADDRINUSE and nothing else), on the next ports up to `range` ports in total.
+ * Any other error (EACCES, ...) ends the search at once. The address is never
+ * a parameter: a fallback cannot widen the exposure.
+ */
+export function listenOnLoopback(server, { port, range = 1 }) {
+  const last = Math.min(port + range - 1, 65535);
+  return new Promise((resolve, reject) => {
+    const attempt = (candidate) => {
+      const onError = (error) => {
+        server.off('listening', onListening);
+        if (error.code === 'EADDRINUSE' && candidate < last) attempt(candidate + 1);
+        else reject(Object.assign(error, { firstPort: port, lastPort: candidate }));
+      };
+      const onListening = () => {
+        server.off('error', onError);
+        resolve({ port: server.address().port, requested: port });
+      };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(candidate, LOOPBACK_ADDRESS);
+    };
+    attempt(port);
+  });
 }
 
 export async function createTerminalServer(options = {}) {
@@ -243,12 +278,14 @@ export async function createTerminalServer(options = {}) {
   return server;
 }
 
-function parseArgs(argv) {
-  const options = { port: 4173, inputFile: GOLDEN_FIXTURE, archiveFile: null, archiveDigest: undefined, cutoff: null };
+export function parseArgs(argv) {
+  const options = { port: null, portRange: null, inputFile: GOLDEN_FIXTURE, archiveFile: null, archiveDigest: undefined, cutoff: null };
   for (let i = 0; i < argv.length; i += 2) {
     const [flag, value] = [argv[i], argv[i + 1]];
     if (flag === '--port' && /^\d{1,5}$/.test(value ?? '') && Number(value) > 0 && Number(value) < 65536) {
       options.port = Number(value);
+    } else if (flag === '--port-range' && /^\d{1,2}$/.test(value ?? '') && Number(value) >= 1 && Number(value) <= MAX_PORT_RANGE) {
+      options.portRange = Number(value);
     } else if (flag === '--input' && value) {
       options.inputFile = path.resolve(value);
     } else if (flag === '--archive' && value) {
@@ -261,20 +298,46 @@ function parseArgs(argv) {
       return null;
     }
   }
+  // --port-range only widens an explicit --port; without --port the default range applies.
+  if (options.port === null) {
+    if (options.portRange !== null) return null;
+    options.port = DEFAULT_PORT;
+    options.portRange = DEFAULT_PORT_RANGE;
+  } else if (options.portRange === null) {
+    options.portRange = 1;
+  }
   return options;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const options = parseArgs(process.argv.slice(2));
   if (!options) {
-    process.stderr.write('usage: node scripts/serve_terminal_local.mjs [--port 4173] [--input chain-input.json]'
+    process.stderr.write('usage: node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]'
       + ' [--archive archive.json [--archive-digest sha256:...] [--cutoff ISO]]\n');
     process.exitCode = 1;
   } else {
-    const { port: _port, ...serverOptions } = options;
+    const { port: requested, portRange, ...serverOptions } = options;
     const server = await createTerminalServer(serverOptions);
-    server.listen(options.port, '127.0.0.1', () => {
-      process.stdout.write(`terminal local : http://127.0.0.1:${options.port}/ (CHAIN-0 DRY RUN, HOLD, exécution interdite)\n`);
-    });
+    // A busy or forbidden port is the usual first-run problem (the demo is
+    // often restarted): say so in one line instead of an unhandled 'error'
+    // event with a raw stack trace.
+    try {
+      const { port } = await listenOnLoopback(server, { port: requested, range: portRange });
+      if (port !== requested) {
+        process.stdout.write(`terminal local : le port ${requested} est occupé ; le port libre ${port} est utilisé (loopback uniquement)\n`);
+      }
+      process.stdout.write(`terminal local : http://127.0.0.1:${port}/ (CHAIN-0 DRY RUN, HOLD, exécution interdite) — Ctrl+C pour arrêter\n`);
+      process.stdout.write(`terminal local : scénarios de simulation dans l'onglet CHAÎNE V2 (http://127.0.0.1:${port}/#chaine), sélecteur « SCÉNARIO DE SIMULATION » en haut du panneau\n`);
+    } catch (error) {
+      const busy = portRange > 1
+        ? `aucun port libre entre ${error.firstPort} et ${error.lastPort} (EADDRINUSE) ; un autre terminal local tourne peut-être déjà. Arrêtez-le ou choisissez un autre port avec --port <numéro>.`
+        : `le port ${requested} est déjà utilisé (EADDRINUSE) ; un autre terminal local tourne peut-être déjà. Choisissez un autre port avec --port <numéro> (ou --port-range <N> pour essayer les suivants).`;
+      const reason = error.code === 'EADDRINUSE' ? busy
+        : error.code === 'EACCES'
+          ? `le port ${error.lastPort ?? requested} n'est pas autorisé (EACCES). Choisissez un port supérieur à 1024 avec --port <numéro>.`
+          : `${error.code ?? 'erreur'} : ${error.message}`;
+      process.stderr.write(`terminal local : impossible de démarrer, ${reason}\n`);
+      process.exitCode = 1;
+    }
   }
 }

@@ -41,7 +41,8 @@ on every root cause. Version 4 (DATA-1) adds `marketEvidence` and the origin
 
 - `temporal`: `HISTORICAL` when the cutoff precedes generation by more than
   the existing XAUUSD LIVE window (360 s), `AT_GENERATION` within it,
-  `UNKNOWN` when either time is unreadable.
+  `UNKNOWN` when either time is unreadable or the cutoff is after generation
+  (an impossible boundary: no negative age is ever shown).
 - `holdRationale`: the first blocking stage, and the root causes grouped by
   category (every reason that is not `UPSTREAM`, distinct codes in stage
   order, with their stages). Inherited (`UPSTREAM`) reasons are counted.
@@ -157,11 +158,25 @@ golden fixture (`scripts/lib/terminal_scenarios.mjs`). `GET
 - `lookahead` (price 500 µs after the cutoff);
 - `invalid-input`.
 
-The terminal offers them in a selector and shows only the latest requested
+The terminal offers them in a selector, **SCÉNARIO DE SIMULATION**, which opens the
+CHAÎNE V2 panel (above the status) with a one-line count and a reminder that every
+scenario is a simulation that stays HOLD. The ready line of the server says where it
+is (`http://127.0.0.1:<port>/#chaine`). The terminal shows only the latest requested
 view. Each scenario is a simulation, never market data.
 
 The server:
-- binds `127.0.0.1` only and accepts only `GET` and `HEAD`;
+- binds `127.0.0.1` only (fixed in code, no option widens it) and accepts only `GET` and `HEAD`;
+- port: without `--port` it takes 4173 or, if busy, the next free port among the 10 starting
+  there (the ready line shows the port actually used, and a line says the first was busy);
+  an explicit `--port N` is strict, and `--port N --port-range K` (1–50) allows the next K-1
+  ports; when none is free it prints one readable line and exits 1;
+- starts as `npm run terminal:local` does and is checked on the REAL process
+  (`tests/test_terminal_cli_process.mjs`): the ready line gives the URL, HOLD and how to
+  stop (`Ctrl+C`); every scenario returns a simulated HOLD / FORBIDDEN view with the 12
+  CHAIN-0 stages in order, an origin, a cutoff and a fingerprint only for an accepted
+  receipt (or a stated rejection with no stage and no fingerprint); a port already in use
+  or forbidden prints one readable line and exits 1 (no stack trace); invalid arguments
+  print the usage and exit 1; SIGTERM stops it and frees the port;
 - refuses with `403` any request whose `Host` header is not exactly
   `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding guard, every route,
   including a missing `Host`); proven by `tests/test_terminal_local_host_guard.mjs`;
@@ -179,8 +194,9 @@ The server:
 - serves `frontend/` read-only and refuses paths outside it;
 - serves the page with a strict Content-Security-Policy: the only inline
   script allowed is the configuration block, by its SHA-256 after injection;
-  network access is limited to this server and Google Fonts; framing is
-  denied;
+  network access is limited to this server (no web font, no foreign
+  stylesheet: the typography is the system's, `IBM Plex` only if already
+  installed); framing is denied;
 - injects `V2_VIEW_URL` only into the page it serves.
 
 It makes no database, provider, broker or network call. The Supabase settings

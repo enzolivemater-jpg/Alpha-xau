@@ -51,8 +51,10 @@
   --accent:        #d8a13a;
 
   /* Typographie */
-  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Polices du système uniquement : aucun téléchargement, la page reste lisible hors ligne.
+     IBM Plex n'est utilisée que si elle est déjà installée sur le poste. */
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'DejaVu Sans', 'Helvetica Neue', Arial, sans-serif;
 
   /* Échelle — resserrée : un terminal se lit à 11-13px */
   --fs-micro:  10.5px;
@@ -496,7 +498,7 @@ body {
   color: var(--text-faint);
   padding: 0 var(--sp-2) var(--sp-2);
   border-bottom: 1px solid var(--rule-strong);
-  white-space: nowrap;
+  white-space: normal; /* « IMPACT OR » passe à la ligne : le tableau tenait 11 px de trop à 320 px */
 }
 
 .matrix thead th.ta-r { text-align: right; }
@@ -1042,22 +1044,35 @@ body {
 .workspace--chain .panel__body { flex: none; overflow: visible; }
 
 .v2__head-right { flex: 1 1 auto; display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--sp-2) var(--sp-3); min-width: 0; }
-.v2__scenario { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; max-width: 100%; }
+/* Sélecteur de scénarios : première ligne du panneau, avant l'état, pour qu'on le trouve sans chercher. */
+.v2__scenario {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  min-width: 0;
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--accent);
+  background: var(--panel-alt);
+}
 .v2__scenario[hidden] { display: none; }
-.v2__scenario-key { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.1em; color: var(--text-faint); }
+.v2__scenario-key { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; color: var(--accent); }
+.v2__scenario-hint { flex: 1 1 100%; font-family: var(--sans); font-size: var(--fs-xs); color: var(--text-dim); }
 .workspace--chain .panel__head { flex-wrap: wrap; }
 .v2__scenario select {
+  flex: 1 1 280px;
   min-width: 0;
-  width: 240px;
   max-width: 100%;
   font-family: var(--mono);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   color: var(--text);
   background: var(--panel);
-  border: 1px solid var(--rule-strong);
-  padding: 2px var(--sp-2);
+  border: 1px solid var(--accent);
+  padding: var(--sp-1) var(--sp-2);
 }
-.v2__scenario select:focus-visible { outline: 1px solid var(--accent); }
+.v2__scenario select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .v2 { font-size: var(--fs-sm); }
 
@@ -1144,7 +1159,9 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--sp-2) var(--sp-3);
 }
-.v2__facts--stack { grid-template-columns: 1fr; margin: var(--sp-3) 0 0; }
+/* minmax(0, 1fr), pas 1fr : un identifiant ou une empreinte sans espace (sha256…) élargissait la
+   colonne de 28 px à 1024 px ; la valeur revient à la ligne dans sa colonne. */
+.v2__facts--stack { grid-template-columns: minmax(0, 1fr); margin: var(--sp-3) 0 0; }
 .v2__facts-wide { grid-column: 1 / -1; }
 .v2__facts dt { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.1em; color: var(--text-faint); }
 .v2__facts dd { margin: 2px 0 0; font-family: var(--mono); font-size: var(--fs-xs); overflow-wrap: break-word; }
@@ -1230,6 +1247,45 @@ body {
   white-space: nowrap;
 }
 .v2__table td { padding: var(--sp-2); border-bottom: 1px solid var(--panel-alt); vertical-align: top; white-space: nowrap; }
+/* Marché au cutoff : six colonnes dont la largeur minimale, en une ligne par cellule, dépasse la
+   colonne de droite (516 px pour 445 px à 1024 px, 300 px sur téléphone) et cachait SOURCE derrière
+   un défilement. Les libellés et l'horodatage (« 2026-10-01 14:14:00Z ») peuvent revenir à la ligne
+   à leurs espaces ; les valeurs, âges, noms de champ et sources restent d'un seul tenant. Aucune
+   information n'est retirée. */
+.v2__table--market th,
+.v2__table--market td { white-space: normal; overflow-wrap: break-word; }
+.v2__table--market .ta-r,
+.v2__table--market .v2__field { white-space: nowrap; }
+/* Conteneur trop étroit pour six colonnes (téléphone, ≈ 413 px minimum) : chaque champ tient sur
+   deux rangées — CHAMP · VALEUR · ÉTAT · ÂGE, puis OBSERVÉ et SOURCE, étiquetés. Le tableau reste
+   un tableau pour les lecteurs d'écran (rôles ARIA dans index.html et dashboard.js). */
+.v2__scroll-x { container: market / inline-size; }
+@container market (max-width: 440px) {
+  .v2__table--market,
+  .v2__table--market tbody { display: block; }
+  .v2__table--market thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .v2__table--market tr {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto; /* l'état prend le reste et se replie */
+    gap: 2px var(--sp-2);
+    padding: var(--sp-2) 0;
+    border-bottom: 1px solid var(--panel-alt);
+  }
+  .v2__table--market td { padding: 0; border: 0; min-width: 0; }
+  .v2__table--market td.v2__empty { grid-column: 1 / -1; }
+  .v2__table--market td:nth-child(5),
+  .v2__table--market td:nth-child(6) {
+    grid-row: 2;
+    font-size: var(--fs-micro);
+    color: var(--text-dim);
+  }
+  .v2__table--market td:nth-child(5) { grid-column: 1 / 3; }
+  .v2__table--market td:nth-child(6) { grid-column: 3 / 5; text-align: right; }
+  .v2__table--market td:nth-child(5)::before { content: 'OBSERVÉ '; color: var(--text-faint); letter-spacing: 0.08em; }
+  .v2__table--market td:nth-child(6)::before { content: 'SOURCE '; color: var(--text-faint); letter-spacing: 0.08em; }
+}
 .v2__field { font-family: var(--mono); color: var(--text); }
 .v2__empty { color: var(--text-faint); list-style: none; }
 .v2__state-cell { font-family: var(--mono); }

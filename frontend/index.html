@@ -24,9 +24,7 @@
   ============================================================================
 -->
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23121212'/%3E%3Crect x='3' y='3' width='10' height='10' fill='%23d8a13a'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -335,15 +333,17 @@
     <div class="panel__head">
       <h2 class="panel__title" id="p5-title">CHAÎNE DÉCISIONNELLE V2</h2>
       <span class="v2__head-right">
-        <label class="v2__scenario" id="v2-scenario-wrap" hidden>
-          <span class="v2__scenario-key">SCÉNARIO</span>
-          <select id="v2-scenario"></select>
-        </label>
         <span class="badge" id="v2-origin" data-state="unknown">—</span>
       </span>
     </div>
 
     <div class="panel__body v2">
+      <div class="v2__scenario" id="v2-scenario-wrap" hidden>
+        <label class="v2__scenario-key" for="v2-scenario">SCÉNARIO DE SIMULATION</label>
+        <select id="v2-scenario" aria-describedby="v2-scenario-hint"></select>
+        <span class="v2__scenario-hint" id="v2-scenario-hint"></span>
+      </div>
+
       <div class="v2__status" id="v2-status" data-state="unavailable" role="status">
         <span class="v2__state" id="v2-state">INDISPONIBLE</span>
         <span class="v2__detail" id="v2-detail">Aucun runtime V2 déployé.</span>
@@ -403,12 +403,12 @@
       </div>
       <div class="panel__body v2">
         <div class="v2__scroll-x">
-          <table class="v2__table v2__table--market">
+          <table class="v2__table v2__table--market" role="table">
             <caption class="sr-only">Champs de marché au cutoff : valeur, état, âge, observation et source</caption>
-            <thead>
-              <tr><th scope="col">CHAMP</th><th scope="col" class="ta-r">VALEUR</th><th scope="col">ÉTAT AU CUTOFF</th><th scope="col" class="ta-r">ÂGE</th><th scope="col">OBSERVÉ (UTC)</th><th scope="col">SOURCE</th></tr>
+            <thead role="rowgroup">
+              <tr role="row"><th scope="col" role="columnheader">CHAMP</th><th scope="col" class="ta-r" role="columnheader">VALEUR</th><th scope="col" role="columnheader">ÉTAT AU CUTOFF</th><th scope="col" class="ta-r" role="columnheader">ÂGE</th><th scope="col" role="columnheader">OBSERVÉ (UTC)</th><th scope="col" role="columnheader">SOURCE</th></tr>
             </thead>
-            <tbody id="v2-market">
+            <tbody id="v2-market" role="rowgroup">
               <tr><td colspan="6" class="v2__empty">—</td></tr>
             </tbody>
           </table>

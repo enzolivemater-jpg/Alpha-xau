@@ -11,7 +11,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
 import { createHash } from 'node:crypto';
-import { contentSecurityPolicy, createTerminalServer, localIndexHtml, SCENARIOS_PATH, VIEW_PATH } from '../scripts/serve_terminal_local.mjs';
+import { createServer as createNetServer } from 'node:net';
+import {
+  contentSecurityPolicy, createTerminalServer, DEFAULT_PORT, DEFAULT_PORT_RANGE, listenOnLoopback, localIndexHtml,
+  MAX_PORT_RANGE, parseArgs, SCENARIOS_PATH, VIEW_PATH,
+} from '../scripts/serve_terminal_local.mjs';
 import { TERMINAL_SCENARIO_IDS } from '../scripts/lib/terminal_scenarios.mjs';
 
 const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
@@ -34,6 +38,59 @@ assert.ok(!localIndexHtml().includes("V2_VIEW_URL: '',"));
 assert.ok(localIndexHtml().includes("SUPABASE_URL: '',"), 'local page keeps Supabase empty (V1 demo mode)');
 assert.equal(html.split("V2_SCENARIOS_URL: '',").length, 2);
 assert.ok(localIndexHtml().includes(`V2_SCENARIOS_URL: '${SCENARIOS_PATH}',`));
+
+// --- Port selection: a default range, an explicit strict port, an explicit bounded range.
+{
+  const defaults = parseArgs([]);
+  assert.equal(defaults.port, DEFAULT_PORT);
+  assert.equal(defaults.port, 4173);
+  assert.equal(defaults.portRange, DEFAULT_PORT_RANGE);
+  assert.deepEqual([parseArgs(['--port', '5000']).port, parseArgs(['--port', '5000']).portRange], [5000, 1], 'an explicit port is strict');
+  assert.deepEqual([parseArgs(['--port', '5000', '--port-range', '4']).port, parseArgs(['--port', '5000', '--port-range', '4']).portRange], [5000, 4]);
+  assert.equal(parseArgs(['--port-range', '4', '--port', '5000']).portRange, 4, 'flag order does not matter');
+  for (const bad of [['--port-range', '4'], ['--port', '5000', '--port-range', '0'], ['--port', '5000', '--port-range', String(MAX_PORT_RANGE + 1)],
+    ['--port', '5000', '--port-range', '-1'], ['--port', '5000', '--port-range', '1.5'], ['--port', '5000', '--port-range', ''],
+    ['--host', '0.0.0.0'], ['--port', '5000', '--host', '0.0.0.0'], ['--address', '0.0.0.0']]) {
+    assert.equal(parseArgs(bad), null, `refused: ${bad.join(' ')}`);
+  }
+  const source = readFileSync(new URL('../scripts/serve_terminal_local.mjs', import.meta.url), 'utf8');
+  assert.deepEqual([...source.matchAll(/\.listen\(([^)]*)\)/g)].map((m) => m[1]), ['candidate, LOOPBACK_ADDRESS'],
+    'the only listen call takes the fixed loopback address');
+  assert.doesNotMatch(source, /0\.0\.0\.0|'::'|--host|--bind/, 'no way to listen beyond the loopback');
+
+  // listenOnLoopback on real sockets.
+  const holders = [];
+  const hold = (p) => new Promise((resolve, reject) => {
+    const holder = createNetServer();
+    holder.once('error', reject);
+    holder.listen(p, '127.0.0.1', () => { holders.push(holder); resolve(holder.address().port); });
+  });
+  let first = 0;
+  for (let attempt = 0; attempt < 20 && first === 0; attempt += 1) {
+    try {
+      const p = await hold(0);
+      await hold(p + 1);
+      first = p;
+    } catch { await Promise.all(holders.splice(0).map((h) => new Promise((r) => h.close(r)))); }
+  }
+  assert.notEqual(first, 0, 'two consecutive busy ports');
+  const probe = await createTerminalServer();
+  const taken = await listenOnLoopback(probe, { port: first, range: 5 });
+  assert.ok(taken.port >= first + 2 && taken.port <= first + 4, `moved past the two busy ports (${taken.port})`);
+  assert.equal(taken.requested, first);
+  assert.equal(probe.address().address, '127.0.0.1', 'bound to the loopback only');
+  await close(probe);
+  const strictProbe = await createTerminalServer();
+  await assert.rejects(listenOnLoopback(strictProbe, { port: first }), (error) => error.code === 'EADDRINUSE' && error.firstPort === first && error.lastPort === first);
+  assert.equal(strictProbe.listening, false, 'a strict busy port leaves the server closed');
+  const shortProbe = await createTerminalServer();
+  await assert.rejects(listenOnLoopback(shortProbe, { port: first, range: 2 }), (error) => error.code === 'EADDRINUSE' && error.lastPort === first + 1);
+  assert.equal(shortProbe.listening, false);
+  // Only EADDRINUSE moves on: a malformed port is not retried.
+  const badProbe = await createTerminalServer();
+  await assert.rejects(listenOnLoopback(badProbe, { port: 70000, range: 5 }), (error) => error.code === 'ERR_SOCKET_BAD_PORT' || error instanceof RangeError);
+  await Promise.all(holders.map((h) => new Promise((r) => h.close(r))));
+}
 
 // --- Server.
 const { server, base } = await listen();
@@ -58,6 +115,29 @@ assert.equal(csp, contentSecurityPolicy(served));
 assert.throws(() => contentSecurityPolicy(`${served}<script>alert(1)</script>`), /exactly one inline script/);
 assert.notEqual(contentSecurityPolicy(served.replace("POLL_INTERVAL_MS: 5000", "POLL_INTERVAL_MS: 5001")), csp,
   'any change to the inline script changes its hash');
+
+// Network independence: nothing of the page, its policy or its stylesheet reaches a foreign origin.
+for (const [directive, sources] of Object.entries(directives)) {
+  for (const source of sources) {
+    assert.match(source, /^('self'|'none'|'unsafe-inline'|'sha256-[A-Za-z0-9+/=]+'|data:)$/, `CSP ${directive} allows ${source}`);
+  }
+}
+assert.doesNotMatch(csp, /https?:|\*/, 'CSP names no foreign origin');
+assert.doesNotMatch(served, /<(link|script|img|iframe|source)\b[^>]*\b(href|src)\s*=\s*["']?(https?:)?\/\//i,
+  'the served page loads nothing from a foreign origin');
+assert.doesNotMatch(served, /preconnect|dns-prefetch|prefetch/i, 'the served page opens no early connection');
+// A browser asks the server for /favicon.ico unless the page names an icon: that was a 404 in the
+// console on every first load (seen in headless Chromium). An inline data: icon needs no request.
+assert.match(served, /<link rel="icon" href="data:[^"]+">/, 'the page declares an inline icon, so no /favicon.ico request is made');
+assert.ok(directives['img-src'].includes('data:'), 'the CSP allows the inline icon');
+const stylesheet = await (await fetch(`${base}/css/style.css`)).text();
+assert.doesNotMatch(stylesheet, /@import|url\(\s*["']?(https?:)?\/\//i, 'the stylesheet fetches nothing from a foreign origin');
+assert.doesNotMatch(stylesheet, /@font-face/i, 'no web font is declared: system fonts only');
+for (const family of ['--mono', '--sans']) {
+  const stack = new RegExp(`${family}:\\s*([^;]+);`).exec(stylesheet)?.[1] ?? '';
+  assert.match(stack, /(^|,)\s*(monospace|sans-serif)\s*$/, `${family} ends with a generic family`);
+  assert.ok(stack.split(',').length >= 5, `${family} lists several local fallbacks`);
+}
 
 response = await fetch(`${base}${VIEW_PATH}`);
 assert.equal(response.status, 200);
@@ -306,6 +386,26 @@ const marketRows = [...d.querySelectorAll('#v2-market tr')];
 assert.equal(marketRows.length, 8);
 assert.deepEqual([...marketRows[0].cells].map((c) => c.textContent),
   ['SPOT', '3900', 'FRAIS AU CUTOFF', '60 s', '2026-10-01 14:14:00Z', 'twelve_data']);
+// Provenance is never dropped for layout: six cells per field, SOURCE last, in the DOM at every width.
+// Rows and cells carry explicit ARIA roles because the narrow layout turns the table into a CSS grid.
+assert.ok(marketRows.every((row) => row.cells.length === 6 && row.getAttribute('role') === 'row'));
+assert.ok(marketRows.every((row) => [...row.cells].every((cell) => cell.getAttribute('role') === 'cell')));
+assert.equal(d.querySelector('.v2__table--market').getAttribute('role'), 'table');
+assert.deepEqual([...d.querySelectorAll('.v2__table--market thead th')].map((th) => th.textContent),
+  ['CHAMP', 'VALEUR', 'ÉTAT AU CUTOFF', 'ÂGE', 'OBSERVÉ (UTC)', 'SOURCE']);
+assert.ok([...d.querySelectorAll('.v2__table--market thead th')].every((th) => th.getAttribute('role') === 'columnheader'));
+{
+  // Layout contract (verified in a real browser by scripts/check_terminal_layout.mjs, which now
+  // fails on any content left behind a horizontal scroller): the market table may wrap and
+  // restack, but may not hide SOURCE or OBSERVÉ with display:none or a fixed-width clip.
+  const css = readFileSync(new URL('../frontend/css/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.v2__table--market td \{ white-space: normal;|\.v2__table--market th,\s*\.v2__table--market td \{ white-space: normal;/);
+  assert.match(css, /@container market \(max-width: 440px\)/);
+  assert.doesNotMatch(css, /v2__table--market[^{]*nth-child\([56]\)[^{]*\{[^}]*display:\s*none/, 'no provenance column is hidden');
+  assert.match(css, /\.v2__facts--stack \{ grid-template-columns: minmax\(0, 1fr\);/, 'long digests wrap instead of widening the column');
+  assert.match(css, /\.v2__table--market td:nth-child\(5\)::before \{ content: 'OBSERVÉ '/);
+  assert.match(css, /\.v2__table--market td:nth-child\(6\)::before \{ content: 'SOURCE '/);
+}
 assert.match(text(d, 'v2-market-legend'), /^FRAIS AU CUTOFF : .*cutoff simulé\. Ce n'est pas un flux en direct\.$/);
 // The word LIVE appears nowhere in the simulated workspace.
 assert.doesNotMatch(d.getElementById('ws-chain').textContent, /\bLIVE\b/);
@@ -696,6 +796,23 @@ assert.equal(d.querySelectorAll('#v2-stages .stage').length, 12);
 assert.equal(d.getElementById('v2-scenario-wrap').hidden, false);
 const options = [...d.querySelectorAll('#v2-scenario option')].map((o) => o.value);
 assert.deepEqual(options, ['', ...TERMINAL_SCENARIO_IDS]);
+{
+  // Easy to find: first thing in the CHAÎNE V2 panel body, named, explained, counted.
+  const wrap = d.getElementById('v2-scenario-wrap');
+  const body = d.querySelector('.panel--chain .panel__body');
+  assert.equal(body.firstElementChild, wrap, 'the selector opens the panel body, above the status');
+  assert.equal(wrap.nextElementSibling.id, 'v2-status');
+  const label = wrap.querySelector('label[for="v2-scenario"]');
+  assert.ok(label, 'the select has a visible label bound to it');
+  assert.match(label.textContent, /SCÉNARIO DE SIMULATION/);
+  assert.ok(!d.querySelector('.panel--chain .panel__head #v2-scenario'), 'no longer hidden in the panel header');
+  const hint = text(d, 'v2-scenario-hint');
+  assert.match(hint, new RegExp(`${TERMINAL_SCENARIO_IDS.length} scénarios`), hint);
+  assert.match(hint, /HOLD/);
+  assert.match(hint, /exécution interdite/i);
+  assert.doesNotMatch(hint, /\b(achat|vente|buy|sell|signal)\b/i);
+  assert.equal(d.getElementById('v2-scenario').getAttribute('aria-describedby'), 'v2-scenario-hint');
+}
 const select = d.getElementById('v2-scenario');
 select.value = 'invalid-input';
 select.dispatchEvent(new dom.window.Event('change'));

@@ -162,6 +162,7 @@ const TEST_FILES = [
   'tests/test_sub_millisecond_cutoff.mjs',
   'tests/test_terminal_contrast.mjs',
   'tests/test_terminal_local.mjs',
+  'tests/test_terminal_cli_process.mjs',
   'tests/test_terminal_local_host_guard.mjs',
   'tests/test_terminal_local_hostile_files.mjs',
   'tests/test_terminal_render_isolation.mjs',
