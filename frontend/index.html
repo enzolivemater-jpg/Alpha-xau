@@ -403,12 +403,12 @@
       </div>
       <div class="panel__body v2">
         <div class="v2__scroll-x">
-          <table class="v2__table v2__table--market">
+          <table class="v2__table v2__table--market" role="table">
             <caption class="sr-only">Champs de marché au cutoff : valeur, état, âge, observation et source</caption>
-            <thead>
-              <tr><th scope="col">CHAMP</th><th scope="col" class="ta-r">VALEUR</th><th scope="col">ÉTAT AU CUTOFF</th><th scope="col" class="ta-r">ÂGE</th><th scope="col">OBSERVÉ (UTC)</th><th scope="col">SOURCE</th></tr>
+            <thead role="rowgroup">
+              <tr role="row"><th scope="col" role="columnheader">CHAMP</th><th scope="col" class="ta-r" role="columnheader">VALEUR</th><th scope="col" role="columnheader">ÉTAT AU CUTOFF</th><th scope="col" class="ta-r" role="columnheader">ÂGE</th><th scope="col" role="columnheader">OBSERVÉ (UTC)</th><th scope="col" role="columnheader">SOURCE</th></tr>
             </thead>
-            <tbody id="v2-market">
+            <tbody id="v2-market" role="rowgroup">
               <tr><td colspan="6" class="v2__empty">—</td></tr>
             </tbody>
           </table>

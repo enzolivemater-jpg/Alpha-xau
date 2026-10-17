@@ -5,7 +5,8 @@
  * - elements whose content is clipped by overflow hidden/clip, or that
  *   overflow the viewport outside a horizontal scroller;
  * - visible text below WCAG AA contrast (4.5:1, or 3:1 for large text);
- * - below 900 px, any vertical scroller other than the page itself.
+ * - below 900 px, any vertical scroller other than the page itself;
+ * - content left behind a horizontal scroller (nothing may need a sideways scroll to be read).
  * The chain workspace is also checked with every section and the legend
  * expanded, and on a degraded and a rejected scenario.
  *
@@ -36,6 +37,8 @@ function findClipping() {
   const out = [];
   for (const e of document.querySelectorAll('body *')) {
     if (e.closest('[hidden], .sr-only') || folded(e) || !e.getClientRects().length) continue;
+    // Visually hidden on purpose (1 px, kept for screen readers): clipping is the point.
+    if (e.clientWidth <= 1 && e.clientHeight <= 1) continue;
     const cs = getComputedStyle(e);
     const clipX = ['hidden', 'clip'].includes(cs.overflowX);
     const clipY = ['hidden', 'clip'].includes(cs.overflowY);
@@ -55,6 +58,22 @@ function findClipping() {
     }
   }
   return [...new Set(out)];
+}
+
+/**
+ * Runs in the page: content pushed behind a horizontal scroller. Reachable by scrolling, but a
+ * provenance column (SOURCE) that is off-screen on first read is a defect, not a layout choice.
+ */
+function findHiddenBehindScroll() {
+  const out = [];
+  for (const e of document.querySelectorAll('body *')) {
+    if (e.closest('[hidden], .sr-only') || !e.getClientRects().length) continue;
+    if (e.closest('details:not([open])') && !e.closest('summary')) continue;
+    if (!['auto', 'scroll'].includes(getComputedStyle(e).overflowX)) continue;
+    const hidden = e.scrollWidth - e.clientWidth;
+    if (hidden > 1) out.push(`${hidden}px behind horizontal scroll ${e.tagName.toLowerCase()}.${e.className}#${e.id}`);
+  }
+  return out;
 }
 
 /** Runs in the page: vertical scrollers other than the page (narrow screens). */
@@ -134,7 +153,7 @@ async function main() {
           await page.evaluate(() => { for (const box of document.querySelectorAll('details')) box.open = true; });
         }
         const found = [...await page.evaluate(findClipping), ...await page.evaluate(findLowContrast),
-          ...await page.evaluate(findNestedScroll)];
+          ...await page.evaluate(findNestedScroll), ...await page.evaluate(findHiddenBehindScroll)];
         problems += found.length;
         process.stdout.write(`${found.length ? 'FAIL' : 'OK  '} ${variant.name} ${width}x${height}${found.length ? `\n  ${found.join('\n  ')}` : ''}\n`);
         await page.close();

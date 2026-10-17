@@ -386,6 +386,26 @@ const marketRows = [...d.querySelectorAll('#v2-market tr')];
 assert.equal(marketRows.length, 8);
 assert.deepEqual([...marketRows[0].cells].map((c) => c.textContent),
   ['SPOT', '3900', 'FRAIS AU CUTOFF', '60 s', '2026-10-01 14:14:00Z', 'twelve_data']);
+// Provenance is never dropped for layout: six cells per field, SOURCE last, in the DOM at every width.
+// Rows and cells carry explicit ARIA roles because the narrow layout turns the table into a CSS grid.
+assert.ok(marketRows.every((row) => row.cells.length === 6 && row.getAttribute('role') === 'row'));
+assert.ok(marketRows.every((row) => [...row.cells].every((cell) => cell.getAttribute('role') === 'cell')));
+assert.equal(d.querySelector('.v2__table--market').getAttribute('role'), 'table');
+assert.deepEqual([...d.querySelectorAll('.v2__table--market thead th')].map((th) => th.textContent),
+  ['CHAMP', 'VALEUR', 'ÉTAT AU CUTOFF', 'ÂGE', 'OBSERVÉ (UTC)', 'SOURCE']);
+assert.ok([...d.querySelectorAll('.v2__table--market thead th')].every((th) => th.getAttribute('role') === 'columnheader'));
+{
+  // Layout contract (verified in a real browser by scripts/check_terminal_layout.mjs, which now
+  // fails on any content left behind a horizontal scroller): the market table may wrap and
+  // restack, but may not hide SOURCE or OBSERVÉ with display:none or a fixed-width clip.
+  const css = readFileSync(new URL('../frontend/css/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.v2__table--market td \{ white-space: normal;|\.v2__table--market th,\s*\.v2__table--market td \{ white-space: normal;/);
+  assert.match(css, /@container market \(max-width: 440px\)/);
+  assert.doesNotMatch(css, /v2__table--market[^{]*nth-child\([56]\)[^{]*\{[^}]*display:\s*none/, 'no provenance column is hidden');
+  assert.match(css, /\.v2__facts--stack \{ grid-template-columns: minmax\(0, 1fr\);/, 'long digests wrap instead of widening the column');
+  assert.match(css, /\.v2__table--market td:nth-child\(5\)::before \{ content: 'OBSERVÉ '/);
+  assert.match(css, /\.v2__table--market td:nth-child\(6\)::before \{ content: 'SOURCE '/);
+}
 assert.match(text(d, 'v2-market-legend'), /^FRAIS AU CUTOFF : .*cutoff simulé\. Ce n'est pas un flux en direct\.$/);
 // The word LIVE appears nowhere in the simulated workspace.
 assert.doesNotMatch(d.getElementById('ws-chain').textContent, /\bLIVE\b/);

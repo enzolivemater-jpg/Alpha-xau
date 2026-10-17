@@ -1277,7 +1277,13 @@ let pollTimer = null;
 
   function v2Row(cells) {
     const tr = document.createElement('tr');
-    for (const cell of cells) tr.appendChild(cell);
+    // Rôles explicites : en disposition étroite le tableau passe en grille CSS, et certains
+    // lecteurs d'écran perdraient sinon la sémantique de tableau.
+    tr.setAttribute('role', 'row');
+    for (const cell of cells) {
+      cell.setAttribute('role', 'cell');
+      tr.appendChild(cell);
+    }
     return tr;
   }
 
