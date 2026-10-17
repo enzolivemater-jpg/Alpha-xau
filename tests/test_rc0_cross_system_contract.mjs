@@ -357,3 +357,45 @@ assert.deepEqual(releaseInstant.admitEventVersionAtOfficialRelease(cpiMapped, '2
   { kind: 'REFUSED', reason: 'KNOWN_BEFORE_OFFICIAL_RELEASE', publishedAt: '2026-09-11T12:30:00.000Z' });
 console.log('PASS RC-0 B1: 4 official macro fixtures -> Event Facts -> EI/GT -> EIA-0 -> CHAIN-0 -> OBS-0 -> terminal at one cutoff '
   + '(golden digest, 1 ns future-event exclusion, 7 negative cases incl. B3 back-dating, HOLD/FORBIDDEN; non-market inputs synthetic)');
+
+// --- B3 (EIA-0 v2): the same macro branch, with release evidence taken from the adapters' `publishedAt`.
+// The exclusion happens inside the aggregation; CHAIN-0 is unchanged and receives the v2 summary as-is.
+// EIA-0 (v1 or v2) is still not wired into any runtime: this test composes it.
+const eia2 = await loadBackendModule('event_aggregation/release_gate_contract.ts');
+const releaseEvidence = OFFICIAL_RELEASES.map((release, index) => ({
+  eventVersionId: eventVersions[index].id,
+  publishedAt: release.map(fixture(release.file)).publishedAt,
+}));
+const v2At = (impacts, transmissions, evidence = releaseEvidence) => ({
+  impact: eia2.aggregateEventPlansWithOfficialRelease('EVENT_IMPACT', impacts, evidence, macroCutoff),
+  transmission: eia2.aggregateEventPlansWithOfficialRelease('GOLD_TRANSMISSION', transmissions, evidence, macroCutoff),
+});
+const withEvidence = v2At(impactPlans, transmissionPlans);
+assert.deepEqual(withEvidence.impact.summary, atCutoff.impact.summary, 'v2 summary equals v1 with valid evidence');
+assert.deepEqual(withEvidence.transmission.summary, atCutoff.transmission.summary);
+assert.equal(withEvidence.impact.counts.admitted, 4);
+const v2Chain = chain.evaluateDecisionChain({ ...macroInput, eventImpact: withEvidence.impact.summary,
+  goldTransmission: withEvidence.transmission.summary }, macroCutoff);
+assert.equal(await chain.computeDecisionChainDigest(holds(v2Chain, 'v2 chain')), goldenDigest);
+// A CPI version back-dated to 1 September: v1 admits it, v2 excludes it during aggregation.
+const backDated = { ...eventVersions[0], knowledgeCutoff: '2026-09-01T00:00:00.000Z' };
+const backImpacts = [ei.planDeterministicEventImpact({ eventVersion: backDated }), ...impactPlans.slice(1)];
+const backTransmissions = [gt.planDeterministicGoldTransmission({ eventVersion: backDated }), ...transmissionPlans.slice(1)];
+assert.ok(aggregate(macroCutoff, backImpacts).impact.eventVersionIds.includes(backDated.id), 'v1 admits the back-dated CPI');
+const excluded = v2At(backImpacts, backTransmissions);
+for (const envelope of Object.values(excluded)) {
+  assert.ok(!envelope.eventVersionIds.includes(backDated.id), 'v2 excludes it');
+  assert.equal(envelope.counts.excludedBeforeOfficialRelease, 1);
+  assert.ok(envelope.reasonCodes.includes('EVENT_PLAN_BEFORE_OFFICIAL_RELEASE'));
+  assert.equal(envelope.summary.status, 'INSUFFICIENT_EVIDENCE');
+}
+holds(chain.evaluateDecisionChain({ ...macroInput, eventImpact: excluded.impact.summary,
+  goldTransmission: excluded.transmission.summary }, macroCutoff), 'back-dated CPI excluded');
+// Evidence required but absent for one event: fail-closed, UNAVAILABLE, HOLD.
+const missing = v2At(impactPlans, transmissionPlans, releaseEvidence.slice(1));
+assert.equal(missing.impact.summary.status, 'UNAVAILABLE');
+assert.ok(missing.impact.reasonCodes.includes('RELEASE_INSTANT_MISSING'));
+holds(chain.evaluateDecisionChain({ ...macroInput, eventImpact: missing.impact.summary,
+  goldTransmission: missing.transmission.summary }, macroCutoff), 'missing release evidence');
+console.log('PASS RC-0 B3: EIA-0 v2 with adapter release instants keeps the golden digest, excludes a back-dated CPI '
+  + 'during aggregation and fails closed without evidence (HOLD/FORBIDDEN)');
