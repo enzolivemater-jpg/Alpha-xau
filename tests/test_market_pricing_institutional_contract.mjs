@@ -1,32 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import ts from 'typescript';
+import { fileURLToPath } from 'node:url';
+import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MARKET = path.join(ROOT, 'backend', 'market_engine');
 const source = readFileSync(path.join(MARKET, 'institutional_snapshot.ts'), 'utf8');
 const docs = readFileSync(path.join(ROOT, 'docs', 'XAU_V2_MARKET_PRICING_CONTRACT.md'), 'utf8');
 
-function transpile(file) {
-  return ts.transpileModule(readFileSync(path.join(MARKET, file), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText.replaceAll(/(['"])\.\/([a-z_]+)\.js\1/g, '$1./$2.mjs$1');
-}
-
-const temp = mkdtempSync(path.join(tmpdir(), 'market-pricing-contract-'));
-let mod;
-try {
-  mkdirSync(temp, { recursive: true });
-  for (const file of ['types.ts', 'institutional_snapshot.ts']) {
-    writeFileSync(path.join(temp, file.replace(/\.ts$/, '.mjs')), transpile(file), 'utf8');
-  }
-  mod = await import(pathToFileURL(path.join(temp, 'institutional_snapshot.mjs')).href);
-} finally {
-  rmSync(temp, { recursive: true, force: true });
-}
+const mod = await loadBackendModule('market_engine/institutional_snapshot.ts');
 
 const live = (value, observedAt, sourceName = 'test-source') => ({
   value, status: 'LIVE', observedAt, ageSeconds: 60, source: sourceName,
@@ -92,6 +75,15 @@ const malformed = structuredClone(snapshot);
 malformed.vix = { value: 0, status: 'UNAVAILABLE', observedAt: null, ageSeconds: null, source: null };
 assert.ok(mod.buildInstitutionalMarketPricingSnapshot(malformed, at).reasonCodes.includes('INVALID_FIELD_CONTRACT'));
 assert.ok(mod.buildInstitutionalMarketPricingSnapshot(snapshot, '2026-10-01').reasonCodes.includes('INVALID_KNOWLEDGE_CUTOFF'));
+
+// A field status outside LIVE/STALE/UNAVAILABLE is not read as live.
+for (const status of ['BOGUS', 'live', undefined]) {
+  const unknownStatus = structuredClone(snapshot);
+  unknownStatus.spot.status = status;
+  const envelope = mod.buildInstitutionalMarketPricingSnapshot(unknownStatus, at);
+  assert.equal(envelope.state, 'ABSTAIN', String(status));
+  assert.ok(envelope.reasonCodes.includes('INVALID_FIELD_CONTRACT'), String(status));
+}
 
 assert.doesNotMatch(source, /Date\.now\(|new Date\(\)|fetch\(|SUPABASE_|ANTHROPIC_|OPENAI_|process\.env/);
 assert.match(docs, /CONTRACT_CI_PROVEN — NOT RUNTIME-ACTIVATED/);

@@ -41,6 +41,27 @@ function failure(
   return { kind, parserVersion: DOL_UI_CLAIMS_TEXT_PARSER_VERSION, reason };
 }
 
+/**
+ * Text between two anchors of ONE statement. It is bounded (a repeated prefix
+ * cannot make the scan quadratic) and it cannot cross the start of another
+ * statement: if the anchor this statement needs is missing, a later paragraph's
+ * "previous week's level" must never be attributed to it.
+ */
+const WITHIN_STATEMENT = String.raw`(?:(?!In the week ending|The advance )[\s\S]){0,800}?`;
+const WEEK_DAY = String.raw`([A-Z][a-z]+ (?:[1-9]|[12]\d|3[01]))`;
+const PREVIOUS_LEVEL = String.raw`The previous week's level was revised (?:up|down) by [\d,]+ from ([\d,]+) to ([\d,]+)\.`;
+const INITIAL_CLAIMS_PATTERN = new RegExp(
+  String.raw`In the week ending ${WEEK_DAY}, the advance figure for seasonally adjusted initial claims was ([\d,]+),`
+  + String.raw`${WITHIN_STATEMENT}${PREVIOUS_LEVEL} The 4-week moving average was ([\d,]+),`
+  + String.raw`${WITHIN_STATEMENT}The previous week's average was revised (?:up|down) by [\d,]+ from ([\d,]+) to ([\d,]+)\.`,
+  'g',
+);
+const CONTINUING_CLAIMS_PATTERN = new RegExp(
+  String.raw`The advance number for seasonally adjusted insured unemployment during the week ending ${WEEK_DAY} was ([\d,]+),`
+  + String.raw`${WITHIN_STATEMENT}${PREVIOUS_LEVEL}`,
+  'g',
+);
+
 function exactSingleMatch(text: string, pattern: RegExp): RegExpExecArray | null {
   const matches = [...text.matchAll(pattern)];
   return matches.length === 1 ? matches[0] : null;
@@ -140,14 +161,8 @@ export function parseDolUiWeeklyClaimsText(input: unknown): DolUiClaimsTextParse
     text,
     /Release Number: (USDL \d{2}-\d{4}-NAT)(?:\s|$)/g,
   );
-  const initial = exactSingleMatch(
-    text,
-    /In the week ending ([A-Z][a-z]+ (?:[1-9]|[12]\d|3[01])), the advance figure for seasonally adjusted initial claims was ([\d,]+),.*?The previous week's level was revised (?:up|down) by [\d,]+ from ([\d,]+) to ([\d,]+)\. The 4-week moving average was ([\d,]+),.*?The previous week's average was revised (?:up|down) by [\d,]+ from ([\d,]+) to ([\d,]+)\./g,
-  );
-  const continuing = exactSingleMatch(
-    text,
-    /The advance number for seasonally adjusted insured unemployment during the week ending ([A-Z][a-z]+ (?:[1-9]|[12]\d|3[01])) was ([\d,]+),.*?The previous week's level was revised (?:up|down) by [\d,]+ from ([\d,]+) to ([\d,]+)\./g,
-  );
+  const initial = exactSingleMatch(text, INITIAL_CLAIMS_PATTERN);
+  const continuing = exactSingleMatch(text, CONTINUING_CLAIMS_PATTERN);
   if (publication === null || releaseNumber === null
       || initial === null || continuing === null) {
     return failure('MALFORMED', 'REQUIRED_OFFICIAL_TEXT_EVIDENCE_MISSING_OR_AMBIGUOUS');

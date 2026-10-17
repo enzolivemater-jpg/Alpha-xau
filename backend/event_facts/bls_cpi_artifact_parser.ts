@@ -80,10 +80,64 @@ function normalizedText(value: string): string | null {
     : decoded.replace(/\s+/g, ' ').replace(/-\s+(?=[A-Z][a-z]{2}\.)/g, '-').trim();
 }
 
+/**
+ * Removes comments, scripts and styles in ONE forward pass. A lazy
+ * `<!--[\s\S]*?-->` rescans to the end of the page from every unterminated
+ * opener, which is quadratic (a 1.5 MB page of `<!--` took minutes). As in HTML
+ * itself, an unterminated comment, script or style swallows the rest of the
+ * page, so evidence after it is simply not found and the parse fails closed.
+ */
+function stripNonVisible(html: string): string {
+  const opener = /<!--|<(script|style)\b[^>]{0,1000}>/gi;
+  let out = '';
+  let from = 0;
+  for (;;) {
+    opener.lastIndex = from;
+    const start = opener.exec(html);
+    if (start === null) return out + html.slice(from);
+    out += `${html.slice(from, start.index)} `;
+    const contentStart = start.index + start[0].length;
+    const closer = start[0] === '<!--' ? /-->/g : new RegExp(`<\\/${start[1]}\\s*>`, 'gi');
+    closer.lastIndex = contentStart;
+    const end = closer.exec(html);
+    if (end === null) return out;
+    from = end.index + end[0].length;
+  }
+}
+
+/**
+ * Elements `<name …>…</name>` in one linear pass, or null when the structure is
+ * not strictly sequential: an element opened while another is open (the first
+ * is unclosed and would swallow the next), a stray closing tag, or an unclosed
+ * element at the end. A lazy `<name>([\s\S]*?)</name>` instead lets an unclosed
+ * cell take the value of the next one and is quadratic on unclosed input.
+ * `body` is null for a self-closing element.
+ */
+interface XmlElement {
+  readonly attributes: string;
+  readonly body: string | null;
+}
+
+function elements(xml: string, name: string): XmlElement[] | null {
+  const found: XmlElement[] = [];
+  let open: { readonly attributes: string; readonly bodyStart: number } | null = null;
+  for (const tag of xml.matchAll(new RegExp(`<${name}\\b([^>]{0,500})>|<\\/${name}>`, 'g'))) {
+    const at = tag.index ?? 0;
+    if (tag[0] === `</${name}>`) {
+      if (open === null) return null;
+      found.push({ attributes: open.attributes, body: xml.slice(open.bodyStart, at) });
+      open = null;
+    } else {
+      if (open !== null) return null;
+      if (tag[1].endsWith('/')) found.push({ attributes: tag[1].slice(0, -1), body: null });
+      else open = { attributes: tag[1], bodyStart: at + tag[0].length };
+    }
+  }
+  return open === null ? found : null;
+}
+
 function htmlVisibleText(html: string): string | null {
-  const withoutExecutable = html
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
+  const withoutExecutable = stripNonVisible(html)
     .replace(/<[^>]+>/g, ' ')
     // Unrelated page chrome may contain named HTML entities. They are only
     // separators here; required evidence is matched from decoded plain text.
@@ -131,11 +185,15 @@ function parseAttributes(raw: string): Record<string, string> | null {
 }
 
 function sharedStrings(xml: string): string[] | null {
+  const items = elements(xml, 'si');
+  if (items === null) return null;
   const values: string[] = [];
-  for (const item of xml.matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)) {
-    const parts = [...item[1].matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>|<t(?:\s[^>]*)?\s*\/>/g)];
-    if (parts.length === 0) return null;
-    const normalized = normalizedText(parts.map(part => part[1] ?? '').join(''));
+  for (const item of items) {
+    // `<si/>` carries no text and would silently shift every later string index.
+    if (item.body === null) return null;
+    const parts = elements(item.body, 't');
+    if (parts === null || parts.length === 0) return null;
+    const normalized = normalizedText(parts.map(part => part.body ?? '').join(''));
     if (normalized === null) return null;
     values.push(normalized);
   }
@@ -146,16 +204,20 @@ type CellValue = string | number;
 
 function worksheetCells(xml: string, strings: readonly string[]): Map<string, CellValue> | null {
   const cells = new Map<string, CellValue>();
-  for (const cell of xml.matchAll(/<c\b([^>]*)\s*\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
-    const attributes = parseAttributes(cell[1] ?? cell[2]);
+  const elementsOfSheet = elements(xml, 'c');
+  // An unclosed or nested <c> would hand its neighbour's value to the wrong cell.
+  if (elementsOfSheet === null) return null;
+  for (const cell of elementsOfSheet) {
+    const attributes = parseAttributes(cell.attributes);
     const reference = attributes?.r;
     if (attributes === null || reference === undefined || !/^[A-Z]{1,3}[1-9]\d*$/.test(reference)
         || cells.has(reference)) return null;
-    const body = cell[3];
-    if (body === undefined) continue;
-    const valueMatches = [...body.matchAll(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/g)];
-    if (valueMatches.length !== 1) continue;
-    const raw = valueMatches[0][1];
+    const body = cell.body;
+    if (body === null) continue;
+    const valueMatches = elements(body, 'v');
+    if (valueMatches === null) return null;
+    if (valueMatches.length !== 1 || valueMatches[0].body === null) continue;
+    const raw = valueMatches[0].body;
     if (attributes.t === 's') {
       if (!/^\d+$/.test(raw)) return null;
       const index = Number(raw);

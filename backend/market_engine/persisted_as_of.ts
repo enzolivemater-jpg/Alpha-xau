@@ -11,6 +11,7 @@ import {
   type MarketPricingAsOfFieldName,
   type MarketPricingAsOfSelection,
 } from './as_of_snapshot.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const MARKET_PRICING_PERSISTENCE_SCHEMA_VERSION = 'xau.market-pricing-persistence.v1' as const;
 export const MARKET_PRICING_PERSISTENCE_ALGORITHM_VERSION = 'market-pricing-persisted-as-of-adapter-1.0.0' as const;
@@ -42,16 +43,14 @@ const FIELD_SET: ReadonlySet<string> = new Set([
   'spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const ISO_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const RPC_KEYS = [
   'candidate_id', 'evidence_revision', 'field', 'ingested_at',
   'observed_at', 'source', 'value',
 ] as const;
 
 function timestamp(value: unknown): { readonly milliseconds: number; readonly canonical: string } | null {
-  if (typeof value !== 'string' || !ISO_WITH_ZONE.test(value)) return null;
-  const milliseconds = Date.parse(value);
-  if (!Number.isFinite(milliseconds)) return null;
+  const milliseconds = parseStrictTimestamp(value);
+  if (milliseconds === null) return null;
   return { milliseconds, canonical: new Date(milliseconds).toISOString() };
 }
 
@@ -60,21 +59,27 @@ function exactKeys(row: object): boolean {
   return keys.length === RPC_KEYS.length && keys.every((key, index) => key === RPC_KEYS[index]);
 }
 
+/** PostgREST NUMERIC arrives as plain decimal text; `Number()` would also read "0x10" as 16. */
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
 /** Strictly normalizes PostgREST NUMERIC/timestamp serialization. */
 export function normalizeMarketPricingAsOfRows(
   rows: readonly MarketPricingAsOfRpcRow[],
 ): readonly MarketPricingAsOfCandidate[] {
+  // An RPC error object or null is not a row set.
+  if (!Array.isArray(rows)) throw new Error('MP2_RPC_RESULT_INVALID');
   return rows.map((row, index) => {
     if (typeof row !== 'object' || row === null || !exactKeys(row)) {
       throw new Error(`MP2_RPC_ROW_${index}_SHAPE_INVALID`);
     }
-    if (!UUID.test(row.candidate_id) || !FIELD_SET.has(row.field)
+    // RegExp.test() coerces: an undefined, an array or an object would pass as text.
+    if (typeof row.candidate_id !== 'string' || !UUID.test(row.candidate_id) || !FIELD_SET.has(row.field)
         || typeof row.source !== 'string' || row.source.trim().length === 0
         || typeof row.evidence_revision !== 'string' || row.evidence_revision.trim().length === 0) {
       throw new Error(`MP2_RPC_ROW_${index}_IDENTITY_INVALID`);
     }
     const value = typeof row.value === 'number' ? row.value
-      : typeof row.value === 'string' && row.value.trim().length > 0 ? Number(row.value) : Number.NaN;
+      : typeof row.value === 'string' && DECIMAL.test(row.value.trim()) ? Number(row.value.trim()) : Number.NaN;
     const observed = timestamp(row.observed_at);
     const ingested = timestamp(row.ingested_at);
     if (!Number.isFinite(value) || observed === null || ingested === null
@@ -95,8 +100,10 @@ export function normalizeMarketPricingAsOfRows(
 
 export function buildPersistedMarketPricingAsOf(
   rows: readonly MarketPricingAsOfRpcRow[],
-  knowledgeCutoff: string,
+  requestedCutoff: string,
 ): PersistedMarketPricingAsOf {
+  // Echoed below: a non-string cutoff is an invalid (empty) cutoff, never an unhashable value.
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
   const candidates = normalizeMarketPricingAsOfRows(rows);
   return {
     schemaVersion: MARKET_PRICING_PERSISTENCE_SCHEMA_VERSION,

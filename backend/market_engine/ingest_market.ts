@@ -26,6 +26,7 @@ import {
   type ProviderEnv,
 } from './providers.js';
 import { dedupKey, validatePoint } from './validate.js';
+import { isUniqueViolation } from '../shared/run_lock.js';
 import type {
   MarketIngestReport,
   MarketSymbol,
@@ -167,17 +168,20 @@ export class MarketDb {
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: controller.signal,
         });
+        // Le délai doit couvrir le CORPS aussi : un serveur qui envoie ses
+        // en-têtes puis bloque le corps garderait cet appel, et le verrou du
+        // run, jusqu'au rattrapage à 15 minutes.
+        const text = await response.text();
         clearTimeout(timer);
 
         if (response.status === 429 || response.status >= 500) {
           throw new Error(`Supabase HTTP ${response.status}`);
         }
         if (!response.ok) {
-          const detail = (await response.text().catch(() => '')).slice(0, 300);
+          const detail = text.slice(0, 300);
           // 4xx : erreur de contrat, inutile de réessayer.
           throw Object.assign(new Error(`Supabase HTTP ${response.status}: ${detail}`), { fatal: true });
         }
-        const text = await response.text();
         return (text ? JSON.parse(text) : []) as T;
       } catch (err) {
         clearTimeout(timer);
@@ -224,7 +228,9 @@ export async function acquireRunLock(
     return rows[0]?.id ?? null;
   } catch (err) {
     // 23505 = violation d'unicité => un run est déjà actif. Cas nominal.
-    if (/23505|duplicate key/i.test(errorMessage(err))) return null;
+    // Prédicat partagé : le code d'erreur ou le libellé de contrainte, jamais
+    // une suite de chiffres quelconque dans un message de panne.
+    if (isUniqueViolation(errorMessage(err))) return null;
     throw err;
   }
 }

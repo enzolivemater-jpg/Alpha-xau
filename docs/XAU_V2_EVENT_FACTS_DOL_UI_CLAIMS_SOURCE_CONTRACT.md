@@ -126,6 +126,18 @@ adapter; the adapter remains responsible for Saturday, source-tuple and
 canonical-state validation. Parser and adapter composition is tested against
 the reviewed JSON fixture byte-for-byte at the object level.
 
+**Statement scope (RC-0 remediation).** The text between the anchors of one
+narrative statement is bounded to 800 characters and cannot cross the start of
+another statement (`In the week ending`, `The advance `). Before this, a release
+text missing the initial-claims "previous week's level was revised" sentence let
+the lazy gap reach the continuing-claims paragraph: initial claims silently got
+a prior revision of 1,719,000 → 1,712,000 and the adapter resolved it. It now
+fails closed (`MALFORMED`). The same unbounded gaps also made a repeated-prefix
+text of 900,000 characters cost about 7 seconds. `tests/test_official_text_parser_mutation.mjs`
+covers 2,485 structural mutations of the retained text plus a time ceiling.
+Value integrity (rewritten digits) is the job of the SHA-256 manifest check that
+runs before the parser, not of the parser.
+
 ## 8. Evidence and proof boundary
 
 The structured fixture values are now reproduced from the retained official

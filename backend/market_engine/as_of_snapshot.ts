@@ -6,6 +6,8 @@
  * It never reads a clock, database, network, environment variable or provider.
  */
 
+import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
+
 export const MARKET_PRICING_AS_OF_SCHEMA_VERSION = 'xau.market-pricing-as-of.v1' as const;
 export const MARKET_PRICING_AS_OF_ALGORITHM_VERSION = 'market-pricing-as-of-selector-1.0.0' as const;
 
@@ -75,7 +77,6 @@ export interface MarketPricingAsOfSelection {
 
 const FIELD_SET: ReadonlySet<string> = new Set(MARKET_PRICING_AS_OF_FIELDS);
 const OPTIONAL_FIELDS = MARKET_PRICING_AS_OF_FIELDS.filter((field) => field !== 'spot');
-const ISO_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 interface ParsedCandidate extends MarketPricingAsOfCandidate {
   readonly observedMs: number;
@@ -83,9 +84,7 @@ interface ParsedCandidate extends MarketPricingAsOfCandidate {
 }
 
 function parseExplicitTimestamp(value: unknown): number | null {
-  if (typeof value !== 'string' || !ISO_WITH_ZONE.test(value)) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseStrictTimestamp(value);
 }
 
 function emptyFields(): Record<MarketPricingAsOfFieldName, SelectedMarketPricingObservation | null> {
@@ -146,10 +145,16 @@ function canonicalTimestamp(milliseconds: number): string {
  * from after the cutoff already known by the cutoff, fails closed.
  */
 export function selectMarketPricingAsOf(
-  candidates: readonly MarketPricingAsOfCandidate[],
-  knowledgeCutoff: string,
+  rawCandidates: readonly MarketPricingAsOfCandidate[],
+  requestedCutoff: string,
 ): MarketPricingAsOfSelection {
   const reasons = new Set<MarketPricingAsOfReasonCode>();
+  // Both are echoed or iterated, and a JavaScript caller can pass anything: a
+  // non-string cutoff is an invalid (empty) cutoff, a non-array history is an
+  // invalid, empty history. Neither may throw or reach the hashed envelope.
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
+  const candidates: readonly MarketPricingAsOfCandidate[] = Array.isArray(rawCandidates) ? rawCandidates : [];
+  if (!Array.isArray(rawCandidates)) reasons.add('INVALID_CANDIDATE_HISTORY');
   const cutoffMs = parseExplicitTimestamp(knowledgeCutoff);
   if (cutoffMs === null) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
 
@@ -165,7 +170,7 @@ export function selectMarketPricingAsOf(
       reasons.add('INVALID_CANDIDATE_HISTORY');
       continue;
     }
-    if (observedMs > ingestedMs) reasons.add('OBSERVATION_AFTER_INGESTION');
+    if (isStrictlyAfter(candidate.observedAt, candidate.ingestedAt)) reasons.add('OBSERVATION_AFTER_INGESTION');
     parsed.push({ ...candidate, observedMs, ingestedMs });
   }
 
@@ -185,11 +190,11 @@ export function selectMarketPricingAsOf(
   let excludedAfterCutoffCount = 0;
   if (cutoffMs !== null) {
     for (const candidate of unique) {
-      if (candidate.ingestedMs > cutoffMs) {
+      if (isStrictlyAfter(candidate.ingestedAt, knowledgeCutoff)) {
         excludedAfterCutoffCount += 1;
         continue;
       }
-      if (candidate.observedMs > cutoffMs) {
+      if (isStrictlyAfter(candidate.observedAt, knowledgeCutoff)) {
         reasons.add('LOOKAHEAD_CANDIDATE');
         continue;
       }

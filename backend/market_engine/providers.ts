@@ -58,6 +58,7 @@
  */
 
 import type { MarketSymbol, RawDataPoint, SourceCode } from './types.js';
+import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export interface ProviderEnv {
   readonly FRED_API_KEY?: string;
@@ -133,7 +134,9 @@ export async function fetchText(url: string): Promise<string> {
           'user-agent': 'Mozilla/5.0 (compatible; AlphaXauMarketEngine/1.0; +https://github.com/)',
         },
       });
-      clearTimeout(timer);
+      // Le minuteur reste armé pendant la lecture du corps : un fournisseur qui
+      // envoie ses en-têtes puis bloque le corps ne doit pas figer le run.
+      // Il est coupé après la lecture ; le `catch` le coupe sur erreur.
 
       if (response.status === 429) {
         const wait = parseRetryAfter(response.headers.get('retry-after'));
@@ -148,7 +151,9 @@ export async function fetchText(url: string): Promise<string> {
       if (!response.ok) {
         throw new ProviderError(`HTTP ${response.status}`, false);
       }
-      return await response.text();
+      const text = await response.text();
+      clearTimeout(timer);
+      return text;
     } catch (err) {
       clearTimeout(timer);
       const isAbort = err instanceof Error && err.name === 'AbortError';
@@ -170,14 +175,32 @@ export async function fetchText(url: string): Promise<string> {
 /*  Helpers de parsing                                                         */
 /* -------------------------------------------------------------------------- */
 
+/** Écriture décimale uniquement : Number() lirait aussi "0x1A", "0b11" ou "0o7". */
+const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
 /** Convertit en nombre fini, ou null. N'accepte ni "", ni ".", ni "N/D". */
 export function toNumberOrNull(raw: unknown): number | null {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
   if (typeof raw !== 'string') return null;
   const trimmed = raw.trim();
-  if (trimmed === '' || trimmed === '.' || /^(n\/?[ad]|null|na)$/i.test(trimmed)) return null;
+  if (!DECIMAL.test(trimmed)) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Epoch en secondes -> ISO UTC, ou null si hors de l'intervalle d'un Date. */
+function epochSecondsToIso(seconds: unknown): string | null {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return null;
+  const date = new Date(seconds * 1000);
+  if (Number.isNaN(date.getTime())) return null;
+  // Years outside 0001-9999 serialize as "+275760-..." / "-000001-...": not an
+  // RFC3339 instant any downstream gate accepts, so never a usable timestamp.
+  const iso = date.toISOString();
+  return parseStrictTimestamp(iso) === null ? null : iso;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -186,13 +209,19 @@ export function toNumberOrNull(raw: unknown): number | null {
  * un horodatage de remplacement.
  */
 export function toUtcIso(date: string, time?: string): string | null {
+  // Une réponse fournisseur peut porter n'importe quel type JSON dans ces champs.
+  if (typeof date !== 'string' || (time !== undefined && typeof time !== 'string')) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) return null;
-  const timePart = time && /^\d{2}:\d{2}(:\d{2})?$/.test(time.trim())
-    ? (time.trim().length === 5 ? `${time.trim()}:00` : time.trim())
-    : '00:00:00';
-  const iso = `${date.trim()}T${timePart}Z`;
-  const parsed = Date.parse(iso);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+  // Sans heure, la date seule vaut minuit UTC. Une heure fournie mais
+  // malformée rend l'instant inexploitable : jamais un repli sur minuit.
+  let timePart = '00:00:00';
+  if (time !== undefined && time.trim() !== '') {
+    if (!/^\d{2}:\d{2}(:\d{2})?$/.test(time.trim())) return null;
+    timePart = time.trim().length === 5 ? `${time.trim()}:00` : time.trim();
+  }
+  // Contrôle calendaire strict : Date.parse lirait 2026-02-30 comme le 2 mars.
+  const parsed = parseStrictTimestamp(`${date.trim()}T${timePart}Z`);
+  return parsed === null ? null : new Date(parsed).toISOString();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -220,14 +249,18 @@ interface FredResponse {
  */
 export function parseFred(body: string, symbol: MarketSymbol): RawDataPoint {
   const source: SourceCode = 'fred';
-  let payload: FredResponse;
+  let parsed: unknown;
   try {
-    payload = JSON.parse(body) as FredResponse;
+    parsed = JSON.parse(body);
   } catch {
     return { symbol, source, value: null, observedAt: null, unavailableReason: 'Réponse FRED non JSON' };
   }
+  if (!isJsonObject(parsed)) {
+    return { symbol, source, value: null, observedAt: null, unavailableReason: 'Réponse FRED : objet JSON attendu' };
+  }
+  const payload = parsed as FredResponse;
 
-  const observations = payload.observations ?? [];
+  const observations = Array.isArray(payload.observations) ? payload.observations : [];
   // On balaie du plus récent au plus ancien : les jours fériés en fin de
   // fenêtre valent "." et doivent être ignorés, pas interprétés.
   for (let i = observations.length - 1; i >= 0; i--) {
@@ -241,6 +274,33 @@ export function parseFred(body: string, symbol: MarketSymbol): RawDataPoint {
   }
 
   return { symbol, source, value: null, observedAt: null, unavailableReason: 'Aucune observation numérique dans la fenêtre' };
+}
+
+/**
+ * Toutes les observations numériques d'une réponse FRED, dans l'ordre de la
+ * réponse. Mêmes règles que `parseFred` (qui n'en garde que la dernière) :
+ * "." et les dates invalides sont ignorées, jamais converties. Utilisé par
+ * la capture de preuves DATA-2 ; le runtime n'en dépend pas.
+ */
+export function parseFredObservations(body: string, symbol: MarketSymbol): RawDataPoint[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  if (!isJsonObject(parsed)) return [];
+  const observations = Array.isArray((parsed as FredResponse).observations) ? (parsed as FredResponse).observations! : [];
+  const points: RawDataPoint[] = [];
+  for (const observation of observations) {
+    if (!observation) continue;
+    const value = toNumberOrNull(observation.value);
+    const observedAt = toUtcIso(observation.date ?? '');
+    if (value !== null && observedAt !== null) {
+      points.push({ symbol, source: 'fred', value, observedAt, open: null, high: null, low: null, bid: null, ask: null, volume: null });
+    }
+  }
+  return points;
 }
 
 export async function fetchFred(
@@ -284,12 +344,16 @@ interface TwelveDataQuote {
 
 export function parseTwelveData(body: string, symbol: MarketSymbol): RawDataPoint {
   const source: SourceCode = 'twelve_data';
-  let quote: TwelveDataQuote;
+  let parsed: unknown;
   try {
-    quote = JSON.parse(body) as TwelveDataQuote;
+    parsed = JSON.parse(body);
   } catch {
     return { symbol, source, value: null, observedAt: null, unavailableReason: 'Réponse Twelve Data non JSON' };
   }
+  if (!isJsonObject(parsed)) {
+    return { symbol, source, value: null, observedAt: null, unavailableReason: 'Réponse Twelve Data : objet JSON attendu' };
+  }
+  const quote = parsed as TwelveDataQuote;
 
   // Twelve Data répond en HTTP 200 avec status:"error" sur quota dépassé.
   if (quote.status === 'error') {
@@ -312,12 +376,12 @@ export function parseTwelveData(body: string, symbol: MarketSymbol): RawDataPoin
   // la cotation réelle à jour. `last_quote_at` prioritaire ici ; repli
   // sur `timestamp` puis `datetime` si absent (autres endpoints/plans).
   if (typeof quote.last_quote_at === 'number' && Number.isFinite(quote.last_quote_at)) {
-    observedAt = new Date(quote.last_quote_at * 1000).toISOString();
+    observedAt = epochSecondsToIso(quote.last_quote_at);
   } else if (typeof quote.timestamp === 'number' && Number.isFinite(quote.timestamp)) {
-    observedAt = new Date(quote.timestamp * 1000).toISOString();
+    observedAt = epochSecondsToIso(quote.timestamp);
   } else if (typeof quote.datetime === 'string') {
-    const parsed = Date.parse(`${quote.datetime.replace(' ', 'T')}Z`);
-    if (Number.isFinite(parsed)) observedAt = new Date(parsed).toISOString();
+    const [datePart, timePart, ...rest] = quote.datetime.trim().split(/[ T]/);
+    if (rest.length === 0) observedAt = toUtcIso(datePart ?? '', timePart);
   }
   if (observedAt === null) {
     return { symbol, source, value: null, observedAt: null, unavailableReason: 'Horodatage source absent' };

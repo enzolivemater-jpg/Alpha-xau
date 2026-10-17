@@ -17,6 +17,13 @@ Canonical implementation:
 - `database/migrations/20261002092118_positioning_evidence_history_as_of.sql`;
 - `backend/positioning_engine/persisted_evidence.ts`.
 
+## Frozen versions
+
+- persistence schema: `xau.positioning-persistence.v1`;
+- adapter algorithm: `positioning-persisted-evidence-adapter-1.0.0`;
+- downstream evidence envelope: `xau.positioning-evidence.v1` /
+  `positioning-evidence-normalizer-1.0.0` (P-0).
+
 ## Evidence identity and revision semantics
 
 One identity is `(source_authority, dataset_code, instrument_code, metric_code,
@@ -36,6 +43,13 @@ the caller's explicit bound is too small, the RPC raises an error; it never
 silently truncates history. Ordering matches the P-0 evidence identity and is
 independent of insertion order. The adapter exposes this as
 `historyCompleteness=COMPLETE_OR_ERROR`.
+
+Adapter and P-0 input hardening (RC-0 remediation, `tests/test_market_data_ingest_mutation.mjs`):
+a non-array RPC result raises `P1_RPC_RESULT_INVALID`; identity fields are checked with
+`typeof` before the regular expression (an `undefined` source authority used to pass
+as the text "undefined" and reach the evidence set); a NUMERIC given as text must be a
+plain decimal (`"0x10"` is refused, not read as 16); a non-string cutoff is an invalid
+(empty) cutoff and non-array evidence is malformed evidence.
 
 ## Deliberate semantic boundary
 

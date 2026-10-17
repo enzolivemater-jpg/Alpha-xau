@@ -1,5 +1,7 @@
 /** Provider-independent Positioning P-0 evidence contract. No signal inference. */
 
+import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
+
 export const POSITIONING_SCHEMA_VERSION = 'xau.positioning-evidence.v1' as const;
 export const POSITIONING_ALGORITHM_VERSION = 'positioning-evidence-normalizer-1.0.0' as const;
 
@@ -49,12 +51,12 @@ const UNITS = new Set<PositioningUnit>(['CONTRACTS', 'PERCENT', 'RATIO', 'INDEX'
 const CODE = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 const INSTRUMENT = /^[A-Z0-9][A-Z0-9_.:/-]{0,31}$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+// Same identity rules as the P-1 schema CHECKs, so P-0 accepts only evidence
+// that can be persisted.
+const REVISION = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/;
 
 function timestampMs(value: string): number | null {
-  if (!TIMESTAMP.test(value)) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return parseStrictTimestamp(value);
 }
 
 function isCivilDate(value: string): boolean {
@@ -82,28 +84,47 @@ function evidenceKey(value: PositioningEvidenceInput): string {
   ].join('\u001f');
 }
 
-function compareEvidence(a: PositioningEvidenceInput, b: PositioningEvidenceInput): number {
-  return evidenceKey(a).localeCompare(evidenceKey(b))
-    || a.publishedAt.localeCompare(b.publishedAt)
-    || a.observedAt.localeCompare(b.observedAt)
-    || a.artifactId.localeCompare(b.artifactId);
+/**
+ * Code-unit order, independent of the host locale. `localeCompare` follows
+ * ICU collation: it varies with the process locale and ignores the `\u001f`
+ * key separator, so distinct identities could compare equal.
+ */
+function compareCodeUnits(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
+
+function compareEvidence(a: PositioningEvidenceInput, b: PositioningEvidenceInput): number {
+  return compareCodeUnits(evidenceKey(a), evidenceKey(b))
+    || compareCodeUnits(a.publishedAt, b.publishedAt)
+    || compareCodeUnits(a.observedAt, b.observedAt)
+    || compareCodeUnits(a.artifactId, b.artifactId);
+}
+
+/** Same invariant as the persistence schema: evidence is retained after publication. */
+function publishedNotAfterObserved(value: PositioningEvidenceInput): boolean {
+  return timestampMs(value.publishedAt) !== null && timestampMs(value.observedAt) !== null
+    && !isStrictlyAfter(value.publishedAt, value.observedAt);
+}
+
+/** RegExp.test() coerces its argument: undefined, an array or an object would pass as text. */
+const text = (value: unknown, pattern: RegExp): boolean => typeof value === 'string' && pattern.test(value);
 
 function validShape(value: PositioningEvidenceInput): boolean {
   return exactInputShape(value)
-    && CODE.test(value.sourceAuthority)
-    && CODE.test(value.datasetCode)
-    && INSTRUMENT.test(value.instrumentCode)
-    && CODE.test(value.metricCode)
+    && text(value.sourceAuthority, CODE)
+    && text(value.datasetCode, CODE)
+    && text(value.instrumentCode, INSTRUMENT)
+    && text(value.metricCode, CODE)
     && UNITS.has(value.unit)
+    && typeof value.periodEnd === 'string'
     && isCivilDate(value.periodEnd)
-    && timestampMs(value.publishedAt) !== null
-    && timestampMs(value.observedAt) !== null
+    && publishedNotAfterObserved(value)
     && typeof value.artifactId === 'string'
+    && value.artifactId.trim() === value.artifactId
     && value.artifactId.length > 0
     && value.artifactId.length <= 256
     && (value.revision === null
-      || (typeof value.revision === 'string' && value.revision.length > 0 && value.revision.length <= 64));
+      || (typeof value.revision === 'string' && REVISION.test(value.revision)));
 }
 
 /**
@@ -112,10 +133,16 @@ function validShape(value: PositioningEvidenceInput): boolean {
  * source is not the same decision as approving a directional methodology.
  */
 export function buildPositioningEvidenceEnvelope(
-  inputs: readonly PositioningEvidenceInput[],
-  knowledgeCutoff: string,
+  rawInputs: readonly PositioningEvidenceInput[],
+  requestedCutoff: string,
 ): PositioningEvidenceEnvelope {
   const reasons = new Set<PositioningReasonCode>();
+  // A JavaScript caller can pass anything. The cutoff is echoed into the hashed
+  // envelope (a non-string is an invalid, empty cutoff) and the evidence must be
+  // an array (anything else is no evidence, reported as malformed).
+  const knowledgeCutoff: string = typeof requestedCutoff === 'string' ? requestedCutoff : '';
+  const inputs: readonly PositioningEvidenceInput[] = Array.isArray(rawInputs) ? rawInputs : [];
+  if (!Array.isArray(rawInputs)) reasons.add('INVALID_EVIDENCE_SHAPE');
   const cutoffMs = timestampMs(knowledgeCutoff);
   if (cutoffMs === null) reasons.add('INVALID_KNOWLEDGE_CUTOFF');
   if (inputs.length === 0) reasons.add('NO_POSITIONING_EVIDENCE');
@@ -140,8 +167,8 @@ export function buildPositioningEvidenceEnvelope(
     const publishedMs = timestampMs(input.publishedAt);
     const observedMs = timestampMs(input.observedAt);
     if (observedMs !== null) observedTimes.push(observedMs);
-    if (cutoffMs !== null && ((publishedMs !== null && publishedMs > cutoffMs)
-      || (observedMs !== null && observedMs > cutoffMs))) {
+    if (cutoffMs !== null && ((publishedMs !== null && isStrictlyAfter(input.publishedAt, knowledgeCutoff))
+      || (observedMs !== null && isStrictlyAfter(input.observedAt, knowledgeCutoff)))) {
       reasons.add('EVIDENCE_AFTER_KNOWLEDGE_CUTOFF');
     }
   }

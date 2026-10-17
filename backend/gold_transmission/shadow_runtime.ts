@@ -62,6 +62,9 @@ import {
   type GoldTransmissionShadowBatchDb,
 } from './shadow_batch.js';
 
+/** Same predicate as shared/run_lock.ts isUniqueViolation (kept local: this runtime is self-contained by design). */
+const UNIQUE_VIOLATION = /\bcode\W{0,6}23505\b|duplicate key value violates unique constraint|\bduplicate key\b/i;
+
 // ---------------------------------------------------------------------------
 // Runtime environment — Cloudflare env injection is authoritative, never
 // process.env.
@@ -399,6 +402,7 @@ export class PostgrestGoldTransmissionShadowDb implements GoldTransmissionShadow
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), POSTGREST_TIMEOUT_MS);
     let response: Response;
+    let bodyText: string;
     try {
       response = await fetch(`${this.base}/${path}`, {
         method,
@@ -406,6 +410,10 @@ export class PostgrestGoldTransmissionShadowDb implements GoldTransmissionShadow
         body: hasBody ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
+      // The timeout must cover the BODY too: a server that sends its headers
+      // and then stalls would otherwise hold this call, and the run lock it
+      // protects, until the 15-minute stale reclaim.
+      bodyText = await response.text();
     } catch (err) {
       const isAbort = err instanceof Error && err.name === 'AbortError';
       throw new GoldTransmissionShadowDbError(
@@ -436,8 +444,10 @@ export class PostgrestGoldTransmissionShadowDb implements GoldTransmissionShadow
       // (never the raw body) preserved so run_lock.ts's isUniqueViolation()
       // keeps working for the lock-acquisition path — survive into the
       // thrown error.
-      const detail = (await response.text().catch(() => '')).slice(0, MAX_ERROR_DETAIL_LENGTH);
-      const isDuplicateConflict = /23505|duplicate key|already exists/i.test(detail);
+      const detail = bodyText.slice(0, MAX_ERROR_DETAIL_LENGTH);
+      // PostgREST answers a unique violation with 409; the shared predicate
+      // recognizes the error CODE or the constraint wording, not bare digits.
+      const isDuplicateConflict = response.status === 409 && UNIQUE_VIOLATION.test(detail);
       throw new GoldTransmissionShadowDbError(
         isDuplicateConflict
           ? `PostgREST request failed with HTTP ${response.status} (duplicate key).`
@@ -446,7 +456,7 @@ export class PostgrestGoldTransmissionShadowDb implements GoldTransmissionShadow
       );
     }
 
-    const text = await response.text();
+    const text = bodyText;
     if (text.length === 0) return undefined as T;
     try {
       return JSON.parse(text) as T;

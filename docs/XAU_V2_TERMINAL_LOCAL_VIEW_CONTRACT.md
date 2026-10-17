@@ -1,0 +1,214 @@
+# XAU V2 — local terminal view (TV-0)
+
+Status: `LOCAL_ONLY — NOT DEPLOYED — NOT CC-1`
+
+TV-0 lets the static terminal show the V2 chain without any runtime. A
+loopback server runs CHAIN-0 on a local input and serves a read-only view;
+the terminal renders it in two panels: **Chaîne décisionnelle V2** and
+**Matrice des capacités**.
+
+Frozen versions:
+
+- `xau.terminal-local-view.v4`;
+- `terminal-local-view-4.0.0`.
+
+Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
+`summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
+on every root cause. Version 4 (DATA-1) adds `marketEvidence` and the origin
+`LOCAL_MARKET_ARCHIVE`. The terminal accepts only v4.
+
+## What the view contains
+
+- The CHAIN-0 envelope, copied unchanged: `HOLD`, execution `FORBIDDEN`,
+  integrity, violations, input findings, knowledge cutoff and the replay
+  digest. When CHAIN-0 rejects its input, the view carries the rejection and no
+  stage at all.
+- One row per stage, in CHAIN-0 order, with the state and the reason codes
+  unchanged. Each reason code is classified by the blocker it names: `DATA`,
+  `UPSTREAM`, `INTEGRITY`, `BUSINESS_DECISION`, `AUTHORIZATION` or
+  `ENVIRONMENT`. A test keeps the classification equal to the reason-code
+  unions of the twelve gates. A code with no category stays visible with a
+  null category.
+- Market Pricing fields with their value, status and age **at the cutoff**,
+  their source and the replay mode. These are never statuses at reading time.
+- Positioning evidence counts and authorities. There is no positioning signal.
+- A capability matrix where each capability has one of four statuses:
+  - `OPERATIONAL_LOCAL`: runs and is tested locally (the dry run, the digest
+    and the integrity check);
+  - `SIMULATED`: a stage that reports evidence, computed from fixture input;
+  - `BLOCKED`: a stage that abstains, with its blockers;
+  - `NOT_VALIDATED`: the V1 feed, which needs Supabase.
+
+- `temporal`: `HISTORICAL` when the cutoff precedes generation by more than
+  the existing XAUUSD LIVE window (360 s), `AT_GENERATION` within it,
+  `UNKNOWN` when either time is unreadable.
+- `holdRationale`: the first blocking stage, and the root causes grouped by
+  category (every reason that is not `UPSTREAM`, distinct codes in stage
+  order, with their stages). Inherited (`UPSTREAM`) reasons are counted.
+  Unclassified codes are listed.
+
+- `summary`, derived only from the rest of the view, for a first reading:
+  - `decision` `HOLD` and `execution` `FORBIDDEN`, always;
+  - `status`: `BLOCKED`, `INPUT_REJECTED` or `INTEGRITY_VIOLATED`, with a
+    one-sentence `headline` and the blocked / total stage counts;
+  - `mainReasons`: the root-cause categories, most codes first;
+  - `missingData`: market fields not fresh at the cutoff, then `DATA`
+    reasons (optional-field codes are not repeated when fields are listed),
+    or the input errors of a rejected input;
+  - `blockingDependencies`: every `BUSINESS_DECISION`, `AUTHORIZATION` and
+    `ENVIRONMENT` root cause, with the stages that report it;
+  - `missingAcceptanceEvidence`: undeclared E2E-0 evidence flags.
+- `REASON_CODE_PLAIN_FR` gives each classified code one French sentence.
+  A test keeps its keys equal to the classified codes and forbids raw codes
+  and trade words in it. An unknown code has `plain: null`.
+
+- `marketEvidence`: `null` when the market snapshot came as chain input.
+  Otherwise it is the DATA-1 replay manifest
+  (`docs/XAU_V2_MARKET_EVIDENCE_REPLAY_CONTRACT.md`):
+  - status, nature and reproducibility;
+  - archive id, class, digest and pinned digest, and replay digest;
+  - coverage, reasons and post-cutoff audit counts;
+  - each selected observation with its full provenance.
+
+  The terminal refuses the whole view when:
+  - `reproducible` disagrees with `VERIFIED`;
+  - the nature disagrees with the archive class;
+  - the nature is `HISTORICAL_VERIFIED` without a `VERIFIED` replay whose
+    every value is `RAW_VERIFIED`.
+
+- `horizons` (status and direction of H1–H5), `acceptance` (state and the
+  eleven E2E-0 evidence flags *as declared in the chain input*) and
+  `observability` (state, correlation and deployment IDs). The terminal refuses
+  a horizon that does not abstain or that carries a direction.
+
+`simulated` is always `true`. The origin is `GOLDEN_FIXTURE`,
+`LOCAL_INPUT_FILE` or `LOCAL_SCENARIO`, never a production source.
+
+## Terminal rules
+
+The terminal shows nothing from a view unless all of the following hold:
+- the schema version is exact;
+- `simulated` is `true` and the origin is known;
+- the chain is `HOLD` with execution `FORBIDDEN`;
+- every status is known.
+
+Otherwise it shows `VUE V2 REFUSÉE` and nothing else. Every string is written
+as text, never as HTML.
+
+| Situation | What the panel shows |
+| --- | --- |
+| `V2_VIEW_URL` empty (the published page) | `INDISPONIBLE` |
+| Unreachable server | `VUE V2 INJOIGNABLE` (HOLD is kept) |
+| Rejected input | `HOLD — ENTRÉE REJETÉE` |
+| Violated integrity | `HOLD — INTÉGRITÉ VIOLÉE` |
+
+The terminal has two workspaces: **MARCHÉ** (the V1 panels) and **CHAÎNE V2**.
+They are accessible tabs, selected by `#marche` / `#chaine` or by the
+remembered choice. A bar visible from both always states the nature of the
+data:
+
+| Label | Meaning |
+| --- | --- |
+| `DÉMO` | synthetic values generated by the browser (V1 without backend) |
+| `SIMULATION` | engines run on a fixture or local file (every V2 view) |
+| `HISTORIQUE` | the V2 cutoff is outside the current window |
+| `HISTORIQUE VÉRIFIÉ` | DATA-1 replay of a captured archive: complete, valid, every value re-read from its bytes |
+| `ARCHIVE SYNTHÉTIQUE` | DATA-1 replay of a synthetic archive: a simulation |
+| `LIVE` | real V1 feed whose freshness is within the threshold, nothing else |
+
+The decision always reads `HOLD — EXÉCUTION INTERDITE`. A market field that
+was `LIVE` at a simulated cutoff is shown as `FRAIS AU CUTOFF`: the word
+`LIVE` never appears in the CHAÎNE V2 workspace. A `LÉGENDE` in the bar
+defines every label. Inside the workspace, a sticky navigation bar keeps the
+full nature of the view visible (origin, `HISTORIQUE` and cutoff age, `PAS
+UNE ANALYSE RÉELLE`) and links to each section without changing the address.
+
+The workspace reads top-down: status, decision summary (state, main
+reasons, missing data, blocking dependencies), facts, why HOLD (one plain
+sentence of what stops the chain and what would lift it, then one folded
+card per category with the plain reasons, codes and stages), stages (folded,
+with reason counts; `TOUT DÉPLIER` opens them all). Every reason code stays
+in the page; a refresh keeps what the reader unfolded. Below 900 px the page
+is the only vertical scroller.
+
+In V1 demo mode:
+- the price badge reads `DÉMO`, never `LIVE`;
+- demo headlines are prefixed `[DÉMO]`;
+- no analysis, verdict, setup or scenario is fabricated.
+
+## Local start
+
+```sh
+npm ci
+npm run terminal:local                    # http://127.0.0.1:4173/ (golden fixture)
+node scripts/serve_terminal_local.mjs --port 4180 --input path/to/chain-input.json
+```
+
+The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`.
+
+`GET /local/v2/scenarios.json` lists local simulation scenarios derived from the
+golden fixture (`scripts/lib/terminal_scenarios.mjs`). `GET
+/local/v2/terminal.json?scenario=<id>` serves one of them, with origin
+`LOCAL_SCENARIO`. An unknown id returns 404. The scenarios are:
+- `golden`;
+- `everything-granted` (every grantable authorization, still HOLD);
+- `read-7-days-later`;
+- `market-unavailable`;
+- `lookahead` (price 500 µs after the cutoff);
+- `invalid-input`.
+
+The terminal offers them in a selector and shows only the latest requested
+view. Each scenario is a simulation, never market data.
+
+The server:
+- binds `127.0.0.1` only and accepts only `GET` and `HEAD`;
+- refuses with `403` any request whose `Host` header is not exactly
+  `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding guard, every route,
+  including a missing `Host`); proven by `tests/test_terminal_local_host_guard.mjs`;
+- turns any `--input` / `--archive` content (invalid JSON, `null`, an array, a BOM,
+  100,000 levels of nesting, binary bytes, a directory, a missing path) into a
+  simulated HOLD / FORBIDDEN view, never a `500`; a requested archive pin is always
+  applied, so an empty or wrong `--archive-digest` fails the replay instead of
+  disabling it (`tests/test_terminal_local_hostile_files.mjs`);
+- shows a chain fingerprint only if it has the `sha256:<64 hex>` shape and the chain is
+  `CONSISTENT`;
+- never leaves a half-drawn view: for 18 views that pass the client guard but carry `null`
+  items, wrong types or minimal sections, the page either draws the whole view or falls back
+  to its refused / error state with nothing of the view visible, and raises no uncaught page
+  error (`tests/test_terminal_render_isolation.mjs`);
+- serves `frontend/` read-only and refuses paths outside it;
+- serves the page with a strict Content-Security-Policy: the only inline
+  script allowed is the configuration block, by its SHA-256 after injection;
+  network access is limited to this server and Google Fonts; framing is
+  denied;
+- injects `V2_VIEW_URL` only into the page it serves.
+
+It makes no database, provider, broker or network call. The Supabase settings
+stay empty, so the V1 panels run in labelled demo mode.
+
+## Layout check in a browser
+
+CI has no browser. `scripts/check_terminal_layout.mjs` checks the terminal in
+headless Chromium at 320, 390, 1024, 1280 and 1440 px, in both workspaces,
+with every section unfolded and on the `market-unavailable` and
+`invalid-input` scenarios. It reports clipped content, content overflowing
+the viewport, text below WCAG AA and, below 900 px, any nested vertical
+scroller. It needs `XAU_PLAYWRIGHT` (path to `playwright-core`) and `XAU_CHROMIUM`,
+neither of which is a project dependency. `tests/test_terminal_contrast.mjs`
+keeps the palette's contrast in CI.
+
+## Not authorized by TV-0
+
+TV-0 does not authorize:
+- CC-1 (that requires a reviewed UI mapping, runtime correlation and
+  deployment proof);
+- any deployment of the view, or a published `V2_VIEW_URL`;
+- persistence, provider calls, alerts, orders or trading.
+
+Module: `backend/decision_chain/terminal_view.ts`, inside the CHAIN-0
+containment (no runtime module imports it). Tests:
+`tests/test_terminal_view.mjs`, `tests/test_terminal_local.mjs`.
+
+## TV-2 demo news trust boundary (2026-10-14)
+
+In the local terminal with no configured historical V1 backend, demonstration news is **illustrative only**: fictional headlines, fictional time labels, no news score, no CATALYST/MAJOR classification and **no bullish/bearish or neutral gold-impact claim**. The UI displays `DÉMO`, `NON ÉVALUÉ` and `OR — NON ÉVALUÉ (DÉMO)`; it must not imply source authentication or methodology approval. The non-demo V1 rendering logic and the independent V2 HOLD/ABSTAIN/FORBIDDEN contract are unchanged. `tests/test_terminal_local.mjs` enforces the display and fixture properties in jsdom. No live source, broker, execution, alert, deployment, migration or REC-1 permission is implied.
