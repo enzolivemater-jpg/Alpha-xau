@@ -139,6 +139,7 @@ const TEST_FILES = [
   'tests/test_official_source_artifacts_contract.mjs',
   'tests/test_official_html_parser_mutation.mjs',
   'tests/test_official_text_parser_mutation.mjs',
+  'tests/test_official_release_instant.mjs',
   'tests/test_ofac_collector.mjs',
   'tests/test_ofac_raw_adapter.mjs',
   'tests/test_ofac_raw_integration.mjs',

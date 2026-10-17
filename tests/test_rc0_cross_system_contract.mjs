@@ -168,12 +168,13 @@ console.log(`PASS RC-0: ${outcomes.COMPLETED + outcomes.REJECTED} terminal scena
 // --- B1: official macro fixtures -> Event Facts -> EI / GT -> EIA-0 -> CHAIN-0 -> OBS-0 -> terminal.
 // Provenance of every input, kept apart on purpose:
 // - the four release documents are committed fixtures parsed from official BLS / DOL / BEA artifacts;
-// - each event version's knowledgeCutoff is the release instant converted BY HAND from the fixture's
-//   `publicReleaseAtRaw` (08:30 EDT = 12:30Z): the adapters do not carry it, so nothing checks it (B3);
+// - each event version's knowledgeCutoff is the adapter's `publishedAt` (B3), cross-checked against a
+//   hand conversion of the fixture's `publicReleaseAtRaw`, and admitted only through
+//   `admitEventVersionAtOfficialRelease`, so a version known before its release is refused;
 // - the event set, ids, cluster ids and fingerprints are chosen by this test, not by a runtime;
 // - marketSnapshot, positioning, evidence graph and authorizations stay the SYNTHETIC golden fixture;
 //   only the EI / GT summaries are replaced. No real market archive is used (none is committed).
-const [cpiAdapter, nfpAdapter, claimsAdapter, pceAdapter, ei, gt, eia, chain, obs] = await Promise.all([
+const [cpiAdapter, nfpAdapter, claimsAdapter, pceAdapter, ei, gt, eia, chain, obs, releaseInstant] = await Promise.all([
   loadBackendModule('event_facts/bls_cpi_adapter.ts'),
   loadBackendModule('event_facts/bls_employment_situation_adapter.ts'),
   loadBackendModule('event_facts/dol_ui_weekly_claims_adapter.ts'),
@@ -183,6 +184,7 @@ const [cpiAdapter, nfpAdapter, claimsAdapter, pceAdapter, ei, gt, eia, chain, ob
   loadBackendModule('event_aggregation/contract.ts'),
   loadBackendModule('decision_chain/dry_run.ts'),
   loadBackendModule('observability/offline_receipt.ts'),
+  loadBackendModule('event_facts/official_release_instant.ts'),
 ]);
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
 const OFFICIAL_RELEASES = [
@@ -208,10 +210,15 @@ const eventVersions = OFFICIAL_RELEASES.map((release, index) => {
   assert.equal(mapped.canonicalEventStateSchemaVersion, 2, release.name);
   assert.deepEqual(release.map(fixture(release.file)), mapped, `${release.name}: adapter is deterministic`);
   assert.equal(JSON.stringify(document), before, `${release.name}: adapter does not mutate its input`);
+  assert.equal(mapped.publishedAt, release.releasedAt, `${release.name}: adapter instant equals the hand conversion`);
+  const admitted = releaseInstant.admitEventVersionAtOfficialRelease(mapped, mapped.publishedAt);
+  assert.equal(admitted.kind, 'ADMITTED', release.name);
+  const earlier = mapped.publishedAt.replace('12:30:00.000Z', '12:29:59.999999999Z');
+  assert.equal(releaseInstant.admitEventVersionAtOfficialRelease(mapped, earlier).reason, 'KNOWN_BEFORE_OFFICIAL_RELEASE', release.name);
   const n = index + 1;
   return {
     id: `${String(n).repeat(8)}-1111-4111-8111-111111111111`, clusterId: `${String(n).repeat(8)}-2222-4222-8222-222222222222`,
-    versionNumber: 1, transitionType: 'NOVELTY', knowledgeCutoff: release.releasedAt,
+    versionNumber: 1, transitionType: 'NOVELTY', knowledgeCutoff: admitted.publishedAt,
     effectiveTime: null, effectiveTimePrecision: null,
     canonicalEventStateSchemaVersion: mapped.canonicalEventStateSchemaVersion,
     canonicalEventState: mapped.canonicalEventState,
@@ -344,5 +351,9 @@ const refused = await obs.buildOfflineAuditReceipt(tampered);
 assert.notEqual(refused.verification, 'STRUCTURALLY_VALID_HOLD_UNVERIFIED');
 assert.ok(refused.problems.includes('UNSAFE_OUTPUT_PRESENT'));
 assert.equal(unified.fingerprintFromAcceptedReceipt(refused), null);
+// (g) B3: a CPI published on 11 September cannot enter the chain with a 1 September cutoff.
+const cpiMapped = OFFICIAL_RELEASES[0].map(fixture(OFFICIAL_RELEASES[0].file));
+assert.deepEqual(releaseInstant.admitEventVersionAtOfficialRelease(cpiMapped, '2026-09-01T00:00:00.000Z'),
+  { kind: 'REFUSED', reason: 'KNOWN_BEFORE_OFFICIAL_RELEASE', publishedAt: '2026-09-11T12:30:00.000Z' });
 console.log('PASS RC-0 B1: 4 official macro fixtures -> Event Facts -> EI/GT -> EIA-0 -> CHAIN-0 -> OBS-0 -> terminal at one cutoff '
-  + '(golden digest, 1 ns future-event exclusion, 6 negative cases, HOLD/FORBIDDEN; non-market inputs synthetic)');
+  + '(golden digest, 1 ns future-event exclusion, 7 negative cases incl. B3 back-dating, HOLD/FORBIDDEN; non-market inputs synthetic)');
