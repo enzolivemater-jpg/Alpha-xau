@@ -103,6 +103,11 @@ adapter's reason); the page shows them under ÉVÉNEMENTS MACRO OFFICIELS AU
 CUTOFF. The processors still give `INSUFFICIENT_EVIDENCE` (no consensus, no
 approved method): nothing is interpreted, HOLD / FORBIDDEN unchanged.
 Identifiers are derived from the documents' bytes (no runtime, no database).
+`--events ID` sets the default events source (an unknown id falls back to
+`input`, with the note `EVENTS_SOURCE_UNKNOWN:<id>`). The launcher's
+`--local-data` (so `npm run terminal:data` and a double-click on
+`xau-terminal.cmd`) passes `--events official:repository`: with local data,
+the macro summaries come from the official releases by default.
 
 ## What the view contains
 

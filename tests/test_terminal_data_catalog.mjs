@@ -178,7 +178,7 @@ try {
 }
 // Arguments and launcher.
 assert.equal(parseArgs(['--data-root', ROOT]).dataRoot, ROOT);
-assert.deepEqual(launcherArgs(['--local-data']).server, ['--data-root', LOCAL_DATA_ROOT]);
+assert.deepEqual(launcherArgs(['--local-data']).server, ['--data-root', LOCAL_DATA_ROOT, '--events', 'official:repository']);
 assert.deepEqual(launcherArgs(['--data-root', ROOT]).server, ['--data-root', ROOT]);
 console.log('PASS HTTP: catalog behind the Host guard, catalog ids only (400 for a path), 404 for unknown sources; --local-data');
 

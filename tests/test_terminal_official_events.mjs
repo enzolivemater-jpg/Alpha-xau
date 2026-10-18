@@ -79,10 +79,32 @@ mkdirSync(path.join(ROOT, 'official'));
 copyFileSync(REPOSITORY_OFFICIAL_RELEASES[3], path.join(ROOT, 'official', 'cpi.json'));
 writeFileSync(path.join(ROOT, 'official', 'broken.json'), '{nope');
 writeFileSync(path.join(ROOT, 'official', 'other.json'), JSON.stringify({ source: { sourceCode: 'unknown_release' } }));
+// A release whose official instant cannot be read is never admitted (B3), whatever its facts.
+const undated = JSON.parse(readFileSync(REPOSITORY_OFFICIAL_RELEASES[3], 'utf8'));
+undated.release.publicReleaseAtRaw = 'soon';
+writeFileSync(path.join(ROOT, 'official', 'undated.json'), JSON.stringify(undated));
+const undatedEntry = (await readOfficialReleases([path.join(ROOT, 'official', 'undated.json')]))[0];
+assert.equal(undatedEntry.status, 'REJECTED');
+assert.match(undatedEntry.reason, /RELEASE_INSTANT_UNKNOWN|ADAPTER_/);
 const local = await buildLocalView({ dataRoot: ROOT });
 const localEntry = local.catalog().events.find((e) => e.id === 'official:local');
 assert.deepEqual(localEntry.releases.map((r) => [r.name, r.status, r.reason]),
-  [['broken.json', 'REJECTED', 'DOCUMENT_UNREADABLE'], ['cpi.json', 'RESOLVED', null], ['other.json', 'REJECTED', 'UNSUPPORTED_RELEASE_SOURCE']]);
+  [['broken.json', 'REJECTED', 'DOCUMENT_UNREADABLE'], ['cpi.json', 'RESOLVED', null], ['other.json', 'REJECTED', 'UNSUPPORTED_RELEASE_SOURCE'],
+    ['undated.json', 'REJECTED', undatedEntry.reason]]);
+// --events sets the default events source (the launcher's --local-data passes official:repository); unknown ids fall back, noted.
+{
+  const { parseArgs } = await import('../scripts/serve_terminal_local.mjs');
+  assert.equal(parseArgs(['--events', 'official:repository']).events, 'official:repository');
+  assert.equal(parseArgs(['--events', '../x']), null);
+  const byDefault = await buildLocalView({ events: 'official:repository' });
+  assert.equal(byDefault.catalog().defaults.events, 'official:repository');
+  const v = await byDefault();
+  assert.equal(v.officialEvents.known.length, 6, 'the default view uses the official releases');
+  assert.equal(v.inputProvenance.find((e) => e.input === 'EVENT_IMPACT').source, 'LOCAL_INPUT_UNVERIFIED');
+  const unknown = await buildLocalView({ events: 'official:nowhere' });
+  assert.equal(unknown.catalog().defaults.events, 'input');
+  assert.ok(unknown.catalog().notes.includes('EVENTS_SOURCE_UNKNOWN:official:nowhere'));
+}
 console.log('PASS terminal: the events source recomputes the summaries at the replay cutoff (aligned), LOCAL_INPUT_UNVERIFIED, HOLD');
 
 // --- Page: third selector, events card, the releases known or not at the cutoff.
@@ -123,4 +145,20 @@ assert.match(d.getElementById('v2-data-card-events').textContent, /US_CPI 2026-0
 assert.notEqual(d.getElementById('v2-status').getAttribute('data-state'), 'rejected');
 assert.doesNotMatch(d.getElementById('v2-official-events').textContent, /BULL|BEAR|haussier|baissier|\bachat\b|\bvente\b/i);
 dom.window.close();
+// A view that lists official releases while its provenance says otherwise is refused.
+{
+  const forged = structuredClone(after);
+  forged.inputProvenance.find((e) => e.input === 'EVENT_IMPACT').source = 'SYNTHETIC_FIXTURE';
+  const dom2 = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/' });
+  dom2.window.fetch = (url) => (String(url) === VIEW_PATH ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(structuredClone(forged)) })
+    : Promise.reject(new Error(`unexpected fetch ${url}`)));
+  dom2.window.ALPHA_XAU_CONFIG = { SUPABASE_URL: '', SUPABASE_ANON_KEY: '', ANALYSIS_INTERVAL_MS: 1e6, V2_VIEW_URL: VIEW_PATH };
+  const sc = dom2.window.document.createElement('script');
+  sc.textContent = js;
+  dom2.window.document.body.appendChild(sc);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(dom2.window.document.getElementById('v2-status').getAttribute('data-state'), 'rejected');
+  assert.match(dom2.window.document.getElementById('v2-detail').textContent, /provenance des événements contradictoire/);
+  dom2.window.close();
+}
 console.log('PASS page: Événements macro selector, card and list of official releases known at the cutoff; anchor kept');

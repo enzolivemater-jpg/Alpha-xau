@@ -6,7 +6,9 @@
  *   node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]
  *     [--archive market-evidence-archive.json [--archive-digest sha256:...] [--cutoff ISO]]
  *     [--captures DIR]   (DATA-2 capture logs DIR/<capture>/archive.json, merged in memory)
- *     [--data-root DIR]  (selectable local data: DIR/evidence/<capture>/archive.json, DIR/positioning/<cftc file> + declaration)
+ *     [--data-root DIR]  (selectable local data: DIR/evidence/<capture>/archive.json, DIR/positioning/<cftc file> + declaration,
+ *                         DIR/official/<release>.json)
+ *     [--events ID]      (default macro events source: input, official:repository, official:local)
  *     [--positioning-cot cot.csv --cot-dataset futures-only|futures-and-options --cot-published-at ISO --cot-received-at ISO
  *      [--cot-report-date YYYY-MM-DD]]
  *
@@ -320,7 +322,7 @@ function readCaptureLogs(dir) {
 
 export async function buildLocalView({
   inputFile = GOLDEN_FIXTURE, archiveFile = null, archiveDigest = undefined, cutoff = null, now = () => new Date(),
-  positioningCot = null, capturesDir = null, dataRoot = null,
+  positioningCot = null, capturesDir = null, dataRoot = null, events: eventsDefault = null,
 } = {}) {
   const chain = await loadBackendModule('decision_chain/dry_run.ts');
   const obs = await loadBackendModule('observability/offline_receipt.ts');
@@ -400,7 +402,9 @@ export async function buildLocalView({
         entries: await readOfficialReleases(officialFiles) });
     }
   }
-  const defaultEvents = 'input';
+  // --events: the default events source (a catalog id); an unknown id falls back to the document, said in the notes.
+  const defaultEvents = eventsDefault !== null && events.has(eventsDefault) ? eventsDefault : 'input';
+  if (eventsDefault !== null && !events.has(eventsDefault)) dataNotes.push(`EVENTS_SOURCE_UNKNOWN:${eventsDefault}`);
   /** The chain input with the chosen macro summaries recomputed at `cutoff`, and the facts behind them. */
   const withEventsAt = async (source, input, cutoff) => {
     if (source.entries === null || typeof input !== 'object' || input === null || Array.isArray(input)) return { input, officialEvents: null };
@@ -767,7 +771,7 @@ export async function createTerminalServer(options = {}) {
 }
 
 export function parseArgs(argv) {
-  const options = { port: null, portRange: null, inputFile: GOLDEN_FIXTURE, archiveFile: null, archiveDigest: undefined, cutoff: null, positioningCot: null, capturesDir: null, dataRoot: null };
+  const options = { port: null, portRange: null, inputFile: GOLDEN_FIXTURE, archiveFile: null, archiveDigest: undefined, cutoff: null, positioningCot: null, capturesDir: null, dataRoot: null, events: null };
   const cot = {};
   for (let i = 0; i < argv.length; i += 2) {
     const [flag, value] = [argv[i], argv[i + 1]];
@@ -783,6 +787,8 @@ export function parseArgs(argv) {
       options.archiveDigest = value;
     } else if (flag === '--cutoff' && value) {
       options.cutoff = value;
+    } else if (flag === '--events' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value ?? '')) {
+      options.events = value;
     } else if (flag === '--data-root' && value) {
       options.dataRoot = path.resolve(value);
     } else if (flag === '--captures' && value) {
@@ -823,7 +829,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const options = parseArgs(process.argv.slice(2));
   if (!options) {
     process.stderr.write('usage: node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]'
-      + ' [--archive archive.json [--archive-digest sha256:...] | --captures DIR] [--cutoff ISO] [--data-root DIR]'
+      + ' [--archive archive.json [--archive-digest sha256:...] | --captures DIR] [--cutoff ISO] [--data-root DIR] [--events ID]'
       + ' [--positioning-cot cot.csv --cot-dataset futures-only|futures-and-options --cot-published-at ISO --cot-received-at ISO'
       + ' [--cot-report-date YYYY-MM-DD]]\n');
     process.exitCode = 1;
@@ -859,6 +865,14 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         lines.push(`données locales de ${serverOptions.dataRoot} : ${catalog.market.length - 1} source(s) de marché, `
           + `${read.length} fichier(s) CFTC (${read.filter((p) => p.status === 'EXTRACTED').length} lu(s)), à choisir dans « DONNÉES LOCALES »`
           + `${catalog.notes.length ? ` ; ${catalog.notes.map((note) => START_NOTES[note] ?? note).join(' ; ')}` : ''}`);
+      }
+      {
+        const catalog = server.terminalView.catalog();
+        const source = catalog.events.find((e) => e.id === catalog.defaults.events);
+        if (source && source.kind === 'OFFICIAL_RELEASES') {
+          lines.push(`événements macro : ${source.label} — ${source.releases.filter((r) => r.status === 'RESOLVED').length} publication(s) lue(s), `
+            + 'agrégées au cutoff de chaque vue ; aucune interprétation (HOLD)');
+        }
       }
       lines.push(`scénarios de simulation dans l'onglet CHAÎNE V2 (http://127.0.0.1:${port}/#chaine), sélecteur « SCÉNARIO DE SIMULATION » en haut du panneau`);
       process.stdout.write(lines.map((line) => `terminal local : ${line}\n`).join(''));

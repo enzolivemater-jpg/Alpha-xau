@@ -36,7 +36,7 @@ const HEALTH = '/local/v2/health.json';
 const VIEW = '/local/v2/terminal.json';
 const READY_TIMEOUT_MS = 90_000;
 const PASSTHROUGH = new Set(['--port', '--port-range', '--input', '--archive', '--archive-digest', '--cutoff',
-  '--positioning-cot', '--cot-dataset', '--cot-published-at', '--cot-received-at', '--cot-report-date', '--captures', '--data-root']);
+  '--positioning-cot', '--cot-dataset', '--cot-published-at', '--cot-received-at', '--cot-report-date', '--captures', '--data-root', '--events']);
 
 export const LOCAL_DATA_ROOT = path.join(homedir(), '.local', 'share', 'xau-v2');
 export const LOCAL_CAPTURES = path.join(LOCAL_DATA_ROOT, 'evidence');
@@ -71,7 +71,8 @@ export function parseArgs(argv) {
     // The operator's capture logs, where the DATA-2 capture tooling keeps them (as validate_evidence_captures.mjs).
     else if (flag === '--captures-local') options.server.push('--captures', LOCAL_CAPTURES);
     // The operator's local data, selectable in the page (captures and declared CFTC files), none selected by default.
-    else if (flag === '--local-data') options.server.push('--data-root', LOCAL_DATA_ROOT);
+    // With local data, the macro summaries come from the official releases by default (aligned with every replay).
+    else if (flag === '--local-data') options.server.push('--data-root', LOCAL_DATA_ROOT, '--events', 'official:repository');
     else if (PASSTHROUGH.has(flag) && argv[i + 1] !== undefined) {
       const value = argv[i += 1];
       options.server.push(flag, value);

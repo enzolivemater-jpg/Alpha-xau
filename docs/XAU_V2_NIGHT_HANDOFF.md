@@ -233,6 +233,27 @@ Windows `.cmd` execution, Firefox (absent), Safari (impossible here). The CFTC c
 are not verified against a real CFTC file; the consensus contract has no approved source.
 Captures are merged once at start: logs added later need a restart.
 
+
+### DATA-REAL and terminal data lots (2026-10-18/19, local, stacked on `de0458e`)
+
+Branches: `feat/data-real-2` (`a035ba2`, `041f41f`, `08af6f3`), `feat/terminal-positioning-evidence`
+(`43eb589`, `5089bce`, `bd4278d`), `feat/terminal-local-defaults` (on `bd4278d`). Nothing pushed.
+
+| # | Domain | Defect (demonstrated) or gap | Fix | Main files |
+| --- | --- | --- | --- | --- |
+| 59 | Positioning (CFTC) | The CFTC variable list names the date column `As_of_Date_Form_YYYY-MM-DD`; 1.0.0 assumed `Report_Date_as_YYYY-MM-DD` | adapter 1.3.0 reads either (both must agree), shows `FutOnly_or_Combined` verbatim; `--inspect`; declarations bound to the file's sha256 | `cftc_cot_offline_adapter.ts`, `scripts/cot_declare.mjs` |
+| 60 | Positioning (real file) | No authentic CFTC file had been read | `fut_disagg_txt_2026.zip` (cftc.gov) checked and inspected: real header says `Report_Date_as_YYYY-MM-DD`; 41 COMEX gold reports; 2026-10-13 converted, values identical to an independent parse; file kept off Git | `docs/XAU_V2_DATA_REAL.md` |
+| 61 | Positioning (time) | The CFTC release schedule is tentative: it listed 9 January for the 6 January report, published on 16 January (press release 9138-25) | declarations may cite `publicationBasis` (explicit / schedule-inferred); 41-report evidence table (3 explicit, 38 inferred); terms (public domain); freshness and methodology proposals, not active | `serve_terminal_local.mjs`, `docs/XAU_V2_DATA_REAL.md` |
+| 62 | Terminal | The 14 authentic CFTC values were read but only counted | view 4.6.0 `positioning.evidence` (raw rows, flagged after the cutoff, nothing derived); card says how many reports the file holds | `terminal_view.ts`, `dashboard.js` |
+| 63 | Terminal (coherence) | Every real replay used the document's synthetic Event Impact / Gold Transmission summaries at another cutoff (`UPSTREAM_CUTOFF_MISMATCH`) | view 4.7.0: official release documents → adapters → EI/GT → EIA-0 v2 **at the chain cutoff** (`?events=`, Événements macro selector); later releases excluded; aligned replays | `scripts/lib/official_events.mjs`, `serve_terminal_local.mjs`, `tests/test_terminal_official_events.mjs` |
+| 64 | Terminal (defaults) | With local data the macro summaries still defaulted to the synthetic document | `--events ID`; the launcher's `--local-data` passes `official:repository` | `serve_terminal_local.mjs`, `terminal_launch.mjs` |
+
+Real end-to-end check (Chromium, 2026-10-19): real captures + authentic CFTC 2026-10-13 report + official releases at
+2026-10-18T22:00Z: market `CAPTURED_ARCHIVE`, positioning and events `LOCAL_INPUT_UNVERIFIED`, cutoffs aligned,
+HOLD / FORBIDDEN, no console error. Remaining decisions: CFTC source and publication basis (38 inferred dates),
+P-FRESH-CFTC-1 / P-METHOD-CFTC-1, DXY / bid-ask / consensus sources, authorization to download official macro
+artifacts beyond the committed fixtures (the existing parsers are pinned to specific artifacts).
+
 ## Integration with the cloud branch (DONE locally on `integration/pr-149-plus-cloud-canonical-json`)
 
 Created from `4e132f4`; `84e5374` cherry-picked as `979d601` with no conflict (git auto-merged
