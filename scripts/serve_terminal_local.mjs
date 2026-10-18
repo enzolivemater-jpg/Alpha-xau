@@ -5,6 +5,8 @@
  *
  *   node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]
  *     [--archive market-evidence-archive.json [--archive-digest sha256:...] [--cutoff ISO]]
+ *     [--captures DIR]   (DATA-2 capture logs DIR/<capture>/archive.json, merged in memory)
+ *     [--positioning-cot cot.csv --cot-published-at ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]]
  *
  * Port: without --port the server takes 4173, or the next free port among the
  * next 9 when it is busy (loopback only, whatever the port). An explicit --port
@@ -26,7 +28,7 @@
 
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -88,11 +90,16 @@ export function localIndexHtml() {
  * rejected by DATA-1 anyway). `defaultCutoff` is the cutoff used without one.
  */
 export function archiveCutoffs(archiveFile, defaultCutoff) {
-  let records = [];
+  let archive = null;
   try {
-    const archive = JSON.parse(readFileSync(archiveFile, 'utf8'));
-    if (archive && Array.isArray(archive.records)) records = archive.records;
+    archive = JSON.parse(readFileSync(archiveFile, 'utf8'));
   } catch { /* no instant */ }
+  return archiveCutoffsOf(archive, defaultCutoff);
+}
+
+/** archiveCutoffs of an archive already in memory (a --captures merge). */
+export function archiveCutoffsOf(archive, defaultCutoff) {
+  const records = archive && Array.isArray(archive.records) ? archive.records : [];
   const instants = new Map();
   const fields = new Map(ARCHIVE_FIELDS.map((field) => [field, { field, records: 0, sources: new Set(), observed: [], ingested: [] }]));
   for (const record of records) {
@@ -157,9 +164,41 @@ export async function readPositioningCot({ file, publishedAt, receivedAt, report
   return { label: path.basename(file), conversion };
 }
 
+/**
+ * --captures DIR: every DIR/<capture>/archive.json (DATA-2 capture logs, only
+ * read), merged in memory by reception time with the DATA-3 merge, which
+ * re-reads every body and refuses ambiguity. Nothing is written. A failed merge
+ * gives no archive: the replay then rejects it (HOLD), and `problems` says why.
+ */
+export async function readCaptures(capturesDir) {
+  const cap = await loadBackendModule('market_engine/evidence_capture.ts');
+  const providers = await loadBackendModule('market_engine/providers.ts');
+  const parsers = { fred: providers.parseFredObservations, twelve_data: providers.parseTwelveData };
+  let files = [];
+  try {
+    files = readdirSync(capturesDir, { withFileTypes: true }).filter((d) => d.isDirectory())
+      .map((d) => path.join(capturesDir, d.name, 'archive.json')).filter((f) => existsSync(f)).sort();
+  } catch (error) {
+    return { archive: null, sources: 0, problems: [`CAPTURES_DIR_UNREADABLE:${error.code ?? 'ERROR'}`] };
+  }
+  if (files.length === 0) return { archive: null, sources: 0, problems: ['NO_CAPTURE_ARCHIVE'] };
+  const sources = [];
+  for (const file of files) {
+    try {
+      sources.push(JSON.parse(readFileSync(file, 'utf8')));
+    } catch {
+      return { archive: null, sources: files.length, problems: [`SOURCE_UNREADABLE:${path.basename(path.dirname(file))}`] };
+    }
+  }
+  const merge = await cap.mergeCaptureArchives(sources, { archiveId: 'local-captures', parsers });
+  return merge.outcome === 'MERGED'
+    ? { archive: merge.archive, sources: files.length, problems: [] }
+    : { archive: null, sources: files.length, problems: merge.problems.length ? merge.problems : ['MERGE_REJECTED'] };
+}
+
 export async function buildLocalView({
   inputFile = GOLDEN_FIXTURE, archiveFile = null, archiveDigest = undefined, cutoff = null, now = () => new Date(),
-  positioningCot = null,
+  positioningCot = null, capturesDir = null,
 } = {}) {
   const chain = await loadBackendModule('decision_chain/dry_run.ts');
   const obs = await loadBackendModule('observability/offline_receipt.ts');
@@ -169,7 +208,25 @@ export async function buildLocalView({
   const providers = await loadBackendModule('market_engine/providers.ts');
   // Raw payloads are checked with the runtime parsers themselves.
   const parsers = { fred: providers.parseFredObservations, twelve_data: providers.parseTwelveData };
-  const origin = archiveFile !== null ? { kind: 'LOCAL_MARKET_ARCHIVE', label: path.basename(archiveFile) }
+  const captures = capturesDir === null ? null : await readCaptures(capturesDir);
+  const archiveMode = archiveFile !== null || captures !== null;
+  /** The --archive file (read at each request) or the --captures merge; null when unreadable. */
+  const loadArchive = () => {
+    if (captures !== null) return captures.archive === null ? null : structuredClone(captures.archive);
+    try {
+      return JSON.parse(readFileSync(archiveFile, 'utf8'));
+    } catch {
+      return null; // replayed as ARCHIVE_SHAPE_INVALID, never thrown
+    }
+  };
+  // --captures without --cutoff replays after the last reception, so the captures are seen at launch;
+  // --archive keeps the input document's cutoff (unchanged).
+  const lastReception = captures === null || captures.archive === null ? null
+    : (archiveCutoffsOf(captures.archive, null).cutoffs.at(-1) ?? null);
+  const defaultArchiveCutoff = (document) => cutoff ?? lastReception ?? (document.ok ? document.knowledgeCutoff : null);
+  const origin = captures !== null
+    ? { kind: 'LOCAL_MARKET_ARCHIVE', label: `captures ${path.basename(capturesDir)} (${captures.sources} journal(aux) fusionné(s))` }
+    : archiveFile !== null ? { kind: 'LOCAL_MARKET_ARCHIVE', label: path.basename(archiveFile) }
     : inputFile === GOLDEN_FIXTURE
       ? { kind: 'GOLDEN_FIXTURE', label: path.relative(ROOT, GOLDEN_FIXTURE) }
       : { kind: 'LOCAL_INPUT_FILE', label: path.basename(inputFile) };
@@ -205,19 +262,14 @@ export async function buildLocalView({
    * archive mode and without a scenario (null is returned otherwise).
    */
   const render = async (scenarioId = null, { cutoff: requestCutoff = null } = {}) => {
-    if (requestCutoff !== null && (archiveFile === null || scenarioId !== null || !REQUEST_CUTOFF.test(requestCutoff))) return null;
+    if (requestCutoff !== null && (!archiveMode || scenarioId !== null || !REQUEST_CUTOFF.test(requestCutoff))) return null;
     let document;
     let viewOrigin = origin;
     if (scenarioId === null) {
       document = readChainDocument(inputFile);
-      if (archiveFile !== null) {
-        let archive;
-        try {
-          archive = JSON.parse(readFileSync(archiveFile, 'utf8'));
-        } catch {
-          archive = null; // replayed as ARCHIVE_SHAPE_INVALID, never thrown
-        }
-        const knowledgeCutoff = requestCutoff ?? cutoff ?? (document.ok ? document.knowledgeCutoff : null);
+      if (archiveMode) {
+        const archive = loadArchive();
+        const knowledgeCutoff = requestCutoff ?? defaultArchiveCutoff(document);
         return fromArchive(archive, knowledgeCutoff, document.ok ? withPositioning(document.input) : undefined, origin, archiveDigest,
           inputDocument, positioningFile);
       }
@@ -243,11 +295,13 @@ export async function buildLocalView({
       ? receipt.fingerprint : null;
     return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), null, undefined, own ? positioningFile : null);
   };
+  render.captures = captures === null ? null : { sources: captures.sources, merged: captures.archive !== null,
+    records: captures.archive?.records.length ?? 0, problems: captures.problems };
   render.positioning = cot === null ? null : { label: cot.label, ...cot.conversion, evidence: undefined, evidenceCount: cot.conversion.evidence.length };
   render.archiveCutoffs = () => {
-    if (archiveFile === null) return null;
+    if (!archiveMode) return null;
     const document = readChainDocument(inputFile);
-    return archiveCutoffs(archiveFile, cutoff ?? (document.ok ? document.knowledgeCutoff : null));
+    return archiveCutoffsOf(loadArchive(), defaultArchiveCutoff(document));
   };
   return render;
 }
@@ -365,7 +419,7 @@ export async function createTerminalServer(options = {}) {
       return;
     }
     if (pathname === VIEW_PATH) {
-      if (requestCutoff !== null && (scenarioId !== null || !options.archiveFile || !REQUEST_CUTOFF.test(requestCutoff))) {
+      if (requestCutoff !== null && (scenarioId !== null || view.archiveCutoffs() === null || !REQUEST_CUTOFF.test(requestCutoff))) {
         send(response, 400, 'text/plain; charset=utf-8', 'cutoff: archive mode only, no scenario, UTC instant', method);
         return;
       }
@@ -397,11 +451,13 @@ export async function createTerminalServer(options = {}) {
       send(response, 404, 'text/plain; charset=utf-8', 'not found', method);
     }
   });
+  // The launcher-facing main prints what --captures and --positioning-cot gave.
+  server.terminalView = view;
   return server;
 }
 
 export function parseArgs(argv) {
-  const options = { port: null, portRange: null, inputFile: GOLDEN_FIXTURE, archiveFile: null, archiveDigest: undefined, cutoff: null, positioningCot: null };
+  const options = { port: null, portRange: null, inputFile: GOLDEN_FIXTURE, archiveFile: null, archiveDigest: undefined, cutoff: null, positioningCot: null, capturesDir: null };
   const cot = {};
   for (let i = 0; i < argv.length; i += 2) {
     const [flag, value] = [argv[i], argv[i + 1]];
@@ -417,6 +473,8 @@ export function parseArgs(argv) {
       options.archiveDigest = value;
     } else if (flag === '--cutoff' && value) {
       options.cutoff = value;
+    } else if (flag === '--captures' && value) {
+      options.capturesDir = path.resolve(value);
     } else if (flag === '--positioning-cot' && value) {
       cot.file = path.resolve(value);
     } else if (flag === '--cot-published-at' && value) {
@@ -429,6 +487,8 @@ export function parseArgs(argv) {
       return null;
     }
   }
+  // One market archive at most: a file or a captures directory.
+  if (options.archiveFile !== null && options.capturesDir !== null) return null;
   // A CFTC file needs both declared instants; the instants mean nothing without a file.
   if (Object.keys(cot).length > 0) {
     if (!cot.file || !cot.publishedAt || !cot.receivedAt) return null;
@@ -449,7 +509,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const options = parseArgs(process.argv.slice(2));
   if (!options) {
     process.stderr.write('usage: node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]'
-      + ' [--archive archive.json [--archive-digest sha256:...] [--cutoff ISO]]'
+      + ' [--archive archive.json [--archive-digest sha256:...] | --captures DIR] [--cutoff ISO]'
       + ' [--positioning-cot cot.csv --cot-published-at ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]]\n');
     process.exitCode = 1;
   } else {
@@ -464,6 +524,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         process.stdout.write(`terminal local : le port ${requested} est occupé ; le port libre ${port} est utilisé (loopback uniquement)\n`);
       }
       process.stdout.write(`terminal local : http://127.0.0.1:${port}/ (CHAIN-0 DRY RUN, HOLD, exécution interdite) — Ctrl+C pour arrêter\n`);
+      if (serverOptions.capturesDir) {
+        const c = server.terminalView.captures;
+        process.stdout.write(c.merged
+          ? `terminal local : ${c.sources} journal(aux) de captures fusionné(s) depuis ${serverOptions.capturesDir} (${c.records} enregistrements) ; historique non vérifié, HOLD\n`
+          : `terminal local : captures de ${serverOptions.capturesDir} non fusionnées (${c.problems.join(' ; ')}) ; marché indisponible, HOLD\n`);
+      }
       if (serverOptions.positioningCot) {
         const cot = await readPositioningCot(serverOptions.positioningCot);
         process.stdout.write(cot.conversion.status === 'EXTRACTED'

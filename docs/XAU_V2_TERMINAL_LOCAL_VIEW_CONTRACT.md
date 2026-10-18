@@ -305,6 +305,22 @@ reception instants, whatever the cutoff (counts and ranges, no judgement); the
 page shows them under **DISPONIBILITÉ DE L'ARCHIVE PAR CHAMP**, a field
 without records reading "aucun enregistrement".
 
+### Capture logs (`--captures DIR`)
+
+`--captures DIR` shows DATA-2 capture logs without a separate merge step:
+every `DIR/<capture>/archive.json` is read (never written) and merged in
+memory with the DATA-3 merge (`mergeCaptureArchives`: every body re-read,
+reception order, no declared coverage, `CAPTURED` only if every log is). The
+result is replayed like an `--archive` (same views, replay cutoffs and
+availability), its origin label naming the directory and the number of logs.
+Without `--cutoff` the replay is at the **last reception instant**, so the
+captures are visible at launch (`--archive` keeps the input document's
+cutoff). A failed merge (no log, unreadable directory or file, a log whose
+bytes no longer give its values, ambiguity) supplies no market at all: the
+replay rejects it, HOLD, and the server's start line gives the reasons.
+`--captures` and `--archive` are exclusive. Example (WSL):
+`npm run terminal -- --captures ~/.local/share/xau-v2/evidence`.
+
 ## Layout check in a browser
 
 CI has no browser. `scripts/check_terminal_layout.mjs` checks the terminal in

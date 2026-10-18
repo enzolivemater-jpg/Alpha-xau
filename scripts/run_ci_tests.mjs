@@ -177,6 +177,7 @@ const TEST_FILES = [
   'tests/test_terminal_archive_cutoffs.mjs',
   'tests/test_cftc_cot_offline_adapter.mjs',
   'tests/test_terminal_positioning_cot.mjs',
+  'tests/test_terminal_captures.mjs',
   'tests/test_us_treasury_collector.mjs',
   'tests/test_us_treasury_raw_adapter.mjs',
   'tests/test_us_treasury_raw_integration.mjs',
