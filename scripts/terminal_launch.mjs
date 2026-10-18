@@ -141,6 +141,19 @@ async function showBrowser(url, wanted) {
   else say(`ouvrez ${url} dans le navigateur (Brave, Chrome, Edge ou Firefox).`);
 }
 
+/**
+ * Whether two server option lists show the same data: the same options and values, port options
+ * aside, in any order (the server reads each option once whatever its position).
+ */
+export function sameDataOptions(a, b) {
+  const key = (args) => {
+    const pairs = [];
+    for (let i = 0; i < args.length; i += 2) if (!['--port', '--port-range'].includes(args[i])) pairs.push(`${args[i]}\u0000${args[i + 1]}`);
+    return JSON.stringify(pairs.sort());
+  };
+  return key(a) === key(b);
+}
+
 /** The instance of this checkout among the probed ones, if any. */
 const mine = (instances) => instances.find((instance) => instance.root === ROOT) ?? null;
 
@@ -192,13 +205,7 @@ async function start(options) {
   }
   const running = await probeInstances(options.port, options.range);
   const own = mine(running);
-  // Reused only when it shows the same data: same server options, in the same order (port options aside).
-  const dataArgs = (args) => {
-    const out = [];
-    for (let i = 0; i < args.length; i += 2) if (!['--port', '--port-range'].includes(args[i])) out.push(args[i], args[i + 1]);
-    return JSON.stringify(out);
-  };
-  if (own && (own.args === null || dataArgs(own.args) !== dataArgs(options.server))) {
+  if (own && (own.args === null || !sameDataOptions(own.args, options.server))) {
     fail(`diagnostic : un terminal de ce dossier tourne déjà sur le port ${own.port} avec d'autres options`
       + ` (${own.args === null ? 'inconnues' : own.args.join(' ') || 'aucune'}) : il montrerait d'autres données.`
       + ' « --stop » l\'arrête ; relancer ensuite avec les options voulues.');

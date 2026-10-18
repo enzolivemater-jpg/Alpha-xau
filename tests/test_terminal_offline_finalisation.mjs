@@ -158,6 +158,14 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
   assert.match(other.text(), /--stop/);
   assert.equal(openedLines().length, 2, 'no browser opened on the wrong data');
   assert.equal(await portOpen(4574), false, 'no second server either');
+  // Same options in another order (and other port options) are the same data: reused, no refusal.
+  assert.ok(launcher.sameDataOptions(['--captures', 'd', '--cutoff', 'c', '--port', '1'], ['--cutoff', 'c', '--captures', 'd']));
+  assert.ok(!launcher.sameDataOptions(['--captures', 'd'], ['--captures', 'e']));
+  assert.ok(!launcher.sameDataOptions(['--captures', 'd'], ['--captures', 'd', '--cutoff', 'c']));
+  assert.ok(!launcher.sameDataOptions([], ['--archive', 'a.json']));
+  const reordered = start(['--port-range', '3', '--port', '4573']);
+  assert.equal((await reordered.exited).code, 0, reordered.text());
+  assert.match(reordered.text(), /déjà lancé/);
   // B4. --status and --stop find this checkout's instance and stop it cleanly.
   const status = spawnSync(process.execPath, [LAUNCH, '--status', ...PORTS], { cwd: ROOT, env: ENV, encoding: 'utf8' });
   assert.equal(status.status, 0);
