@@ -1109,7 +1109,7 @@ let pollTimer = null;
   }
 
   function initWorkspaces() {
-    let initial = window.location.hash === '#chaine' ? 'chain' : 'market';
+    let initial = window.location.hash === '#chaine' || window.location.hash.startsWith('#chaine/') ? 'chain' : 'market';
     if (initial === 'market' && window.location.hash !== '#marche') {
       try { if (window.localStorage.getItem(WORKSPACE_KEY) === 'chain') initial = 'chain'; } catch { /* idem */ }
     }
@@ -1779,6 +1779,22 @@ let pollTimer = null;
 
   /* Scénario de simulation choisi ; null = l'entrée du serveur local. */
   let v2Scenario = null;
+
+  /**
+   * Choix restituables par l'ancre : #chaine/scenario/<id> ou #chaine/rejeu/<instant UTC>.
+   * Lus au chargement (appliqués seulement si l'option existe), réécrits à chaque choix.
+   */
+  const V2_HASH = /^#chaine\/(scenario|rejeu)\/([A-Za-z0-9:.-]{1,64})$/;
+  const requestedChoice = (() => {
+    const m = V2_HASH.exec(window.location.hash);
+    return m ? { kind: m[1], value: decodeURIComponent(m[2]) } : null;
+  })();
+  function writeChoiceToHash() {
+    const hash = v2Scenario ? `#chaine/scenario/${v2Scenario}` : v2ReplayCutoff ? `#chaine/rejeu/${v2ReplayCutoff}` : '#chaine';
+    if (window.location.hash !== hash) {
+      try { window.history.replaceState(null, '', hash); } catch { /* ancre non modifiable : choix gardé en mémoire */ }
+    }
+  }
   /* Seule la dernière réponse demandée est affichée. */
   let v2Request = 0;
 
@@ -1803,8 +1819,16 @@ let pollTimer = null;
         v2Scenario = el.v2Scenario.value || null;
         // Le cutoff de rejeu ne s'applique qu'à l'archive du serveur, jamais à un scénario.
         el.v2ReplayCutoff.disabled = v2Scenario !== null;
+        writeChoiceToHash();
         refreshV2();
       });
+      if (requestedChoice && requestedChoice.kind === 'scenario'
+          && options.some((o) => o.value === requestedChoice.value && o.value !== '')) {
+        el.v2Scenario.value = requestedChoice.value;
+        v2Scenario = requestedChoice.value;
+        el.v2ReplayCutoff.disabled = true;
+        refreshV2();
+      }
     } catch { /* sans liste, l'entrée du serveur reste affichée */ }
   }
 
@@ -1874,8 +1898,14 @@ let pollTimer = null;
       el.v2ReplayCutoff.disabled = v2Scenario !== null;
       el.v2ReplayCutoff.addEventListener('change', () => {
         v2ReplayCutoff = el.v2ReplayCutoff.value || null;
+        writeChoiceToHash();
         refreshV2();
       });
+      if (requestedChoice && requestedChoice.kind === 'rejeu' && instants.includes(requestedChoice.value)) {
+        el.v2ReplayCutoff.value = requestedChoice.value;
+        v2ReplayCutoff = requestedChoice.value;
+        if (v2Scenario === null) refreshV2();
+      }
     } catch { /* sans liste, le cutoff du serveur reste appliqué */ }
   }
 

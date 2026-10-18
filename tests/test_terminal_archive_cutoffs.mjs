@@ -114,8 +114,8 @@ console.log('PASS HTTP: cutoffs listed and replayed in archive mode only; bad cu
 const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
 const js = readFileSync(new URL('../frontend/js/dashboard.js', import.meta.url), 'utf8');
 const scenarios = [{ id: 'archive-correction', label: 'correction' }];
-const render = async (config) => {
-  const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/' });
+const render = async (config, hash = '') => {
+  const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: `http://127.0.0.1:4173/${hash}` });
   const asked = [];
   dom.window.fetch = async (url) => {
     const u = String(url);
@@ -171,4 +171,28 @@ assert.equal(select.disabled, true, 'a scenario disables the archive cutoff');
 assert.ok(asked.at(-1) === `${VIEW_PATH}?scenario=archive-correction`, asked.at(-1));
 assert.doesNotMatch(d.getElementById("v2-status").closest("section").textContent, /\b(BUY|SELL|EVIDENCE_READY)\b/);
 dom.window.close();
+// The choice is kept in the anchor (#chaine/scenario/<id>, #chaine/rejeu/<instant>) and restored only if it exists.
+{
+  const config = { V2_ARCHIVE_CUTOFFS_URL: ARCHIVE_CUTOFFS_PATH, V2_SCENARIOS_URL: SCENARIOS_PATH };
+  let r = await render(config, `#chaine/rejeu/${expected[1]}`);
+  assert.ok(r.asked.includes(`${VIEW_PATH}?cutoff=${encodeURIComponent(expected[1])}`), r.asked.join());
+  assert.equal(r.dom.window.document.getElementById('v2-replay-cutoff').value, expected[1]);
+  assert.equal(r.dom.window.document.getElementById('ws-chain').hidden, false, 'the chain workspace opens');
+  const sel = r.dom.window.document.getElementById('v2-scenario');
+  sel.value = 'archive-correction';
+  sel.dispatchEvent(new r.dom.window.Event('change'));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(r.dom.window.location.hash, '#chaine/scenario/archive-correction');
+  r.dom.window.close();
+  r = await render(config, '#chaine/scenario/archive-correction');
+  assert.ok(r.asked.includes(`${VIEW_PATH}?scenario=archive-correction`), r.asked.join());
+  assert.equal(r.dom.window.document.getElementById('v2-replay-cutoff').disabled, true);
+  r.dom.window.close();
+  for (const hash of ['#chaine/scenario/not-a-scenario', '#chaine/rejeu/2026-01-01T00:00:00.000Z', '#chaine/scenario/<x>']) {
+    r = await render(config, hash);
+    assert.ok(r.asked.every((u) => !u.includes('?')), `${hash}: ${r.asked.join()}`);
+    r.dom.window.close();
+  }
+}
 console.log('PASS the page lists the reception instants, replays the chosen one, and disables it under a scenario');
+console.log('PASS the choice is kept in the anchor and restored only when the scenario or instant exists');

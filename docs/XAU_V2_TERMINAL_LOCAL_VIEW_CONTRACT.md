@@ -316,7 +316,10 @@ differs from theirs is reported by CHAIN-0 as `UPSTREAM_CUTOFF_MISMATCH`.
 Every replay is HOLD, execution forbidden. Both routes sit behind the Host
 guard. `receptions` gives, for each instant (same order as `cutoffs`), the
 market fields whose records arrived then; the selector labels each instant
-with them ("réception 3/5 · VIX"). The list also carries `fields`: for each of the eight market fields,
+with them ("réception 3/5 · VIX"). The choice is kept in the page anchor,
+`#chaine/scenario/<id>` or `#chaine/rejeu/<instant>`, and restored on load
+only when that scenario or instant exists (otherwise the server's input is
+shown), so a reload or a shared link shows the same replay. The list also carries `fields`: for each of the eight market fields,
 the number of records, their sources and the first/last observation and
 reception instants, whatever the cutoff (counts and ranges, no judgement); the
 page shows them under **DISPONIBILITÉ DE L'ARCHIVE PAR CHAMP**, a field
