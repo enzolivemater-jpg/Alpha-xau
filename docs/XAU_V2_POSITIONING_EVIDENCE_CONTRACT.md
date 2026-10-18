@@ -95,3 +95,43 @@ write, migration, deployment, schedule, broker connection or trading action.
 P-1 now defines a separate provider-neutral append-only persistence and
 complete-or-error historical read contract. It remains schema/code only until
 proved and does not change P-0's deliberate `UNAVAILABLE` positioning state.
+
+## CFTC COT offline adapter (candidate source, not approved)
+
+`backend/positioning_engine/cftc_cot_offline_adapter.ts`
+(`xau.positioning-cftc-cot-offline.v1` /
+`cftc-cot-disaggregated-futures-offline-adapter-1.0.0`) converts a CFTC
+Commitments of Traders file **already on the operator's disk**
+(Disaggregated, Futures Only, comma-separated text) into P-0 tuples. It is
+pure: no network, clock, process or file access; the caller hashes the bytes.
+
+- One report of one market per call (default COMEX gold, contract market
+  code `088691`): a file holding several reports of that market needs the
+  report date, because each report has its own publication instant
+  (`MULTIPLE_REPORT_DATES` otherwise).
+- 14 raw metrics in `CONTRACTS` (open interest; producer/merchant, swap
+  dealer, managed money, other reportable long/short/spread; non-reportable
+  long/short). Nothing is derived: no net position, ratio or percentile.
+- Tuple: `sourceAuthority=cftc`, `datasetCode=cot_disaggregated_futures_only`,
+  `instrumentCode=CFTC:<code>`, `periodEnd` = report date, `publishedAt` and
+  `observedAt` = the operator's declared publication and reception instants
+  (never inferred from a schedule), `artifactId` = `sha256:` of the file,
+  `revision=null` (revisions are not identified in the file).
+- Fail-closed, whole file: missing or duplicate column, broken quoting, row
+  width, report date impossible or disagreeing with its `YYMMDD` twin,
+  duplicate row, non-integer or negative position, publication before the
+  report date, reception before publication.
+- `sourceApproval` is always `NOT_APPROVED`. The column names follow the
+  CFTC disaggregated text layout; they are **not verified against a retained
+  real CFTC file** in this repository (the test fixture is synthetic and says
+  so in its market names), so an unexpected header is rejected, not guessed.
+
+The local terminal takes it with `--positioning-cot FILE --cot-published-at
+ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]`; see the terminal
+view contract. P-0 keeps the tuples and abstains
+(`FRESHNESS_POLICY_NOT_APPROVED`, `METHODOLOGY_NOT_APPROVED`); positioning
+stays `UNAVAILABLE`; CHAIN-0 stays HOLD / FORBIDDEN. This changes nothing in
+the Human Gate above.
+
+Tests: `tests/test_cftc_cot_offline_adapter.mjs`,
+`tests/test_terminal_positioning_cot.mjs`.
