@@ -405,6 +405,18 @@ and restored only when every id exists. Every view stays HOLD / FORBIDDEN; a
 CFTC file is at most `LOCAL_INPUT_UNVERIFIED`, a rejected one supplies
 nothing; no positioning method is approved.
 
+Declaring a CFTC file: `node scripts/cot_declare.mjs FILE --dataset
+futures-only|futures-and-options --published-at ISO --received-at ISO
+[--report-date YYYY-MM-DD]` converts it first with the same adapter and
+writes `<name>.declaration.json` only when it converts (create-only, never
+replaced; a refusal names the reason and, for a multi-report file, the report
+dates present). Declaring approves nothing.
+
+`notes` explain what is missing: `EVIDENCE_DIR_ABSENT`,
+`POSITIONING_DIR_ABSENT`, `POSITIONING_DIR_UNREADABLE:<code>`, ignored file
+names. The page writes them in plain words (where to put capture logs and
+CFTC files) and keeps the panel visible for them, without empty selectors.
+
 Launch: `npm run terminal:data` (WSL) or the launcher's `--local-data`
 (= `--data-root ~/.local/share/xau-v2`); `scripts/terminal/xau-terminal.cmd`
 passes `--local-data`, so a double-click on Windows offers the local data.

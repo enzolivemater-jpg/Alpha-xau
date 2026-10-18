@@ -321,10 +321,12 @@ export async function buildLocalView({
       lastReception: false });
   }
   const captureDirs = [];
+  const dataNotes = [];
   if (capturesDir !== null) captureDirs.push({ dir: capturesDir, merged: captures });
   if (dataRoot !== null) {
     const evidenceDir = path.join(dataRoot, 'evidence');
-    if (!captureDirs.some((c) => path.resolve(c.dir) === path.resolve(evidenceDir)) && existsSync(evidenceDir)) {
+    if (!existsSync(evidenceDir)) dataNotes.push('EVIDENCE_DIR_ABSENT');
+    else if (!captureDirs.some((c) => path.resolve(c.dir) === path.resolve(evidenceDir))) {
       captureDirs.push({ dir: evidenceDir, merged: await readCaptures(evidenceDir) });
     }
   }
@@ -505,7 +507,7 @@ export async function buildLocalView({
     defaults: { market: defaultMarket, positioning: defaultPositioning },
     market: structuredClone(catalogEntries),
     positioning: structuredClone(positioningEntries),
-    notes: [...(dirRead?.problem ? [dirRead.problem] : []), ...ignoredFiles],
+    notes: [...dataNotes, ...(dirRead?.problem ? [dirRead.problem] : []), ...ignoredFiles],
   });
   return render;
 }

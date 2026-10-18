@@ -1079,6 +1079,7 @@ body {
 .v2__why-cutoffs[hidden] { display: none; }
 .v2__captures-failed { flex: 1 1 100%; margin: 0; color: var(--text); border-left: 2px solid var(--accent); padding-left: var(--sp-2); overflow-wrap: anywhere; }
 .v2__captures-failed[hidden] { display: none; }
+.v2__data select[hidden], .v2__data-label[hidden] { display: none; }
 .v2__data-label { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-dim); letter-spacing: 0.06em; text-transform: uppercase; }
 .v2__data-card { flex: 1 1 100%; min-width: 0; margin: 0; display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px var(--sp-3); font-size: var(--fs-xs); }
 .v2__data-card:empty { display: none; }

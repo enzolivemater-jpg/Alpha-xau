@@ -255,7 +255,20 @@ assert.equal(d.getElementById('v2-data-market').value, 'input');
 assert.ok(asked.filter((u) => u.startsWith(VIEW_PATH)).every((u) => u === VIEW_PATH), asked.join());
 dom.window.close();
 // Nothing to choose (input only): no panel.
-({ dom, d } = await render('#chaine', { ...catalog, market: [catalog.market[0]], positioning: [catalog.positioning[0]] }));
+({ dom, d } = await render('#chaine', { ...catalog, market: [catalog.market[0]], positioning: [catalog.positioning[0]], notes: [] }));
 assert.equal(d.getElementById('v2-data-wrap').hidden, true);
 dom.window.close();
+// An empty data root: nothing to choose, but the panel says where the data goes (no useless selector).
+{
+  const empty = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'xau-data-empty-'));
+  const emptyView = await buildLocalView({ dataRoot: empty });
+  const emptyCatalog = emptyView.catalog();
+  assert.deepEqual(emptyCatalog.notes, ['EVIDENCE_DIR_ABSENT', 'POSITIONING_DIR_ABSENT']);
+  ({ dom, d } = await render('#chaine', emptyCatalog));
+  assert.equal(d.getElementById('v2-data-wrap').hidden, false);
+  assert.equal(d.getElementById('v2-data-market').hidden, true);
+  assert.equal(d.getElementById('v2-data-positioning').hidden, true);
+  assert.match(d.getElementById('v2-data-hint').textContent, /evidence\/<journal>\/archive\.json.*scripts\/cot_declare\.mjs/);
+  dom.window.close();
+}
 console.log('PASS the page lets the operator choose and inspect each source, keeps the choice in the anchor, and never upgrades it');

@@ -181,6 +181,7 @@ const TEST_FILES = [
   'tests/test_terminal_cutoff_alignment.mjs',
   'tests/test_consensus_evidence_contract.mjs',
   'tests/test_terminal_data_catalog.mjs',
+  'tests/test_cot_declare.mjs',
   'tests/test_us_treasury_collector.mjs',
   'tests/test_us_treasury_raw_adapter.mjs',
   'tests/test_us_treasury_raw_integration.mjs',

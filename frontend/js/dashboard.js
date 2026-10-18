@@ -1929,10 +1929,24 @@ let pollTimer = null;
       el.v2DataMarket.value = c.defaults.market;
       el.v2DataPositioning.value = c.defaults.positioning;
       const choices = market.length + positioning.length;
-      el.v2DataWrap.hidden = choices <= 2;
+      const notes = Array.isArray(c.notes) ? c.notes.filter((n) => typeof n === 'string').slice(0, 8) : [];
+      // Rien à choisir mais des remarques (dossier absent…) : le panneau les dit, sans sélecteur inutile.
+      el.v2DataWrap.hidden = choices <= 2 && notes.length === 0;
       setText(el.v2DataHint, `${market.length} source(s) de marché, ${positioning.length} de positionnement, lues au démarrage du serveur. `
         + 'Chaque source garde sa provenance ; aucune n\'est vérifiée de façon indépendante, aucune méthode de positionnement n\'est approuvée. HOLD, exécution interdite.');
-      if (Array.isArray(c.notes) && c.notes.length) setText(el.v2DataHint, `${el.v2DataHint.textContent} Notes : ${c.notes.map(String).join(' · ')}.`);
+      const V2_DATA_NOTES = {
+        EVIDENCE_DIR_ABSENT: 'aucun dossier evidence/ : les journaux de capture se déposent dans ~/.local/share/xau-v2/evidence/<journal>/archive.json',
+        POSITIONING_DIR_ABSENT: 'aucun dossier positioning/ : y déposer les fichiers CFTC (texte désagrégé) et les déclarer avec scripts/cot_declare.mjs',
+      };
+      if (notes.length) {
+        setText(el.v2DataHint, `${el.v2DataHint.textContent} À savoir : ${notes.map((n) => V2_DATA_NOTES[n] || (/^POSITIONING_DIR_UNREADABLE/.test(n)
+          ? `dossier positioning/ illisible (${n.split(':')[1] || '?'})` : n)).join(' ; ')}.`);
+      }
+      el.v2DataMarket.hidden = market.length < 2;
+      el.v2DataPositioning.hidden = positioning.length < 2;
+      for (const lab of el.v2DataWrap.querySelectorAll('.v2__data-label')) {
+        lab.hidden = (lab.htmlFor === 'v2-data-market' ? market.length : positioning.length) < 2;
+      }
       el.v2DataMarket.addEventListener('change', () => {
         v2Market = el.v2DataMarket.value || null;
         v2ReplayCutoff = null;
