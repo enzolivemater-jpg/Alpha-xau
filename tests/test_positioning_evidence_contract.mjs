@@ -26,12 +26,13 @@ const base = {
   revision: null,
 };
 
+// B5 (P-0 v2): valid evidence is kept but never ready while no freshness policy is approved.
 const ready = mod.buildPositioningEvidenceEnvelope([base], cutoff);
-assert.equal(ready.schemaVersion, 'xau.positioning-evidence.v1');
-assert.equal(ready.algorithmVersion, 'positioning-evidence-normalizer-1.0.0');
-assert.equal(ready.evidenceState, 'EVIDENCE_READY');
+assert.equal(ready.schemaVersion, 'xau.positioning-evidence.v2');
+assert.equal(ready.algorithmVersion, 'positioning-evidence-normalizer-2.0.0');
+assert.equal(ready.evidenceState, 'ABSTAIN');
 assert.equal(ready.positioningState, 'UNAVAILABLE');
-assert.deepEqual(ready.reasonCodes, ['METHODOLOGY_NOT_APPROVED']);
+assert.deepEqual(ready.reasonCodes, ['FRESHNESS_POLICY_NOT_APPROVED', 'METHODOLOGY_NOT_APPROVED']);
 assert.equal(ready.observedThrough, base.observedAt);
 assert.deepEqual(ready, mod.buildPositioningEvidenceEnvelope([structuredClone(base)], cutoff));
 
@@ -85,8 +86,10 @@ const retainedBeforePublication = mod.buildPositioningEvidenceEnvelope(
 assert.equal(retainedBeforePublication.evidenceState, 'ABSTAIN');
 assert.ok(retainedBeforePublication.reasonCodes.includes('INVALID_EVIDENCE_SHAPE'));
 assert.deepEqual(retainedBeforePublication.evidence, []);
-assert.equal(mod.buildPositioningEvidenceEnvelope(
-  [{ ...base, observedAt: base.publishedAt }], cutoff).evidenceState, 'EVIDENCE_READY');
+// Valid evidence: kept, and blocked only by the absent freshness policy (B5).
+const VALID_ONLY = ['FRESHNESS_POLICY_NOT_APPROVED', 'METHODOLOGY_NOT_APPROVED'];
+assert.deepEqual(mod.buildPositioningEvidenceEnvelope(
+  [{ ...base, observedAt: base.publishedAt }], cutoff).reasonCodes, VALID_ONLY);
 // Identity rules match the P-1 schema CHECKs: nothing P-0 accepts is unpersistable.
 for (const forged of [
   { revision: 'rev 1' }, { revision: ' r1' }, { revision: 'r1\u001f' }, { revision: '-r1' },
@@ -97,8 +100,8 @@ for (const forged of [
   assert.deepEqual(envelope.evidence, []);
 }
 for (const accepted of [{ revision: 'r1' }, { revision: '2026-09-29:v2' }, { revision: 'r'.repeat(64) }]) {
-  assert.equal(mod.buildPositioningEvidenceEnvelope([{ ...base, ...accepted }], cutoff).evidenceState,
-    'EVIDENCE_READY', JSON.stringify(accepted));
+  assert.deepEqual(mod.buildPositioningEvidenceEnvelope([{ ...base, ...accepted }], cutoff).reasonCodes,
+    VALID_ONLY, JSON.stringify(accepted));
 }
 assert.doesNotThrow(() => mod.buildPositioningEvidenceEnvelope([{}], cutoff));
 assert.deepEqual(mod.buildPositioningEvidenceEnvelope([{}], cutoff).evidence, []);
