@@ -243,6 +243,9 @@ export async function buildLocalView({
   };
   const withPositioning = (input) => (cot === null || typeof input !== 'object' || input === null || Array.isArray(input)
     ? input : { ...input, positioningEvidence: cot.conversion.evidence });
+  /** 4.5.0: cutoffs of the input's precomputed summaries, for the view's alignment line. */
+  const inputCutoffsOf = (input) => (typeof input === 'object' && input !== null
+    ? { eventImpact: input.eventImpact?.knowledgeCutoff, goldTransmission: input.goldTransmission?.knowledgeCutoff } : null);
   /** Replays an archive, then runs CHAIN-0 on its snapshot. */
   const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned, document = undefined, positioning = null) => {
     const replay = await evidence.replayMarketEvidence(archive, knowledgeCutoff,
@@ -254,7 +257,8 @@ export async function buildLocalView({
       ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
     const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
       ? receipt.fingerprint : null;
-    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), replay, document, positioning);
+    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), replay, document, positioning,
+      inputCutoffsOf(baseInput));
   };
   /**
    * Without a scenario, the server's input; with one, that simulation. A
@@ -293,7 +297,8 @@ export async function buildLocalView({
       ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
     const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
       ? receipt.fingerprint : null;
-    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), null, undefined, own ? positioningFile : null);
+    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), null, undefined, own ? positioningFile : null,
+      document.ok ? inputCutoffsOf(document.input) : null);
   };
   render.captures = captures === null ? null : { sources: captures.sources, merged: captures.archive !== null,
     records: captures.archive?.records.length ?? 0, problems: captures.problems };

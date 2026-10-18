@@ -174,6 +174,7 @@
     v2ScenarioWrap: $('v2-scenario-wrap'),
     v2Scenario: $('v2-scenario'),
     v2ScenarioHint: $('v2-scenario-hint'),
+    v2WhyCutoffs: $('v2-why-cutoffs'),
     v2ReplayCutoffWrap: $('v2-replay-cutoff-wrap'),
     v2ReplayCutoff: $('v2-replay-cutoff'),
     v2ReplayCutoffHint: $('v2-replay-cutoff-hint'),
@@ -1458,9 +1459,15 @@ let pollTimer = null;
       setText(el.v2WhyLead, 'Entrée rejetée avant la chaîne : aucun étage n\'a été évalué. '
         + 'Corriger l\'entrée signalée dans DONNÉES MANQUANTES ; aucune décision n\'est possible.');
       setText(el.v2WhyLift, '');
+      el.v2WhyCutoffs.hidden = true;
       el.v2WhyList.replaceChildren();
       return;
     }
+    // 4.5.0 : des entrées précalculées à un autre cutoff que la chaîne (rejeu d'archive), dit en clair.
+    const align = view.cutoffAlignment;
+    const misaligned = align && typeof align === 'object' && align.aligned === false && isText(align.plain);
+    setText(el.v2WhyCutoffs, misaligned ? align.plain : '');
+    el.v2WhyCutoffs.hidden = !misaligned;
     el.v2Why.hidden = false;
     const first = why.firstBlockedStage ? label(why.firstBlockedStage) : null;
     setText(el.v2WhyLead, first

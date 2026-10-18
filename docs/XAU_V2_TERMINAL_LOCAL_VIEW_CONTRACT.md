@@ -10,7 +10,7 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.4.0`.
+- `terminal-local-view-4.5.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
@@ -64,6 +64,16 @@ Commitments of Traders file (see the positioning contract). Its
 source non approuvée"), or `UNAVAILABLE` with the rejection reason when the
 file is rejected. Scenarios never use the file. The server prints one line
 saying whether the file was read or rejected.
+
+Algorithm 4.5.0 adds `cutoffAlignment` (null for a rejected input or when the
+caller gives no input cutoffs): the chain cutoff, the knowledge cutoffs of
+the input's Event Impact and Gold Transmission summaries, `aligned`, and a
+plain sentence. These two summaries are computed before the chain, at their
+own cutoff, and never recomputed: a replay at another instant makes the
+horizon synthesis abstain with `UPSTREAM_CUTOFF_MISMATCH`, and the page now
+says which cutoffs differ under POURQUOI HOLD. `aligned` is false exactly
+when the horizon synthesis reports that mismatch (test on every scenario
+and archive replay instant).
 
 ## What the view contains
 

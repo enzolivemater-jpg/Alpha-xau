@@ -1075,6 +1075,8 @@ body {
   padding: var(--sp-1) var(--sp-2);
 }
 .v2__scenario select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.v2__why-cutoffs { margin: var(--sp-2) 0 0; padding-left: var(--sp-2); border-left: 2px solid var(--accent); color: var(--text); overflow-wrap: anywhere; }
+.v2__why-cutoffs[hidden] { display: none; }
 .v2__avail { flex: 1 1 100%; min-width: 0; font-size: var(--fs-xs); }
 .v2__avail[hidden] { display: none; }
 .v2__avail summary { cursor: pointer; font-family: var(--mono); letter-spacing: 0.06em; color: var(--accent); }

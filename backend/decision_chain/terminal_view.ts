@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.4.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.5.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -438,6 +438,44 @@ function positioningFreshnessOf(
   };
 }
 
+/**
+ * 4.5.0: the Event Impact and Gold Transmission summaries are inputs computed
+ * at their own cutoff; CHAIN-0 does not recompute them. When the chain runs at
+ * another instant (an archive replay), the horizon synthesis abstains with
+ * UPSTREAM_CUTOFF_MISMATCH; this says which cutoffs differ, in plain words.
+ * null when the caller did not supply the input's cutoffs or the input was rejected.
+ */
+export interface TerminalCutoffAlignment {
+  readonly chainCutoff: string;
+  readonly inputs: readonly { readonly input: 'EVENT_IMPACT' | 'GOLD_TRANSMISSION'; readonly knowledgeCutoff: string | null }[];
+  readonly aligned: boolean;
+  readonly plain: string;
+}
+
+function cutoffAlignmentOf(
+  chainCutoff: string,
+  supplied: { readonly eventImpact: unknown; readonly goldTransmission: unknown } | null,
+): TerminalCutoffAlignment | null {
+  if (supplied === null || typeof supplied !== 'object') return null;
+  const text = (value: unknown) => (typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null);
+  const inputs = [
+    { input: 'EVENT_IMPACT' as const, knowledgeCutoff: text(supplied.eventImpact) },
+    { input: 'GOLD_TRANSMISSION' as const, knowledgeCutoff: text(supplied.goldTransmission) },
+  ];
+  const aligned = inputs.every((entry) => entry.knowledgeCutoff === chainCutoff);
+  const at = (value: string | null) => value ?? 'cutoff inconnu';
+  return {
+    chainCutoff,
+    inputs,
+    aligned,
+    plain: aligned
+      ? 'Impact des événements et transmission or sont au cutoff de la chaîne.'
+      : `Chaîne évaluée au ${chainCutoff} ; impact des événements au ${at(inputs[0].knowledgeCutoff)} et transmission or au `
+        + `${at(inputs[1].knowledgeCutoff)} (document d'entrée, non recalculés) : la synthèse des horizons s'abstient `
+        + '(UPSTREAM_CUTOFF_MISMATCH). Un rejeu cohérent exige un document d\'entrée calculé au même cutoff.',
+  };
+}
+
 export interface TerminalView {
   readonly schemaVersion: typeof TERMINAL_VIEW_SCHEMA_VERSION;
   readonly algorithmVersion: typeof TERMINAL_VIEW_ALGORITHM_VERSION;
@@ -452,6 +490,8 @@ export interface TerminalView {
     readonly currentWindowSeconds: number;
   };
   readonly holdRationale: TerminalHoldRationale;
+  /** 4.5.0, see TerminalCutoffAlignment. */
+  readonly cutoffAlignment: TerminalCutoffAlignment | null;
   readonly summary: TerminalDecisionSummary;
   readonly chain: {
     readonly outcome: 'COMPLETED' | 'REJECTED';
@@ -822,6 +862,8 @@ export function buildTerminalView(
   inputDocument?: { readonly kind: TerminalDataOrigin; readonly label: string },
   /** 4.4.0: the local CFTC file the server's positioning evidence came from, if any. */
   positioningFile: TerminalPositioningFile | null = null,
+  /** 4.5.0: the knowledge cutoffs of the input's Event Impact and Gold Transmission summaries. */
+  inputCutoffs: { readonly eventImpact: unknown; readonly goldTransmission: unknown } | null = null,
 ): TerminalView {
   const base = {
     schemaVersion: TERMINAL_VIEW_SCHEMA_VERSION,
@@ -837,6 +879,7 @@ export function buildTerminalView(
       ...base,
       temporal: temporalOf(null, generatedAt),
       holdRationale: { firstBlockedStage: null, rootCauses: [], inheritedReasonCount: 0, unclassifiedCodes: [] },
+      cutoffAlignment: null,
       summary: {
         decision: 'HOLD',
         execution: 'FORBIDDEN',
@@ -914,6 +957,7 @@ export function buildTerminalView(
     ...base,
     temporal: temporalOf(result.knowledgeCutoff, generatedAt),
     holdRationale,
+    cutoffAlignment: cutoffAlignmentOf(result.knowledgeCutoff, inputCutoffs),
     summary: summaryOf(stages, holdRationale, result.integrity !== 'CONSISTENT', fields, evidence),
     chain: {
       outcome: 'COMPLETED',
