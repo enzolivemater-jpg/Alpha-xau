@@ -43,7 +43,10 @@ import { pathToFileURL } from 'node:url';
 
 export const RECON_PLAN_SCHEMA_VERSION = 'xau.recon-auto-plan.v1';
 export const RECON_REPORT_SCHEMA_VERSION = 'xau.recon-auto-report.v1';
-export const RECON_ALGORITHM_VERSION = 'recon-auto-1.0.0';
+export const RECON_ALGORITHM_VERSION = 'recon-auto-1.1.0';
+/** Bounds of the drift review (report size, not a judgement): longer lists are cut and flagged. */
+export const DRIFT_MAX_COMMITS = 50;
+export const DRIFT_MAX_FILES = 200;
 
 /** Every git subcommand this tool can issue. Nothing reaches a remote or moves an existing ref. */
 export const ALLOWED_GIT_COMMANDS = Object.freeze([
@@ -158,6 +161,51 @@ const resolveRef = (ctx, ref) => {
 };
 const commitExists = (ctx, sha) => runGit(ctx, ['cat-file', '-e', `${sha}^{commit}`]).status === 0;
 const changedFiles = (ctx, from, to) => new Set(lines(runGit(ctx, ['diff', '--name-only', '--no-renames', from, to], { allowFailure: false }).stdout));
+
+/**
+ * 1.1.0 drift review of one moved ref, read-only. ADVANCED: the declared
+ * commit is an ancestor of the current one (new commits on top, the usual
+ * push); its new commits and changed files are listed, contract files apart.
+ * REWRITTEN: the declared commit exists but is no longer in the history
+ * (rebase or force-push); DECLARED_UNKNOWN: the declared commit is not in
+ * this repository. Only ADVANCED drift can be carried into a proposed plan.
+ */
+function reviewDrift(ctx, declared) {
+  const review = { ...declared, kind: 'DECLARED_UNKNOWN', newCommits: [], commitsTruncated: false, changedFiles: [],
+    filesTruncated: false, contractFilesChanged: [], mergeCommits: 0 };
+  if (!commitExists(ctx, declared.declaredSha)) return review;
+  if (!isAncestor(ctx, declared.declaredSha, declared.currentSha)) return { ...review, kind: 'REWRITTEN' };
+  const range = `${declared.declaredSha}..${declared.currentSha}`;
+  const commits = lines(runGit(ctx, ['log', '--format=%H%x09%s', '--no-show-signature', range], { allowFailure: false }).stdout)
+    .map((line) => { const [sha, ...subject] = line.split('\t'); return { sha, subject: subject.join('\t').slice(0, 200) }; });
+  const files = [...changedFiles(ctx, declared.declaredSha, declared.currentSha)].sort();
+  return {
+    ...review,
+    kind: 'ADVANCED',
+    newCommits: commits.slice(0, DRIFT_MAX_COMMITS),
+    commitsTruncated: commits.length > DRIFT_MAX_COMMITS,
+    changedFiles: files.slice(0, DRIFT_MAX_FILES),
+    filesTruncated: files.length > DRIFT_MAX_FILES,
+    contractFilesChanged: files.filter((file) => CONTRACT_PATHS.some((re) => re.test(file))),
+    mergeCommits: lines(runGit(ctx, ['rev-list', '--min-parents=2', range], { allowFailure: false }).stdout).length,
+  };
+}
+
+/**
+ * The plan with each ADVANCED ref moved to its current SHA, for a human to
+ * review and commit; null when any drift is not ADVANCED (that needs a
+ * decision, not a copy). Never written over the plan file.
+ */
+function proposePlan(plan, drift) {
+  if (drift.length === 0 || drift.some((d) => d.kind !== 'ADVANCED')) return null;
+  const moved = new Map(drift.map((d) => [d.ref, d.currentSha]));
+  return {
+    ...plan,
+    canonical: { ...plan.canonical, sha: moved.get(plan.canonical.ref) ?? plan.canonical.sha },
+    candidates: plan.candidates.map((k) => ({ ...k, sha: moved.get(k.ref) ?? k.sha })),
+  };
+}
+
 const commitFiles = (ctx, sha) => lines(runGit(ctx, ['diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '--root', sha], { allowFailure: false }).stdout);
 
 function pidAlive(pid) {
@@ -235,8 +283,18 @@ export function renderMarkdown(report) {
     '',
     ...(report.drift.length
       ? ['## Plan drift — review required', '', 'These refs moved since the plan was written; nothing was simulated.'
-        + ' Review the new commits, then update the plan by hand:', '',
-      ...report.drift.map((d) => `- ${d.name} \`${d.ref}\`: declared \`${d.declaredSha}\`, now \`${d.currentSha}\``), '']
+        + ' Review the new commits, then update the plan:', '',
+      ...report.drift.flatMap((d) => [
+        `- ${d.name} \`${d.ref}\`: declared \`${d.declaredSha}\`, now \`${d.currentSha}\` — **${d.kind}**`
+          + (d.kind === 'ADVANCED' ? ` (${d.newCommits.length}${d.commitsTruncated ? '+' : ''} new commit(s), ${d.changedFiles.length}${d.filesTruncated ? '+' : ''} file(s)`
+            + `${d.mergeCommits ? `, ${d.mergeCommits} merge commit(s)` : ''})` : d.kind === 'REWRITTEN' ? ' (history rewritten: rebase or force-push; decide before reusing)'
+            : ' (declared commit not in this repository)'),
+        ...d.newCommits.map((c) => `  - \`${c.sha.slice(0, 12)}\` ${c.subject}`),
+        ...(d.contractFilesChanged.length ? [`  - contract files changed: ${d.contractFilesChanged.join(', ')}`] : []),
+      ]), '',
+      report.proposedPlan !== null
+        ? 'Proposed plan: `proposed-plan.json` (every drift is ADVANCED; review the commits above, then commit it in place of the plan).'
+        : 'No proposed plan: some drift is not ADVANCED and needs a decision.', '']
       : []),
     `Simulated head: \`${report.result.head ?? 'none'}\`.`,
     ...(picked.length ? ['', 'Cherry-picked:', ...picked] : []),
@@ -280,6 +338,8 @@ export async function reconcile({
     candidates: [],
     /** Declared refs that now point elsewhere: the plan needs a human review and new SHAs. */
     drift: [],
+    /** 1.1.0: the plan with ADVANCED drift applied, for review (also proposed-plan.json); null otherwise. */
+    proposedPlan: null,
     result: { head: null, verification: [] },
     apply: { outcome: apply ? 'NOT_ATTEMPTED' : 'NOT_REQUESTED', ref: null, sha: null },
     trust: { ci: 'NOT_VERIFIED', candidateOrigin: 'DECLARED_UNVERIFIED', result: 'SIMULATED_LOCAL' },
@@ -302,6 +362,7 @@ export async function reconcile({
       mkdirSync(outDir, { recursive: true });
       writeAtomic(path.join(outDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
       writeAtomic(path.join(outDir, 'report.md'), renderMarkdown(report));
+      if (report.proposedPlan !== null) writeAtomic(path.join(outDir, 'proposed-plan.json'), `${JSON.stringify(report.proposedPlan, null, 2)}\n`);
     }
     return report;
   };
@@ -358,8 +419,9 @@ export async function reconcile({
     for (const declared of [{ name: report.canonical.name, ref: report.canonical.ref, declaredSha: report.canonical.declaredSha,
       currentSha: report.canonical.resolvedSha }, ...report.candidates.map((c) => ({ name: c.name, ref: c.ref,
       declaredSha: c.declaredSha, currentSha: c.resolvedSha }))]) {
-      if (declared.currentSha !== null && declared.currentSha !== declared.declaredSha) report.drift.push(declared);
+      if (declared.currentSha !== null && declared.currentSha !== declared.declaredSha) report.drift.push(reviewDrift(ctx, declared));
     }
+    report.proposedPlan = proposePlan(plan, report.drift);
     if (report.reasons.length || report.candidates.some((c) => c.status === 'BLOCKED')) {
       report.reasons.push('INPUT_NOT_VERIFIED');
       return finish();

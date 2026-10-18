@@ -179,13 +179,41 @@ try {
   };
   await blocked({ ...good, ref: 'refs/heads/missing' }, 'UNKNOWN_REF');
   const drifted = await blocked({ ...good, sha: r.base }, 'REF_SHA_MISMATCH');
-  assert.deepEqual(drifted.drift, [{ name: 'cand', ref: good.ref, declaredSha: r.base, currentSha: good.sha }], 'drift reported');
+  // 1.1.0: the drift is reviewed (ADVANCED: new commits listed) and a plan is proposed, never written over the plan.
+  assert.deepEqual(drifted.drift, [{ name: 'cand', ref: good.ref, declaredSha: r.base, currentSha: good.sha, kind: 'ADVANCED',
+    newCommits: [{ sha: good.sha, subject: 'k1' }], commitsTruncated: false, changedFiles: ['k.txt'], filesTruncated: false,
+    contractFilesChanged: [], mergeCommits: 0 }], 'drift reported and reviewed');
   assert.equal(drifted.result.head, null, 'nothing simulated on drift');
+  assert.deepEqual(drifted.proposedPlan, plan(ref(r, 'canon'), [good]), 'proposed plan carries the current SHA');
+  {
+    const out = path.join(ROOT, 'drift-out');
+    const driftPlan = plan(ref(r, 'canon'), [{ ...good, sha: r.base }]);
+    const again = await recon.reconcile({ repo: r.dir, plan: driftPlan, outDir: out, workRoot: path.join(ROOT, 'work'), env: ENV });
+    assert.equal(again.classification, 'BLOCKED');
+    assert.deepEqual(JSON.parse(readFileSync(path.join(out, 'proposed-plan.json'), 'utf8')), again.proposedPlan);
+    assert.match(readFileSync(path.join(out, 'report.md'), 'utf8'), /\*\*ADVANCED\*\* \(1 new commit\(s\), 1 file\(s\)\)[\s\S]*k1[\s\S]*Proposed plan: `proposed-plan.json`/);
+    assert.deepEqual(driftPlan.candidates[0].sha, r.base, 'the input plan object is not modified');
+    // The proposed plan is valid and, run as is, passes: one review replaces finding and copying SHAs by hand.
+    assert.notEqual(recon.validatePlan(again.proposedPlan), null);
+    assert.equal((await run(r, again.proposedPlan)).classification, 'PASS');
+  }
   await blocked(good, 'REF_SHA_MISMATCH', { ...ref(r, 'canon'), sha: good.sha });
   await blocked({ ...good, base: good.sha.replace(/^./, (c) => (c === 'a' ? 'b' : 'a')) }, 'UNKNOWN_BASE');
   r.git('checkout', '-q', '-b', 'side', r.base);
   const side = r.commit('side', { 's.txt': 's\n' });
   await blocked({ ...good, base: side }, 'BASE_NOT_ANCESTOR');
+  // A declared commit that is no longer in the history (rebase / force-push) or unknown: no proposed plan.
+  const rewritten = await blocked({ ...good, sha: side }, 'REF_SHA_MISMATCH');
+  assert.equal(rewritten.drift[0].kind, 'REWRITTEN');
+  assert.deepEqual(rewritten.drift[0].newCommits, []);
+  assert.equal(rewritten.proposedPlan, null);
+  const unknown = await blocked({ ...good, sha: '0123456789abcdef0123456789abcdef01234567' }, 'REF_SHA_MISMATCH');
+  assert.equal(unknown.drift[0].kind, 'DECLARED_UNKNOWN');
+  assert.equal(unknown.proposedPlan, null);
+  // Mixed drift (one ADVANCED, one REWRITTEN): still no proposed plan, both reviewed.
+  const mixed = await run(r, plan({ ...ref(r, 'canon'), sha: side }, [{ ...good, sha: r.base }]));
+  assert.deepEqual(mixed.drift.map((d) => d.kind), ['REWRITTEN', 'ADVANCED']);
+  assert.equal(mixed.proposedPlan, null);
   r.git('checkout', '-q', '-b', 'merged', 'cand');
   r.git('merge', '-q', '--no-ff', '-m', 'merge', 'side');
   await blocked(cand(r, 'merged', r.base), 'MERGE_COMMIT_UNSUPPORTED');

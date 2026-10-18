@@ -10,7 +10,7 @@ It reuses the repository's own checks (`tests/test_ci_inventory.mjs`, `tsc
 `scripts/market_evidence_capture.mjs`. It is not a merge bot.
 
 Versions: plan `xau.recon-auto-plan.v1`, report `xau.recon-auto-report.v1`,
-algorithm `recon-auto-1.0.0`. Test: `tests/test_recon_auto.mjs`.
+algorithm `recon-auto-1.1.0`. Test: `tests/test_recon_auto.mjs`.
 
 ## Plan (explicit input, validated before any git command)
 
@@ -89,6 +89,22 @@ refs in `drift` (declared and current SHA) and under "Plan drift — review
 required" in `report.md`. The tool never updates the plan: a human reviews the
 new commits and commits the new SHAs.
 
+1.1.0 prepares that review (read-only git only). Each drift entry has a
+`kind`:
+
+| Kind | Meaning | Listed |
+| --- | --- | --- |
+| `ADVANCED` | the declared commit is an ancestor of the current one: new commits on top | new commits (SHA, subject; at most 50, `commitsTruncated`), changed files (at most 200, `filesTruncated`), contract files among them, merge commits |
+| `REWRITTEN` | the declared commit exists but left the history (rebase or force-push) | nothing: a decision is needed |
+| `DECLARED_UNKNOWN` | the declared commit is not in this repository | nothing |
+
+When every drift is `ADVANCED`, `proposedPlan` (also written as
+`proposed-plan.json` next to the report) is the plan with those refs moved to
+their current SHA, bases unchanged. It is a proposal: the tool never writes
+the plan file, never runs it by itself, and gives no proposal when any drift
+is `REWRITTEN` or unknown. The human step becomes: read the listed commits,
+then commit `proposed-plan.json` in place of the plan.
+
 ## Recurring read-only operation
 
 Plan: `docs/recon/plan-rc-offline.json` (canonical PR #153 head, candidate
@@ -107,8 +123,8 @@ node scripts/recon_auto.mjs --plan docs/recon/plan-rc-offline.json \
 ```
 
 The fetch is the caller's job; the tool stays offline. Outcomes: PASS — nothing
-to do; BLOCKED with `drift` — review the new commits, update the plan's SHAs in
-a reviewed commit; CONFLICT — an integration decision; any other BLOCKED reason
+to do; BLOCKED with `drift` — review the new commits listed in the report and,
+when all are `ADVANCED`, commit `proposed-plan.json` as the plan; CONFLICT — an integration decision; any other BLOCKED reason
 — read the report. No run ever writes a ref (no `--apply` in recurring use).
 
 ## Trust boundary
