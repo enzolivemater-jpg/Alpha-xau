@@ -23,6 +23,12 @@ assert.equal(list.schemaVersion, 'xau.terminal-archive-cutoffs.v1');
 assert.deepEqual(list.cutoffs, expected);
 assert.equal(list.defaultCutoff, '2026-10-01T14:15:00.000Z');
 assert.equal(list.truncated, false);
+// Each reception instant names the market fields that arrived then, in field order.
+assert.deepEqual(list.receptions.map((r) => r.at), list.cutoffs);
+for (const r of list.receptions) {
+  const arrived = new Set(archive.records.filter((x) => Date.parse(x.ingestedAt) === Date.parse(r.at)).map((x) => x.field));
+  assert.deepEqual(r.fields, ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti'].filter((f) => arrived.has(f)), r.at);
+}
 assert.deepEqual(archiveCutoffs('/nonexistent/archive.json', null).cutoffs, []);
 // Only explicit UTC reception instants become cutoffs: an offset, a space or a date alone is never normalised into one.
 const odd = (at) => archiveCutoffsOf({ records: [{ ...archive.records[0], ingestedAt: at }] }, null).cutoffs;
@@ -140,6 +146,9 @@ const select = d.getElementById("v2-replay-cutoff");
 assert.equal(d.getElementById('v2-replay-cutoff-wrap').hidden, false);
 assert.equal(select.options.length, expected.length + 1);
 assert.match(select.options[0].textContent, /Cutoff du serveur \(2026-10-01T14:15:00.000Z\)/);
+for (const [i, r] of served.receptions.entries()) {
+  assert.ok(select.options[i + 1].textContent.endsWith(` · ${r.fields.map((f) => f.toUpperCase()).join(', ')}`), select.options[i + 1].textContent);
+}
 assert.match(d.getElementById('v2-replay-cutoff-hint').textContent, /HOLD, exécution interdite/);
 const avail = d.getElementById('v2-archive-avail');
 assert.equal(avail.hidden, false);

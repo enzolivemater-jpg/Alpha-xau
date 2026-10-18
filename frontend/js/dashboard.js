@@ -1856,8 +1856,14 @@ let pollTimer = null;
       if (instants.length === 0) return;
       const defaultLabel = isText(list.defaultCutoff) ? `Cutoff du serveur (${list.defaultCutoff})` : 'Cutoff du serveur';
       const options = [node('option', '', defaultLabel, { value: '' })];
+      // Ce qui est arrivé à chaque instant (champs), quand le serveur le dit pour ce même instant.
+      const received = new Map((isList(list.receptions) ? list.receptions : [])
+        .filter((r) => r && typeof r.at === 'string' && isList(r.fields))
+        .map((r) => [r.at, r.fields.filter((f) => typeof f === 'string' && /^[A-Za-z0-9]{1,16}$/.test(f))]));
       instants.forEach((at, i) => {
-        options.push(node('option', '', `${at.replace('T', ' ')} — réception ${i + 1}/${instants.length}`, { value: at }));
+        const fields = received.get(at);
+        options.push(node('option', '', `${at.replace('T', ' ')} — réception ${i + 1}/${instants.length}`
+          + `${fields && fields.length ? ` · ${fields.map((f) => f.toUpperCase()).join(', ')}` : ''}`, { value: at }));
       });
       el.v2ReplayCutoff.replaceChildren(...options);
       setText(el.v2ReplayCutoffHint, `${instants.length} instant${instants.length > 1 ? 's' : ''} de réception de l'archive${list.truncated === true ? ' (les plus récents)' : ''} : `

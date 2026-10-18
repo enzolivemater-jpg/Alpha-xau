@@ -115,14 +115,20 @@ export function archiveCutoffsOf(archive, defaultCutoff, capturedFields = null) 
     const at = record && record.ingestedAt;
     if (typeof at !== 'string' || !REQUEST_CUTOFF.test(at)) continue;
     const ms = Date.parse(at);
-    if (Number.isFinite(ms)) instants.set(ms, new Date(ms).toISOString());
+    if (!Number.isFinite(ms)) continue;
+    if (!instants.has(ms)) instants.set(ms, { at: new Date(ms).toISOString(), fields: new Set() });
+    if (ARCHIVE_FIELDS.includes(record.field)) instants.get(ms).fields.add(record.field);
   }
-  const cutoffs = [...instants.entries()].sort(([a], [b]) => a - b).map(([, at]) => at);
+  const receptions = [...instants.entries()].sort(([a], [b]) => a - b)
+    .map(([, { at, fields: received }]) => ({ at, fields: ARCHIVE_FIELDS.filter((field) => received.has(field)) }));
+  const cutoffs = receptions.map(({ at }) => at);
   return {
     schemaVersion: 'xau.terminal-archive-cutoffs.v1',
     defaultCutoff: typeof defaultCutoff === 'string' ? defaultCutoff : null,
     truncated: cutoffs.length > MAX_ARCHIVE_CUTOFFS,
     cutoffs: cutoffs.slice(-MAX_ARCHIVE_CUTOFFS),
+    // The market fields whose records arrived at each instant, in the same order as cutoffs.
+    receptions: receptions.slice(-MAX_ARCHIVE_CUTOFFS),
     // What the archive holds per field, whatever the cutoff: counts and ranges, no judgement.
     fields: [...fields.values()].map(({ field, records: count, sources, observed, ingested }) => {
       const iso = (list, pickLast) => (list.length ? new Date(pickLast ? Math.max(...list) : Math.min(...list)).toISOString() : null);
