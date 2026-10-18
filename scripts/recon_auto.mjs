@@ -233,6 +233,11 @@ export function renderMarkdown(report) {
     '| --- | --- | --- | --- | --- | --- |',
     ...rows,
     '',
+    ...(report.drift.length
+      ? ['## Plan drift — review required', '', 'These refs moved since the plan was written; nothing was simulated.'
+        + ' Review the new commits, then update the plan by hand:', '',
+      ...report.drift.map((d) => `- ${d.name} \`${d.ref}\`: declared \`${d.declaredSha}\`, now \`${d.currentSha}\``), '']
+      : []),
     `Simulated head: \`${report.result.head ?? 'none'}\`.`,
     ...(picked.length ? ['', 'Cherry-picked:', ...picked] : []),
     ...report.candidates.filter((c) => c.conflictedFiles.length || c.contractOverlap.length || c.manifestOverlap.length)
@@ -273,6 +278,8 @@ export async function reconcile({
     plan: null,
     canonical: null,
     candidates: [],
+    /** Declared refs that now point elsewhere: the plan needs a human review and new SHAs. */
+    drift: [],
     result: { head: null, verification: [] },
     apply: { outcome: apply ? 'NOT_ATTEMPTED' : 'NOT_REQUESTED', ref: null, sha: null },
     trust: { ci: 'NOT_VERIFIED', candidateOrigin: 'DECLARED_UNVERIFIED', result: 'SIMULATED_LOCAL' },
@@ -347,6 +354,11 @@ export async function reconcile({
       } else {
         entry.status = 'PENDING';
       }
+    }
+    for (const declared of [{ name: report.canonical.name, ref: report.canonical.ref, declaredSha: report.canonical.declaredSha,
+      currentSha: report.canonical.resolvedSha }, ...report.candidates.map((c) => ({ name: c.name, ref: c.ref,
+      declaredSha: c.declaredSha, currentSha: c.resolvedSha }))]) {
+      if (declared.currentSha !== null && declared.currentSha !== declared.declaredSha) report.drift.push(declared);
     }
     if (report.reasons.length || report.candidates.some((c) => c.status === 'BLOCKED')) {
       report.reasons.push('INPUT_NOT_VERIFIED');

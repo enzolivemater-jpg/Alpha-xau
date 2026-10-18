@@ -178,7 +178,9 @@ try {
     return out;
   };
   await blocked({ ...good, ref: 'refs/heads/missing' }, 'UNKNOWN_REF');
-  await blocked({ ...good, sha: r.base }, 'REF_SHA_MISMATCH');
+  const drifted = await blocked({ ...good, sha: r.base }, 'REF_SHA_MISMATCH');
+  assert.deepEqual(drifted.drift, [{ name: 'cand', ref: good.ref, declaredSha: r.base, currentSha: good.sha }], 'drift reported');
+  assert.equal(drifted.result.head, null, 'nothing simulated on drift');
   await blocked(good, 'REF_SHA_MISMATCH', { ...ref(r, 'canon'), sha: good.sha });
   await blocked({ ...good, base: good.sha.replace(/^./, (c) => (c === 'a' ? 'b' : 'a')) }, 'UNKNOWN_BASE');
   r.git('checkout', '-q', '-b', 'side', r.base);
@@ -226,6 +228,10 @@ try {
     assert.deepEqual(out.commands, [], `${label}: no git command ran`);
   }
   assert.equal((await run(r, null)).reasons[0], 'INVALID_PLAN');
+  // The committed RC tracking plan is a valid plan on remote-tracking refs only.
+  const rcPlan = JSON.parse(readFileSync(new URL('../docs/recon/plan-rc-offline.json', import.meta.url), 'utf8'));
+  assert.notEqual(recon.validatePlan(rcPlan), null);
+  assert.ok([rcPlan.canonical, ...rcPlan.candidates].every((x) => x.ref.startsWith('refs/remotes/origin/')));
   console.log('PASS malicious or malformed plans are refused before any git command');
 
   // --- 9. Interruption and resume: a held or stale lock blocks; recovery clears only its own leftovers.

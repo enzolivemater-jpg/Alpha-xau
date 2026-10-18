@@ -81,6 +81,36 @@ Fetching is not this tool's job: the refs it reads must already exist.
 
 Exit: 0 PASS, 1 CONFLICT, 2 BLOCKED, 64 usage.
 
+## Plan drift
+
+When a declared ref no longer points at its declared SHA, nothing is
+simulated: the report is `BLOCKED` (`REF_SHA_MISMATCH`) and lists the moved
+refs in `drift` (declared and current SHA) and under "Plan drift — review
+required" in `report.md`. The tool never updates the plan: a human reviews the
+new commits and commits the new SHAs.
+
+## Recurring read-only operation
+
+Plan: `docs/recon/plan-rc-offline.json` (canonical PR #153 head, candidate
+`recon/rc-b5-plus-154` = PR #155), remote-tracking refs only, so the same plan
+runs in WSL and in GitHub Actions. One run, by hand or from cron (not
+installed):
+
+```sh
+git fetch --no-tags origin \
+  +refs/heads/ci/quality-gate-terminal-offline:refs/remotes/origin/ci/quality-gate-terminal-offline \
+  +refs/heads/recon/rc-b5-plus-154:refs/remotes/origin/recon/rc-b5-plus-154
+node scripts/recon_auto.mjs --plan docs/recon/plan-rc-offline.json \
+  --out "$HOME/xau-recon/$(date -u +%Y-%m-%d)" --verify inventory,typecheck,full
+# example crontab line (UTC 05:17 daily), only after review:
+# 17 5 * * * cd /home/xauagent/projects/Alpha-xau && <the two commands above> >/dev/null 2>&1
+```
+
+The fetch is the caller's job; the tool stays offline. Outcomes: PASS — nothing
+to do; BLOCKED with `drift` — review the new commits, update the plan's SHAs in
+a reviewed commit; CONFLICT — an integration decision; any other BLOCKED reason
+— read the report. No run ever writes a ref (no `--apply` in recurring use).
+
 ## Trust boundary
 
 A PASS means the declared commits apply and the repository's own checks pass
