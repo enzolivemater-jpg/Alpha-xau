@@ -38,6 +38,12 @@ for (const f of list.fields) {
 assert.ok(list.fields.some((f) => f.records === 0), 'the synthetic archive has a field without records (dxy)');
 console.log(`PASS the archive gives ${expected.length} replay cutoffs (its distinct reception instants, in order)`);
 
+// Through the server: each field says whether the capture tooling defines a series for it (DXY, bid, ask: none).
+const served = (await buildLocalView({ archiveFile: SYNTHETIC_ARCHIVE })).archiveCutoffs();
+assert.deepEqual(served.fields.filter((f) => f.captureSeries === false).map((f) => f.field), ['bid', 'ask', 'dxy']);
+assert.ok(served.fields.filter((f) => !['bid', 'ask', 'dxy'].includes(f.field)).every((f) => f.captureSeries === true));
+assert.ok(list.fields.every((f) => f.captureSeries === null), 'unknown without the capture tooling');
+
 // --- Replays: the chain runs at the asked instant and knows only what was received by then.
 const view = await buildLocalView({ archiveFile: SYNTHETIC_ARCHIVE });
 for (const at of expected) {
@@ -105,7 +111,7 @@ const render = async (config) => {
     const u = String(url);
     asked.push(u);
     const json = (b) => ({ ok: true, status: 200, json: async () => structuredClone(b) });
-    if (u === ARCHIVE_CUTOFFS_PATH) return json(list);
+    if (u === ARCHIVE_CUTOFFS_PATH) return json(served);
     if (u === SCENARIOS_PATH) return json(scenarios);
     if (u.startsWith(VIEW_PATH)) {
       const q = new URL(u, 'http://x').searchParams;
@@ -136,7 +142,8 @@ assert.equal(avail.hidden, false);
 const availItems = [...d.querySelectorAll('#v2-archive-avail-list li')];
 assert.equal(availItems.length, 8);
 assert.match(availItems[0].textContent, /^SPOT · \d+ enr\. · twelve_data · observé 2026-/);
-assert.equal(d.querySelector('#v2-archive-avail-list li[data-records="0"]').textContent, 'DXY · aucun enregistrement');
+assert.equal(d.querySelector('#v2-archive-avail-list li[data-records="0"]').textContent,
+  'DXY · aucun enregistrement — aucune série de capture définie (source à décider)');
 select.value = expected[1];
 select.dispatchEvent(new dom.window.Event('change'));
 await new Promise((resolve) => setTimeout(resolve, 300));

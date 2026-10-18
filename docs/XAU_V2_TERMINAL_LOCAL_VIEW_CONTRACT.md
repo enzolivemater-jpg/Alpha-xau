@@ -316,7 +316,11 @@ guard. The list also carries `fields`: for each of the eight market fields,
 the number of records, their sources and the first/last observation and
 reception instants, whatever the cutoff (counts and ranges, no judgement); the
 page shows them under **DISPONIBILITÉ DE L'ARCHIVE PAR CHAMP**, a field
-without records reading "aucun enregistrement".
+without records reading "aucun enregistrement". `captureSeries` says whether
+the DATA-2 capture tooling defines a series for the field (`CAPTURE_SERIES`;
+null when unknown): DXY, bid and ask have none, so no capture can ever fill
+them until a source is decided, and the page says "aucune série de capture
+définie (source à décider)" instead of suggesting a failed capture.
 
 ### Capture logs (`--captures DIR`)
 

@@ -98,7 +98,7 @@ export function archiveCutoffs(archiveFile, defaultCutoff) {
 }
 
 /** archiveCutoffs of an archive already in memory (a --captures merge). */
-export function archiveCutoffsOf(archive, defaultCutoff) {
+export function archiveCutoffsOf(archive, defaultCutoff, capturedFields = null) {
   const records = archive && Array.isArray(archive.records) ? archive.records : [];
   const instants = new Map();
   const fields = new Map(ARCHIVE_FIELDS.map((field) => [field, { field, records: 0, sources: new Set(), observed: [], ingested: [] }]));
@@ -128,6 +128,8 @@ export function archiveCutoffsOf(archive, defaultCutoff) {
       const iso = (list, pickLast) => (list.length ? new Date(pickLast ? Math.max(...list) : Math.min(...list)).toISOString() : null);
       return {
         field, records: count, sources: [...sources].sort(),
+        // Whether the DATA-2 capture tooling defines a series for the field (null: not known here).
+        captureSeries: capturedFields === null ? null : capturedFields.has(field),
         firstObservedAt: iso(observed, false), lastObservedAt: iso(observed, true),
         firstIngestedAt: iso(ingested, false), lastIngestedAt: iso(ingested, true),
       };
@@ -209,6 +211,7 @@ export async function buildLocalView({
   // Raw payloads are checked with the runtime parsers themselves.
   const parsers = { fred: providers.parseFredObservations, twelve_data: providers.parseTwelveData };
   const captures = capturesDir === null ? null : await readCaptures(capturesDir);
+  const capturedFields = new Set((await loadBackendModule('market_engine/evidence_capture.ts')).CAPTURE_SERIES.map((series) => series.field));
   const archiveMode = archiveFile !== null || captures !== null;
   /** The --archive file (read at each request) or the --captures merge; null when unreadable. */
   const loadArchive = () => {
@@ -305,7 +308,7 @@ export async function buildLocalView({
   render.archiveCutoffs = () => {
     if (!archiveMode) return null;
     const document = readChainDocument(inputFile);
-    return archiveCutoffsOf(loadArchive(), defaultArchiveCutoff(document));
+    return archiveCutoffsOf(loadArchive(), defaultArchiveCutoff(document), capturedFields);
   };
   return render;
 }

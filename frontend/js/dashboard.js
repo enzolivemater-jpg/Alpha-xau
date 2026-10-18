@@ -1818,7 +1818,8 @@ let pollTimer = null;
       const li = node('li', '', undefined, { 'data-records': String(f.records) });
       li.appendChild(node('span', 'v2__avail-field', String(f.field).toUpperCase()));
       const sources = isList(f.sources) ? f.sources.filter((x) => typeof x === 'string' && /^[a-z0-9_]{1,32}$/.test(x)) : [];
-      li.appendChild(document.createTextNode(f.records === 0 ? ' · aucun enregistrement'
+      li.appendChild(document.createTextNode(f.records === 0
+        ? (f.captureSeries === false ? ' · aucun enregistrement — aucune série de capture définie (source à décider)' : ' · aucun enregistrement')
         : ` · ${f.records} enr. · ${sources.join(', ') || 'source ?'} · observé ${day(f.firstObservedAt) ?? '?'} → ${day(f.lastObservedAt) ?? '?'}`
           + ` · reçu ${day(f.firstIngestedAt) ?? '?'} → ${day(f.lastIngestedAt) ?? '?'}`));
       items.push(li);
