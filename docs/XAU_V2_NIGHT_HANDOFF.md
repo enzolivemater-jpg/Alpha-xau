@@ -153,7 +153,37 @@ randomness, clock or I/O).
 | Database / migrations | NOT_MIGRATED; none touched |
 | Recovery / security | FROZEN; REC-1 human gate |
 
+## RC OFFLINE stack (2026-10-17/18): B1–B5, PR #154, RECON-AUTO-1
+
+Base PR #153 `44b08b933052cfd89c4370569835c3853f12b608` (Quality Gate run
+`39070091763`, 11/11). Blockers B1–B7 come from the OFFLINE E2E qualification
+of `44b08b9`. All commits local except where pushed below.
+
+| Item | Commit | Branch |
+|---|---|---|
+| B1 E2E test | `c6bb706` | `feat/b1-rc0-e2e-offline` |
+| B3 release instant in adapters | `ad747b1` | `feat/b3-event-release-instant` |
+| B3 EIA-0 v2 release gate | `390c26c` | same |
+| B4 terminal per-input provenance | `b695b78` | `feat/b4-terminal-input-provenance` |
+| B5 P-0 v2 freshness fail-closed | `6a0eb53` | `feat/b5-positioning-freshness` |
+| PR #154 patch (cherry-pick `-x` of `7092274`) | `58d63e4` | `recon/rc-b5-plus-154` (pushed; PR #155, draft) |
+| RECON-AUTO-1 (cherry-pick of `636dcf5`) | `296f490` | `recon/rc-offline-qualification` |
+
+| # | Domain | Defect (demonstrated) | Fix | Main files |
+|---|---|---|---|---|
 | 34 | DATA-3 tooling | `validate_evidence_captures.mjs` chose each source's replay cutoff by lexical `sort()`: `…:00Z` ranked after `…:00.500Z`, so the source was replayed at an earlier instant than its latest capture | `latestIngestedAt()` compares instants (`Date.parse`); unparseable values never win | `scripts/validate_evidence_captures.mjs`, `tests/test_validate_evidence_latest_ingest.mjs` (red-before-fix only as a missing export; behaviour asserted after) |
+| 35 | Integration (B1) | No repository test ran official artifact → Event Facts → EI/GT → EIA-0 → CHAIN-0 → OBS-0 → terminal at one cutoff | RC-0 block on the four official fixtures; future events excluded to 1 ns; 6 negative cases | `tests/test_rc0_cross_system_contract.mjs` |
+| 36 | Macro time (B3) | A CPI released 11 Sept was admitted with a 1 Sept cutoff: adapters dropped the release instant | `publishedAt` (US Eastern → UTC, DST, weekday/zone checked; byte-identical copy per adapter, drift-tested) and `admitEventVersionAtOfficialRelease` | `backend/event_facts/official_release_instant.ts`, the four adapters, `tests/test_official_release_instant.mjs` |
+| 37 | Macro time (B3) | EIA-0 aggregated back-dated plans | EIA-0 v2 (`xau.event-plan-aggregation.v2` / `event-plan-aggregation-release-gate-2.0.0`): release evidence required, back-dated plans excluded, missing evidence fails closed; v1 unchanged (20,000-case differential) | `backend/event_aggregation/{core,release_gate_contract,contract}.ts` |
+| 38 | Terminal (B4) | `--archive` lent the archive's origin to synthetic fixture inputs | `inputProvenance` per input (terminal 4.1.0); contradictions refuse the view | `backend/decision_chain/terminal_view.ts`, `scripts/serve_terminal_local.mjs`, `frontend/`, `tests/test_terminal_input_provenance.mjs` |
+| 39 | Positioning (B5) | Weekly evidence stayed `EVIDENCE_READY` a year later | P-0 v2 (`xau.positioning-evidence.v2` / `…-2.0.0`): `FRESHNESS_POLICY_NOT_APPROVED`, never ready; terminal 4.2.0 "fraîcheur non évaluée — aucun seuil approuvé". Golden digest `sha256:b39bad10…ec7a6f7` → `sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c` | `backend/positioning_engine/evidence_contract.ts`, `tests/test_positioning_freshness_gate.mjs` |
+| 40 | Tooling | Cloud and local contributions were reconciled by hand | RECON-AUTO-1 dry-run reconciliation, `--apply` create-only on `recon/*`, plan drift report | `scripts/recon_auto.mjs`, `tests/test_recon_auto.mjs`, `docs/XAU_V2_RECON_AUTO_1.md`, `docs/recon/plan-rc-offline.json` |
+
+CI references: PR #153 `44b08b9` run `39070091763` 11/11; PR #156 `2f44903` (= `58d63e4`
+plus one `workflow_dispatch:` line) run `39117320216` 11/11. **No CI run exists on
+`58d63e4` itself** (PR #155): a base change does not re-trigger the Quality Gate. Local:
+`58d63e4` typecheck clean, 144/144 (Node 22), DATA-3 real captures 115/115; this branch:
+see `docs/XAU_V2_RC_OFFLINE_QUALIFICATION.md`.
 
 ## Integration with the cloud branch (DONE locally on `integration/pr-149-plus-cloud-canonical-json`)
 
@@ -181,7 +211,9 @@ this branch (change 24).
 
 ## PostgreSQL validation (17 tests, CI only)
 
-No PostgreSQL toolchain is installed locally (`which psql pg_ctl postgres initdb` finds
+*Update 2026-10-18:* a disposable PostgreSQL 17.6 in the sandbox ran the 17 suites 17/17 on
+`44b08b9`, and CI ran the 10 PostgreSQL jobs green on `2f44903` (run `39117320216`). The
+original note follows. No PostgreSQL toolchain is installed locally (`which psql pg_ctl postgres initdb` finds
 nothing), so the 17 `*_postgres.mjs` tests only run in CI. `quality-gate.yml` runs exactly 17
 `node tests/*_postgres.mjs` commands over 11 jobs on `postgres:17.6`, but only for pull
 requests to `main` and pushes to `main`: obtaining a run needs a pull request, which needs a
@@ -193,7 +225,8 @@ This is a reading, not a run.
 
 ## Remaining / next
 
-1. Confirm in CI (ephemeral PostgreSQL included) on the exact head commit.
+1. Confirm in CI (ephemeral PostgreSQL included) on the exact head commit. *Partly done:* green on `2f44903`
+   (PR #156), not on `58d63e4` (PR #155) nor on any later qualification commit.
 2. *(Done, see change 34)* `validate_evidence_captures.mjs` latest-`ingestedAt` lexical sort.
 3. Not yet swept: committee / orchestrator legacy paths (`committee_orchestrator.ts`, 2,000+
    lines), `backend/ingest.ts` (V1 news pipeline), the event shadow batches / orchestrators
