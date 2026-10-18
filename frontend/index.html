@@ -46,6 +46,7 @@
     V2_VIEW_URL: '',             // vue CHAIN-0 du serveur local ; vide = sections V2 indisponibles
     V2_SCENARIOS_URL: '',        // scénarios de simulation du serveur local ; vide = aucun
     V2_ARCHIVE_CUTOFFS_URL: '',  // instants de rejeu d'une archive (--archive) ; vide = aucun
+    V2_CATALOG_URL: '',          // données locales sélectionnables (catalogue du serveur local) ; vide = aucune
   };
 </script>
 
@@ -343,6 +344,17 @@
         <label class="v2__scenario-key" for="v2-scenario">SCÉNARIO DE SIMULATION</label>
         <select id="v2-scenario" aria-describedby="v2-scenario-hint"></select>
         <span class="v2__scenario-hint" id="v2-scenario-hint"></span>
+      </div>
+
+      <div class="v2__scenario v2__data" id="v2-data-wrap" hidden>
+        <span class="v2__scenario-key">DONNÉES LOCALES</span>
+        <label class="v2__data-label" for="v2-data-market">Marché</label>
+        <select id="v2-data-market" aria-describedby="v2-data-hint"></select>
+        <label class="v2__data-label" for="v2-data-positioning">Positionnement</label>
+        <select id="v2-data-positioning" aria-describedby="v2-data-hint"></select>
+        <span class="v2__scenario-hint" id="v2-data-hint"></span>
+        <dl class="v2__data-card" id="v2-data-card-market" aria-label="Source de marché choisie"></dl>
+        <dl class="v2__data-card" id="v2-data-card-positioning" aria-label="Source de positionnement choisie"></dl>
       </div>
 
       <div class="v2__scenario" id="v2-replay-cutoff-wrap" hidden>

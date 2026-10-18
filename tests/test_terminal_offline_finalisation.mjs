@@ -255,7 +255,8 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
 
   // B11. The Windows launcher (static check: Windows is not available here).
   const cmd = readFileSync(path.join(ROOT, 'scripts', 'terminal', 'xau-terminal.cmd'), 'utf8');
-  assert.match(cmd, /wsl\.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts\/terminal\/xau-terminal\.sh %\*/);
+  // --local-data: the operator's local data (captures, declared CFTC files) is offered in the page, none selected.
+  assert.match(cmd, /wsl\.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts\/terminal\/xau-terminal\.sh --local-data %\*/);
   assert.match(cmd, /\\\\wsl\.localhost\\/i);
   assert.match(cmd, /\\\\wsl\$\\/i);
   assert.doesNotMatch(cmd, /v\d+\.\d+\.\d+/, 'no pinned Node version');

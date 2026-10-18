@@ -18,6 +18,9 @@
  */
 
 import { pathToFileURL } from 'node:url';
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { SYNTHETIC_ARCHIVE, createTerminalServer } from './serve_terminal_local.mjs';
 
 const VIEWPORTS = [[320, 640], [390, 844], [1024, 768], [1280, 720], [1440, 900]];
@@ -30,6 +33,8 @@ const VARIANTS = [
   { name: 'chaine archive-synthetic déplié', hash: 'chaine', scenario: 'archive-synthetic', expand: true },
   // --archive mode: the CUTOFF DE REJEU selector is shown; one earlier reception instant is replayed.
   { name: 'chaine --archive rejeu déplié', hash: 'chaine', archive: true, replayIndex: 2, expand: true },
+  // --data-root: the DONNÉES LOCALES panel with both cards (archive log and a CFTC file), synthetic data only.
+  { name: 'chaine --data-root sources déplié', hash: 'chaine', data: true, expand: true },
 ];
 
 /** Runs in the page: clipped and overflowing elements. */
@@ -140,6 +145,17 @@ async function main() {
   const server = await createTerminalServer();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}/`;
+  const dataRoot = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), 'xau-layout-data-'));
+  mkdirSync(path.join(dataRoot, 'evidence', 'synthetic-log'), { recursive: true });
+  mkdirSync(path.join(dataRoot, 'positioning'));
+  copyFileSync(SYNTHETIC_ARCHIVE, path.join(dataRoot, 'evidence', 'synthetic-log', 'archive.json'));
+  const cotFixture = new URL('../tests/fixtures/cftc_cot_disaggregated_synthetic.csv', import.meta.url);
+  copyFileSync(cotFixture, path.join(dataRoot, 'positioning', 'gold-synthetic.csv'));
+  writeFileSync(path.join(dataRoot, 'positioning', 'gold-synthetic.declaration.json'), JSON.stringify({ schemaVersion: 'xau.cftc-cot-declaration.v1',
+    dataset: 'FUTURES_ONLY', publishedAt: '2026-09-25T19:30:00.000Z', receivedAt: '2026-09-25T19:45:00.000Z', reportDate: '2026-09-22' }));
+  const dataServer = await createTerminalServer({ dataRoot });
+  await new Promise((resolve) => dataServer.listen(0, '127.0.0.1', resolve));
+  const dataBase = `http://127.0.0.1:${dataServer.address().port}/`;
   const archiveServer = await createTerminalServer({ archiveFile: SYNTHETIC_ARCHIVE });
   await new Promise((resolve) => archiveServer.listen(0, '127.0.0.1', resolve));
   const archiveBase = `http://127.0.0.1:${archiveServer.address().port}/`;
@@ -148,8 +164,13 @@ async function main() {
     for (const [width, height] of VIEWPORTS) {
       for (const variant of VARIANTS) {
         const page = await browser.newPage({ viewport: { width, height } });
-        await page.goto(`${variant.archive ? archiveBase : base}#${variant.hash}`, { waitUntil: 'load' });
+        await page.goto(`${variant.data ? dataBase : variant.archive ? archiveBase : base}#${variant.hash}`, { waitUntil: 'load' });
         await page.waitForTimeout(800);
+        if (variant.data) {
+          await page.selectOption('#v2-data-market', 'log:evidence:synthetic-log');
+          await page.selectOption('#v2-data-positioning', 'cot:gold-synthetic.csv');
+          await page.waitForTimeout(600);
+        }
         if (variant.replayIndex !== undefined) {
           await page.selectOption('#v2-replay-cutoff', { index: variant.replayIndex });
           await page.waitForTimeout(500);
@@ -172,6 +193,7 @@ async function main() {
     await browser.close();
     server.close();
     archiveServer.close();
+    dataServer.close();
   }
   return problems === 0 ? 0 : 1;
 }

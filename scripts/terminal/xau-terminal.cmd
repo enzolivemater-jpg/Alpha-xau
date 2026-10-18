@@ -1,6 +1,7 @@
 @echo off
 setlocal
 rem XAU V2 - terminal OFFLINE local. HOLD, execution interdite. Double-cliquer pour lancer.
+rem Les donnees locales (~/.local/share/xau-v2 : captures, fichiers CFTC declares) sont proposees dans la page.
 rem Lance depuis le depot (\\wsl.localhost\<distribution>\... ou \\wsl$\<distribution>\...),
 rem il deduit seul la distribution WSL et le dossier. Copie ailleurs (Bureau), il utilise ces valeurs :
 set "XAU_DISTRO=xau-agent"
@@ -20,7 +21,7 @@ if "%XAU_DIR:~-1%"=="/" set "XAU_DIR=%XAU_DIR:~0,-1%"
 title XAU V2 terminal OFFLINE - HOLD, execution interdite
 echo Terminal XAU V2 OFFLINE - distribution %XAU_DISTRO%, dossier %XAU_DIR%
 echo Fermer cette fenetre ou Ctrl+C pour arreter le terminal.
-wsl.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts/terminal/xau-terminal.sh %*
+wsl.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts/terminal/xau-terminal.sh --local-data %*
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" (
   echo.

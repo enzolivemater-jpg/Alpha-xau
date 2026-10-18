@@ -210,6 +210,12 @@ function unsupportedFormat(text: string): string | null {
 }
 
 /** The CFTC report a header belongs to, when it is a CFTC header but not the disaggregated one. */
+/** The format problem of a file's text, for listing a file before any conversion (null: looks like CSV text). */
+export function cftcCotFormatProblem(text: unknown): string | null {
+  if (typeof text !== 'string') return 'texte absent';
+  return unsupportedFormat(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+}
+
 function otherCftcLayout(index: Map<string, number>): string | null {
   if (!index.has('Market_and_Exchange_Names') || !index.has('CFTC_Contract_Market_Code')) return null;
   if (index.has('NonComm_Positions_Long_All')) return 'legacy (Commitments of Traders classique)';

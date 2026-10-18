@@ -138,7 +138,9 @@ pure: no network, clock, process or file access; the caller hashes the bytes.
 
 The local terminal takes it with `--positioning-cot FILE --cot-dataset
 futures-only|futures-and-options --cot-published-at ISO --cot-received-at ISO
-[--cot-report-date YYYY-MM-DD]`; see the terminal
+[--cot-report-date YYYY-MM-DD]`, or from `--data-root DIR` where each file of
+`DIR/positioning/` carries its declaration `<name>.declaration.json`
+(`xau.cftc-cot-declaration.v1`), selectable in the page; see the terminal
 view contract. P-0 keeps the tuples and abstains
 (`FRESHNESS_POLICY_NOT_APPROVED`, `METHODOLOGY_NOT_APPROVED`); positioning
 stays `UNAVAILABLE`; CHAIN-0 stays HOLD / FORBIDDEN. This changes nothing in

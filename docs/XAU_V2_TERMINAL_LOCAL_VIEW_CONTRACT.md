@@ -360,13 +360,62 @@ as in `validate_evidence_captures.mjs`), and on Windows
 `xau-terminal.cmd`, calls it with `--captures-local` (double-click; not run
 on a Windows host here).
 
+### Local data catalog (`--data-root DIR`, DATA-TO-TERMINAL)
+
+`--data-root DIR` makes the operator's local data **selectable in the page**,
+none selected by default (the server's input stays the default view):
+
+- `DIR/evidence/<log>/archive.json`: each DATA-2 capture log on its own
+  (`log:evidence:<log>`) and their in-memory DATA-3 merge (`merged:evidence`);
+  a log that cannot be read is listed with `SOURCE_UNREADABLE`, and the merge
+  then fails closed (pick the logs one by one);
+- `DIR/positioning/<file>` with `<file without extension>.declaration.json`
+  (`xau.cftc-cot-declaration.v1`: `dataset`, `publishedAt`, `receivedAt`,
+  optional `reportDate`, `contractMarketCode`; any other key is
+  `DECLARATION_INVALID`): CFTC COT files (`cot:<file>`). Without a valid
+  declaration a file is never converted (`DECLARATION_MISSING` /
+  `DECLARATION_INVALID`, its format problem named when visible); unknown
+  formats and other CFTC reports are named by the adapter
+  (`UNSUPPORTED_FORMAT`, `UNSUPPORTED_LAYOUT`). File and directory names must
+  match `[A-Za-z0-9._-]`; others are listed in `notes` and ignored.
+
+`/local/v2/catalog.json` (`xau.terminal-data-catalog.v1`, behind the Host
+guard) lists the market sources (`input`, `archive` for `--archive`,
+`merged:*`, `log:*`) with kind, label, provenance class, archive id, record
+count, fields, observed and received periods, declared coverage, and the
+validation state DATA-1 gives the archive replayed after its last reception
+(status, nature, reason codes), plus problems; and the positioning sources
+(`input`, `cli-cot` for `--positioning-cot`, `cot:*`) with status, dataset,
+report date, declared instants, metric count, artifact digest, reasons;
+`sourceApproval` is always `NOT_APPROVED`. No path reaches the page: it sends
+catalog ids only (`?market=`, `?positioning=`, with `?cutoff=` for an archive
+source); anything else is 400, an unknown id 404, a scenario with a data
+source 400. `archive-cutoffs.json?market=<id>` lists that source's replay
+instants. Defaults: `--archive` → `archive`, `--captures` → its merge,
+`--positioning-cot` → `cli-cot`, otherwise `input`. A capture log or merge
+replays at its last reception unless `--cutoff` or a chosen instant says
+otherwise. Everything is read once at start (restart to see new files).
+
+The page shows a **DONNÉES LOCALES** panel (two selectors, Marché and
+Positionnement, hidden when there is nothing to choose) and one card per
+chosen source with those facts. Changing the market resets the replay
+instant and loads that source's instants; a scenario disables the panel. The
+choice is kept in `#chaine/donnees/<market>/<positioning>[/rejeu/<instant>]`
+and restored only when every id exists. Every view stays HOLD / FORBIDDEN; a
+CFTC file is at most `LOCAL_INPUT_UNVERIFIED`, a rejected one supplies
+nothing; no positioning method is approved.
+
+Launch: `npm run terminal:data` (WSL) or the launcher's `--local-data`
+(= `--data-root ~/.local/share/xau-v2`); `scripts/terminal/xau-terminal.cmd`
+passes `--local-data`, so a double-click on Windows offers the local data.
+
 ## Layout check in a browser
 
 CI has no browser. `scripts/check_terminal_layout.mjs` checks the terminal in
 headless Chromium at 320, 390, 1024, 1280 and 1440 px, in both workspaces,
 with every section unfolded, on the `market-unavailable` and
 `invalid-input` scenarios, and in `--archive` mode on an earlier replay
-cutoff. It reports clipped content, content overflowing
+cutoff, and with `--data-root` on a capture log and a CFTC file. It reports clipped content, content overflowing
 the viewport, text below WCAG AA and, below 900 px, any nested vertical
 scroller. It needs `XAU_PLAYWRIGHT` (path to `playwright-core`) and `XAU_CHROMIUM`,
 neither of which is a project dependency. `tests/test_terminal_contrast.mjs`

@@ -36,9 +36,10 @@ const HEALTH = '/local/v2/health.json';
 const VIEW = '/local/v2/terminal.json';
 const READY_TIMEOUT_MS = 90_000;
 const PASSTHROUGH = new Set(['--port', '--port-range', '--input', '--archive', '--archive-digest', '--cutoff',
-  '--positioning-cot', '--cot-dataset', '--cot-published-at', '--cot-received-at', '--cot-report-date', '--captures']);
+  '--positioning-cot', '--cot-dataset', '--cot-published-at', '--cot-received-at', '--cot-report-date', '--captures', '--data-root']);
 
-export const LOCAL_CAPTURES = path.join(homedir(), '.local', 'share', 'xau-v2', 'evidence');
+export const LOCAL_DATA_ROOT = path.join(homedir(), '.local', 'share', 'xau-v2');
+export const LOCAL_CAPTURES = path.join(LOCAL_DATA_ROOT, 'evidence');
 
 const say = (line) => process.stdout.write(`terminal XAU V2 : ${line}\n`);
 const fail = (line) => process.stderr.write(`terminal XAU V2 : ${line}\n`);
@@ -69,6 +70,8 @@ export function parseArgs(argv) {
     else if (flag === '--status') options.mode = 'status';
     // The operator's capture logs, where the DATA-2 capture tooling keeps them (as validate_evidence_captures.mjs).
     else if (flag === '--captures-local') options.server.push('--captures', LOCAL_CAPTURES);
+    // The operator's local data, selectable in the page (captures and declared CFTC files), none selected by default.
+    else if (flag === '--local-data') options.server.push('--data-root', LOCAL_DATA_ROOT);
     else if (PASSTHROUGH.has(flag) && argv[i + 1] !== undefined) {
       const value = argv[i += 1];
       options.server.push(flag, value);
