@@ -105,6 +105,13 @@ approved method): nothing is interpreted, HOLD / FORBIDDEN unchanged.
 Identifiers are derived from the documents' bytes (no runtime, no database).
 `--events ID` sets the default events source (an unknown id falls back to
 `input`, with the note `EVENTS_SOURCE_UNKNOWN:<id>`). The launcher's
+`npm run terminal:check-data [-- --data-root DIR] [--json]`
+(`scripts/terminal_data_check.mjs`) prints the same catalog without a server:
+each market source with its records, fields, period and replay state, each
+CFTC file read or rejected with its reason and the reports it holds, each
+official release read or rejected, and the notes; exit 1 when something must
+be fixed. "Lisible" never means approved.
+
 `--local-data` (so `npm run terminal:data` and a double-click on
 `xau-terminal.cmd`) passes `--events official:repository`: with local data,
 the macro summaries come from the official releases by default.
