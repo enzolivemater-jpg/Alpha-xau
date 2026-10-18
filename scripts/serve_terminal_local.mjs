@@ -308,7 +308,10 @@ export async function buildLocalView({
   render.archiveCutoffs = () => {
     if (!archiveMode) return null;
     const document = readChainDocument(inputFile);
-    return archiveCutoffsOf(loadArchive(), defaultArchiveCutoff(document), capturedFields);
+    const list = archiveCutoffsOf(loadArchive(), defaultArchiveCutoff(document), capturedFields);
+    // --captures: whether the merge succeeded and why not, so the page can say it (the replay only says "rejected").
+    return captures === null ? list : { ...list, captures: { sources: captures.sources, merged: captures.archive !== null,
+      problems: [...captures.problems] } };
   };
   return render;
 }

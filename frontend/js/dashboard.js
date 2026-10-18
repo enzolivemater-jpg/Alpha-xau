@@ -179,6 +179,7 @@
     v2ReplayCutoff: $('v2-replay-cutoff'),
     v2ReplayCutoffHint: $('v2-replay-cutoff-hint'),
     v2ArchiveAvail: $('v2-archive-avail'),
+    v2CapturesFailed: $('v2-captures-failed'),
     v2ArchiveAvailList: $('v2-archive-avail-list'),
     v2Status: $('v2-status'),
     v2State: $('v2-state'),
@@ -1286,8 +1287,11 @@ let pollTimer = null;
       }
       // Une affirmation forte doit porter toutes ses conditions.
       if (mev.reproducible !== (mev.status === 'VERIFIED')) return 'reproductibilité incohérente';
-      if (mev.nature === 'SIMULATION' && mev.provenanceClass !== 'SYNTHETIC_FIXTURE') return 'nature de marché incohérente';
-      if (mev.nature !== 'SIMULATION' && mev.provenanceClass !== 'CAPTURED') return 'nature de marché incohérente';
+      // Une archive illisible ou mal formée n'a pas de classe : rejetée, rien retenu, présentée comme simulation.
+      const unreadable = mev.status === 'INVALID' && mev.provenanceClass === null;
+      if (unreadable && (mev.nature !== 'SIMULATION' || mev.observations.length > 0)) return 'archive rejetée incohérente';
+      if (!unreadable && mev.nature === 'SIMULATION' && mev.provenanceClass !== 'SYNTHETIC_FIXTURE') return 'nature de marché incohérente';
+      if (!unreadable && mev.nature !== 'SIMULATION' && mev.provenanceClass !== 'CAPTURED') return 'nature de marché incohérente';
       if (mev.nature === 'HISTORICAL_VERIFIED' && (mev.status !== 'VERIFIED' || mev.observations.length === 0
           || mev.observations.some((o) => o.raw !== 'RAW_VERIFIED'))) return 'historique vérifié non prouvé';
     }
@@ -1837,6 +1841,18 @@ let pollTimer = null;
       const list = await response.json();
       if (!list || list.schemaVersion !== 'xau.terminal-archive-cutoffs.v1' || !isList(list.cutoffs)) return;
       const instants = list.cutoffs.filter((at) => typeof at === 'string' && UTC_INSTANT.test(at));
+      // --captures non fusionnées : le marché est absent ; dire pourquoi plutôt qu'un simple rejet.
+      const cap = list.captures;
+      if (cap && typeof cap === 'object' && cap.merged === false) {
+        const problems = isList(cap.problems) ? cap.problems.filter((x) => typeof x === 'string').slice(0, 6) : [];
+        setText(el.v2CapturesFailed, `CAPTURES NON FUSIONNÉES (${isNum(cap.sources) ? cap.sources : '?'} journal(aux)) : `
+          + `${problems.join(' · ') || 'raison inconnue'}. Aucun marché n'est retenu ; HOLD, exécution interdite.`);
+        el.v2CapturesFailed.hidden = false;
+        el.v2ReplayCutoff.hidden = true;
+        setText(el.v2ReplayCutoffHint, '');
+        el.v2ReplayCutoffWrap.hidden = false;
+        return;
+      }
       if (instants.length === 0) return;
       const defaultLabel = isText(list.defaultCutoff) ? `Cutoff du serveur (${list.defaultCutoff})` : 'Cutoff du serveur';
       const options = [node('option', '', defaultLabel, { value: '' })];

@@ -335,7 +335,15 @@ captures are visible at launch (`--archive` keeps the input document's
 cutoff). A failed merge (no log, unreadable directory or file, a log whose
 bytes no longer give its values, ambiguity) supplies no market at all: the
 replay rejects it, HOLD, and the server's start line gives the reasons.
-`--captures` and `--archive` are exclusive. Example (WSL):
+For `--captures`, `archive-cutoffs.json` also carries `captures` (`sources`,
+`merged`, `problems`); when the merge failed, the page shows "CAPTURES NON
+FUSIONNÉES (…) : <reasons>" in place of the replay selector. An archive that
+cannot be read at all (unreadable file, failed merge) is replayed as
+`INVALID` with no provenance class; the page draws it as ARCHIVE REJETÉE,
+HOLD (before this, it refused the whole view as "nature de marché
+incohérente"), and still refuses such a view if it claims a historical
+nature, carries observations or is not `INVALID`. `--captures` and
+`--archive` are exclusive. Example (WSL):
 `npm run terminal -- --captures ~/.local/share/xau-v2/evidence`. The launcher's
 `--captures-local` means exactly that directory (the capture tooling's own,
 as in `validate_evidence_captures.mjs`), and on Windows

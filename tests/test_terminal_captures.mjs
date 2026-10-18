@@ -8,7 +8,8 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
-import { buildLocalView, parseArgs, readCaptures } from '../scripts/serve_terminal_local.mjs';
+import { ARCHIVE_CUTOFFS_PATH, VIEW_PATH, buildLocalView, parseArgs, readCaptures } from '../scripts/serve_terminal_local.mjs';
+import { JSDOM } from 'jsdom';
 import { parseArgs as launcherArgs } from '../scripts/terminal_launch.mjs';
 
 const cap = await loadBackendModule('market_engine/evidence_capture.ts');
@@ -91,6 +92,73 @@ for (const [name, dir, problem] of [
   assert.equal(fv.chain.execution, 'FORBIDDEN', name);
   assert.ok(fv.market === null || fv.market.fields.every((f) => f.value === null) || fv.marketEvidence?.status === 'INVALID', name);
   assert.equal(fv.inputProvenance[0].source === 'CAPTURED_ARCHIVE', false, name);
+}
+// The page is told why: archive-cutoffs.json carries the merge status, and the page shows it instead of a selector.
+assert.deepEqual(view.archiveCutoffs().captures, { sources: 2, merged: true, problems: [] });
+const broken = await buildLocalView({ capturesDir: path.join(ROOT, 'edited') });
+const brokenList = broken.archiveCutoffs();
+assert.deepEqual(brokenList.cutoffs, []);
+assert.equal(brokenList.captures.merged, false);
+assert.match(brokenList.captures.problems.join(), /SOURCE_INVALID:log-fred/);
+{
+  const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
+  const js = readFileSync(new URL('../frontend/js/dashboard.js', import.meta.url), 'utf8');
+  const fv = await broken();
+  const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/' });
+  const json = (b) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(structuredClone(b)) });
+  dom.window.fetch = (url) => (String(url) === ARCHIVE_CUTOFFS_PATH ? json(brokenList) : String(url) === VIEW_PATH ? json(fv)
+    : Promise.reject(new Error(`unexpected fetch ${url}`)));
+  dom.window.ALPHA_XAU_CONFIG = { SUPABASE_URL: '', SUPABASE_ANON_KEY: '', ANALYSIS_INTERVAL_MS: 1e6, V2_VIEW_URL: VIEW_PATH,
+    V2_ARCHIVE_CUTOFFS_URL: ARCHIVE_CUTOFFS_PATH };
+  const script = dom.window.document.createElement('script');
+  script.textContent = js;
+  dom.window.document.body.appendChild(script);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const d = dom.window.document;
+  assert.equal(d.getElementById('v2-replay-cutoff-wrap').hidden, false);
+  assert.equal(d.getElementById('v2-replay-cutoff').hidden, true, 'no instant to choose');
+  assert.match(d.getElementById('v2-captures-failed').textContent,
+    /^CAPTURES NON FUSIONNÉES \(2 journal\(aux\)\) : SOURCE_INVALID:log-fred.*Aucun marché n'est retenu ; HOLD, exécution interdite\.$/);
+  assert.equal(d.getElementById('v2-captures-failed').hidden, false);
+  // Before this fix the page refused the whole view ("nature de marché incohérente"): a rejected archive has no class.
+  assert.notEqual(d.getElementById('v2-status').getAttribute('data-state'), 'rejected', d.getElementById('v2-detail').textContent);
+  assert.match(d.body.textContent, /ARCHIVE REJETÉE/);
+  assert.ok(d.getElementById('v2-state').textContent.startsWith('HOLD'), d.getElementById('v2-state').textContent + ' / ' + d.getElementById('v2-detail').textContent);
+  dom.window.close();
+}
+// Same for an --archive file that cannot be read: HOLD with ARCHIVE REJETÉE, not a refused view; a forged claim still is.
+{
+  const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
+  const js = readFileSync(new URL('../frontend/js/dashboard.js', import.meta.url), 'utf8');
+  const unreadable = await (await buildLocalView({ archiveFile: path.join(ROOT, 'no-such-archive.json') }))();
+  assert.equal(unreadable.marketEvidence.status, 'INVALID');
+  assert.equal(unreadable.marketEvidence.provenanceClass, null);
+  const show = async (body) => {
+    const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/' });
+    dom.window.fetch = (url) => (String(url) === VIEW_PATH ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(structuredClone(body)) })
+      : Promise.reject(new Error(`unexpected fetch ${url}`)));
+    dom.window.ALPHA_XAU_CONFIG = { SUPABASE_URL: '', SUPABASE_ANON_KEY: '', ANALYSIS_INTERVAL_MS: 1e6, V2_VIEW_URL: VIEW_PATH };
+    const script = dom.window.document.createElement('script');
+    script.textContent = js;
+    dom.window.document.body.appendChild(script);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const state = dom.window.document.getElementById('v2-status').getAttribute('data-state');
+    const text = dom.window.document.body.textContent;
+    dom.window.close();
+    return { state, text };
+  };
+  const shown = await show(unreadable);
+  assert.notEqual(shown.state, 'rejected');
+  assert.match(shown.text, /ARCHIVE REJETÉE/);
+  for (const [name, mutate] of [
+    ['unreadable claiming a historical nature', (v) => { v.marketEvidence.nature = 'HISTORICAL_UNVERIFIED'; }],
+    ['unreadable carrying observations', (v) => { v.marketEvidence.observations = [{ raw: 'RAW_UNKNOWN' }]; }],
+    ['classless but not rejected', (v) => { v.marketEvidence.status = 'INCOMPLETE'; }],
+  ]) {
+    const body = structuredClone(unreadable);
+    mutate(body);
+    assert.equal((await show(body)).state, 'rejected', name);
+  }
 }
 console.log('PASS a failed merge (empty, missing, unreadable, edited value) gives no market and says why; HOLD');
 
