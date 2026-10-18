@@ -332,7 +332,12 @@ cutoff). A failed merge (no log, unreadable directory or file, a log whose
 bytes no longer give its values, ambiguity) supplies no market at all: the
 replay rejects it, HOLD, and the server's start line gives the reasons.
 `--captures` and `--archive` are exclusive. Example (WSL):
-`npm run terminal -- --captures ~/.local/share/xau-v2/evidence`.
+`npm run terminal -- --captures ~/.local/share/xau-v2/evidence`. The launcher's
+`--captures-local` means exactly that directory (the capture tooling's own,
+as in `validate_evidence_captures.mjs`), and on Windows
+`scripts/terminal/xau-terminal-captures.cmd`, kept next to
+`xau-terminal.cmd`, calls it with `--captures-local` (double-click; not run
+on a Windows host here).
 
 ## Layout check in a browser
 

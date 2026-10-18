@@ -4,8 +4,8 @@
 // last reception. A failed merge gives no market, never a partial one. The logs
 // here are synthetic, written by this test in the providers' formats.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 import { buildLocalView, parseArgs, readCaptures } from '../scripts/serve_terminal_local.mjs';
@@ -98,4 +98,15 @@ console.log('PASS a failed merge (empty, missing, unreadable, edited value) give
 assert.equal(parseArgs(['--captures', good]).capturesDir, good);
 assert.equal(parseArgs(['--captures', good, '--archive', 'x.json']), null);
 assert.deepEqual(launcherArgs(['--captures', good]).server, ['--captures', good]);
+// --captures-local: the capture tooling's own directory; the Windows wrapper calls the main launcher with it.
+const { LOCAL_CAPTURES } = await import('../scripts/terminal_launch.mjs');
+assert.equal(LOCAL_CAPTURES, path.join(homedir(), '.local', 'share', 'xau-v2', 'evidence'));
+assert.deepEqual(launcherArgs(['--captures-local']).server, ['--captures', LOCAL_CAPTURES]);
+const wrapper = readFileSync(new URL('../scripts/terminal/xau-terminal-captures.cmd', import.meta.url));
+assert.ok(wrapper.every((b) => b < 0x80), 'ASCII only');
+const lines = wrapper.toString('latin1').split('\r\n');
+assert.equal(lines.at(-1), '', 'CRLF line ends');
+assert.ok(lines.slice(0, -1).every((l) => !l.includes('\n')), 'no bare LF');
+assert.ok(lines.includes('call "%~dp0xau-terminal.cmd" --captures-local %*'), 'calls the sibling launcher, no copy of its logic');
+assert.doesNotMatch(wrapper.toString('latin1'), /reg |setx|netsh|powershell|v\d+\.\d+\.\d+/i, 'no system change, no pinned version');
 console.log('PASS --captures and --archive are exclusive; the launcher passes --captures through');

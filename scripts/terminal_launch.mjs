@@ -4,6 +4,7 @@
  *
  *   node scripts/terminal_launch.mjs [--no-browser] [server options]
  *   node scripts/terminal_launch.mjs --status | --stop [--port N [--port-range N]]
+ *   --captures-local = --captures ~/.local/share/xau-v2/evidence (the local capture logs)
  *
  * Server options are passed through unchanged (--port, --port-range, --input,
  * --archive, --archive-digest, --cutoff). The launcher:
@@ -23,6 +24,7 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -35,6 +37,8 @@ const VIEW = '/local/v2/terminal.json';
 const READY_TIMEOUT_MS = 90_000;
 const PASSTHROUGH = new Set(['--port', '--port-range', '--input', '--archive', '--archive-digest', '--cutoff',
   '--positioning-cot', '--cot-published-at', '--cot-received-at', '--cot-report-date', '--captures']);
+
+export const LOCAL_CAPTURES = path.join(homedir(), '.local', 'share', 'xau-v2', 'evidence');
 
 const say = (line) => process.stdout.write(`terminal XAU V2 : ${line}\n`);
 const fail = (line) => process.stderr.write(`terminal XAU V2 : ${line}\n`);
@@ -63,6 +67,8 @@ export function parseArgs(argv) {
     if (flag === '--no-browser') options.browser = false;
     else if (flag === '--stop') options.mode = 'stop';
     else if (flag === '--status') options.mode = 'status';
+    // The operator's capture logs, where the DATA-2 capture tooling keeps them (as validate_evidence_captures.mjs).
+    else if (flag === '--captures-local') options.server.push('--captures', LOCAL_CAPTURES);
     else if (PASSTHROUGH.has(flag) && argv[i + 1] !== undefined) {
       const value = argv[i += 1];
       options.server.push(flag, value);
@@ -261,7 +267,8 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options === null) {
     process.stderr.write('usage: node scripts/terminal_launch.mjs [--no-browser] [--port N [--port-range N]]'
-      + ' [--input file] [--archive file [--archive-digest sha256:…] [--cutoff ISO]]\n'
+      + ' [--input file] [--archive file [--archive-digest sha256:…] | --captures DIR | --captures-local] [--cutoff ISO]'
+      + ' [--positioning-cot file --cot-published-at ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]]\n'
       + '       node scripts/terminal_launch.mjs --status | --stop [--port N [--port-range N]]\n');
     return 64;
   }
