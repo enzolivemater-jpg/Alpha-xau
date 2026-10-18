@@ -180,6 +180,7 @@
     v2DataMarket: $('v2-data-market'),
     v2DataPositioning: $('v2-data-positioning'),
     v2DataEvents: $('v2-data-events'),
+    v2DataReal: $('v2-data-real'),
     v2DataCardEvents: $('v2-data-card-events'),
     v2OfficialEvents: $('v2-official-events'),
     v2OfficialEventsNote: $('v2-official-events-note'),
@@ -1868,6 +1869,7 @@ let pollTimer = null;
         el.v2DataMarket.disabled = v2Scenario !== null;
         el.v2DataPositioning.disabled = v2Scenario !== null;
         el.v2DataEvents.disabled = v2Scenario !== null;
+        el.v2DataReal.disabled = v2Scenario !== null;
         writeChoiceToHash();
         refreshV2();
       });
@@ -1879,6 +1881,7 @@ let pollTimer = null;
         el.v2DataMarket.disabled = true;
         el.v2DataPositioning.disabled = true;
         el.v2DataEvents.disabled = true;
+        el.v2DataReal.disabled = true;
         refreshV2();
       }
     } catch { /* sans liste, l'entrée du serveur reste affichée */ }
@@ -1892,6 +1895,27 @@ let pollTimer = null;
   const V2_COT_STATUS = { EXTRACTED: 'LU — 14 mesures brutes, aucune méthode approuvée', REJECTED: 'REJETÉ', DOCUMENT: 'celui du document' };
   const isId = (v) => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(v);
   const instant = (at) => (isText(at) ? at.replace('T', ' ').replace(/\.000Z$/, 'Z') : '—');
+
+  /**
+   * Les sources réelles disponibles, choisies par des règles explicites (aucun jugement de qualité) :
+   * marché = captures fusionnées si la fusion a réussi, sinon l'archive capturée reçue le plus récemment ;
+   * positionnement = le fichier CFTC lu au rapport le plus récent ; événements = publications officielles
+   * locales lues, sinon celles du dépôt. null pour un composant sans source réelle.
+   */
+  function realPreset(c) {
+    const usable = (m) => m.replayable === true && m.provenanceClass === 'CAPTURED' && m.validation && m.validation.status !== 'INVALID'
+      && !(isList(m.problems) && m.problems.length);
+    const merged = c.market.filter((m) => m.kind === 'CAPTURES_MERGED' && usable(m));
+    const others = c.market.filter((m) => m.kind !== 'CAPTURES_MERGED' && usable(m))
+      .sort((a, b) => String(b.received?.last ?? '').localeCompare(String(a.received?.last ?? '')));
+    const market = (merged[0] || others[0] || null);
+    const cot = c.positioning.filter((p) => p.kind === 'CFTC_FILE' && p.status === 'EXTRACTED')
+      .sort((a, b) => String(b.reportDate ?? '').localeCompare(String(a.reportDate ?? '')))[0] || null;
+    const readCount = (e) => (isList(e.releases) ? e.releases.filter((r) => r.status === 'RESOLVED').length : 0);
+    const events = (c.events || []).find((e) => e.id === 'official:local' && readCount(e) > 0)
+      || (c.events || []).find((e) => e.id === 'official:repository' && readCount(e) > 0) || null;
+    return { market: market && market.id, positioning: cot && cot.id, events: events && events.id };
+  }
 
   /** Fiche d'une source : chaque ligne est un fait du catalogue, jamais un jugement. */
   function dataCard(target, title, rows) {
@@ -2009,6 +2033,21 @@ let pollTimer = null;
         loadArchiveCutoffs(v2Market);
         refreshV2();
       });
+      const preset = realPreset(v2Catalog);
+      el.v2DataReal.hidden = !(preset.market || preset.positioning || preset.events);
+      el.v2DataReal.title = `Marché : ${preset.market || 'aucune source réelle'} · positionnement : ${preset.positioning || 'aucun fichier lu'}`
+        + ` · événements : ${preset.events || 'aucun'} — rien n'est approuvé, HOLD`;
+      el.v2DataReal.addEventListener('click', () => {
+        if (v2Scenario !== null) return;
+        if (preset.market) { v2Market = preset.market; el.v2DataMarket.value = preset.market; }
+        if (preset.positioning) { v2Positioning = preset.positioning; el.v2DataPositioning.value = preset.positioning; }
+        if (preset.events) { v2Events = preset.events; el.v2DataEvents.value = preset.events; }
+        v2ReplayCutoff = null;
+        renderDataCards();
+        writeChoiceToHash();
+        loadArchiveCutoffs(v2Market);
+        refreshV2();
+      });
       el.v2DataEvents.addEventListener('change', () => {
         v2Events = el.v2DataEvents.value || null;
         renderDataCards();
@@ -2035,6 +2074,7 @@ let pollTimer = null;
       el.v2DataMarket.disabled = v2Scenario !== null;
       el.v2DataPositioning.disabled = v2Scenario !== null;
       el.v2DataEvents.disabled = v2Scenario !== null;
+      el.v2DataReal.disabled = v2Scenario !== null;
       renderDataCards();
       return true;
     } catch {

@@ -441,6 +441,14 @@ instants. Defaults: `--archive` → `archive`, `--captures` → its merge,
 replays at its last reception unless `--cutoff` or a chosen instant says
 otherwise. Everything is read once at start (restart to see new files).
 
+The panel's **DONNÉES RÉELLES DISPONIBLES** button (shown when a real source
+exists) selects by explicit rules, without judging quality: market = the
+captures merge if it succeeded, else the most recently received `CAPTURED`
+archive that replays (never a synthetic one); positioning = the read CFTC file
+with the latest report; events = local official releases, else the
+repository's. The selection is an ordinary choice (anchor, cards, replay
+instants); nothing is approved, HOLD / FORBIDDEN unchanged.
+
 The page shows a **DONNÉES LOCALES** panel (two selectors, Marché and
 Positionnement, hidden when there is nothing to choose) and one card per
 chosen source with those facts. Changing the market resets the replay
