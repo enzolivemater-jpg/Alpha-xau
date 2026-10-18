@@ -529,23 +529,26 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     // event with a raw stack trace.
     try {
       const { port } = await listenOnLoopback(server, { port: requested, range: portRange });
+      // One write: a reader that sees the ready line also sees where the selector is (pipes may split writes).
+      const lines = [];
       if (port !== requested) {
-        process.stdout.write(`terminal local : le port ${requested} est occupé ; le port libre ${port} est utilisé (loopback uniquement)\n`);
+        lines.push(`le port ${requested} est occupé ; le port libre ${port} est utilisé (loopback uniquement)`);
       }
-      process.stdout.write(`terminal local : http://127.0.0.1:${port}/ (CHAIN-0 DRY RUN, HOLD, exécution interdite) — Ctrl+C pour arrêter\n`);
-      if (serverOptions.capturesDir) {
-        const c = server.terminalView.captures;
-        process.stdout.write(c.merged
-          ? `terminal local : ${c.sources} journal(aux) de captures fusionné(s) depuis ${serverOptions.capturesDir} (${c.records} enregistrements) ; historique non vérifié, HOLD\n`
-          : `terminal local : captures de ${serverOptions.capturesDir} non fusionnées (${c.problems.join(' ; ')}) ; marché indisponible, HOLD\n`);
+      lines.push(`http://127.0.0.1:${port}/ (CHAIN-0 DRY RUN, HOLD, exécution interdite) — Ctrl+C pour arrêter`);
+      const c = server.terminalView.captures;
+      if (c) {
+        lines.push(c.merged
+          ? `${c.sources} journal(aux) de captures fusionné(s) depuis ${serverOptions.capturesDir} (${c.records} enregistrements) ; historique non vérifié, HOLD`
+          : `captures de ${serverOptions.capturesDir} non fusionnées (${c.problems.join(' ; ')}) ; marché indisponible, HOLD`);
       }
-      if (serverOptions.positioningCot) {
-        const cot = await readPositioningCot(serverOptions.positioningCot);
-        process.stdout.write(cot.conversion.status === 'EXTRACTED'
-          ? `terminal local : positionnement lu dans ${cot.label} (CFTC COT, rapport du ${cot.conversion.reportDate}, ${cot.conversion.evidence.length} mesures) ; source non approuvée, HOLD\n`
-          : `terminal local : fichier CFTC COT rejeté (${cot.conversion.reasonCodes.join(', ')} — ${cot.conversion.detail}) ; aucune preuve de positionnement retenue\n`);
+      const cot = server.terminalView.positioning;
+      if (cot) {
+        lines.push(cot.status === 'EXTRACTED'
+          ? `positionnement lu dans ${cot.label} (CFTC COT, rapport du ${cot.reportDate}, ${cot.evidenceCount} mesures) ; source non approuvée, HOLD`
+          : `fichier CFTC COT rejeté (${cot.reasonCodes.join(', ')} — ${cot.detail}) ; aucune preuve de positionnement retenue`);
       }
-      process.stdout.write(`terminal local : scénarios de simulation dans l'onglet CHAÎNE V2 (http://127.0.0.1:${port}/#chaine), sélecteur « SCÉNARIO DE SIMULATION » en haut du panneau\n`);
+      lines.push(`scénarios de simulation dans l'onglet CHAÎNE V2 (http://127.0.0.1:${port}/#chaine), sélecteur « SCÉNARIO DE SIMULATION » en haut du panneau`);
+      process.stdout.write(lines.map((line) => `terminal local : ${line}\n`).join(''));
     } catch (error) {
       const busy = portRange > 1
         ? `aucun port libre entre ${error.firstPort} et ${error.lastPort} (EADDRINUSE) ; un autre terminal local tourne peut-être déjà. Arrêtez-le ou choisissez un autre port avec --port <numéro>.`
