@@ -209,6 +209,21 @@ every path; CHAIN-0, OBS-0 and the golden digest `sha256:9bbd9cac…eef2db3c` un
 | 54 | Labelling audit (no change) | A captured archive replayed 30 s after its last reception (AT_GENERATION) | stays HOLD, HISTORICAL_UNVERIFIED, never "EN DIRECT", "TEMPS RÉEL" or "DONNÉES RÉELLES" | — |
 | 55 | Terminal (regression of row 42, caught before delivery) | Without an archive the page still asked `/local/v2/archive-cutoffs.json`: one HTTP 404 and a console error on the default page (the RC walk went 22/23) | the cutoffs URL is injected only in `--archive` / `--captures` mode; RC walk 23/23 again | `serve_terminal_local.mjs`, `tests/test_terminal_archive_cutoffs.mjs` |
 
+### DATA-TO-TERMINAL (branch `feat/data-to-terminal`, local, on `5dd666e`)
+
+| # | Domain | Defect (demonstrated) or gap | Fix | Main files |
+| --- | --- | --- | --- | --- |
+| 56 | Positioning | Every unknown CFTC input was rejected, but a semicolon/tab file read "guillemet non fermé", a ZIP/Excel/HTML file and a legacy or TFF report a list of 18 missing columns | adapter 1.2.0: `UNSUPPORTED_FORMAT` (ZIP, Excel/binary/UTF-16/non-UTF-8, HTML, JSON, separator) and `UNSUPPORTED_LAYOUT` (legacy, TFF, unknown CFTC report) | `cftc_cot_offline_adapter.ts`, `tests/test_cftc_cot_offline_adapter.mjs` |
+| 57 | Terminal | The data shown was fixed at launch by options; single capture logs could not be seen; a CFTC file needed four options and was out of reach of the Windows launcher; no source's period, provenance or validation was visible | `--data-root` catalog (`/local/v2/catalog.json`), DONNÉES LOCALES panel (market and positioning by catalog id only, one card per source), replay instants per source, anchor `#chaine/donnees/…`; launcher `--local-data`, `npm run terminal:data`, `xau-terminal.cmd` passes it | `serve_terminal_local.mjs`, `frontend/`, `terminal_launch.mjs`, `tests/test_terminal_data_catalog.mjs` |
+| 58 | Terminal (UX) | Declaring a CFTC file meant writing JSON by hand; a missing directory was a silent empty panel or a raw code on the start line | `scripts/cot_declare.mjs` (converts first, create-only); notes in plain words in the page and on the start line | `scripts/cot_declare.mjs`, `tests/test_cot_declare.mjs` |
+
+Evidence (local): RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `8076b8e` (155/155, inventory 180); real
+launch through `xau-terminal.sh --local-data` in a minimal environment on `~/.local/share/xau-v2` (4 real market
+sources, every view HOLD / FORBIDDEN, exit 0); Chromium 129: local-data walk 40/40 (real captures plus synthetic
+CFTC files), the RC walk 23/23, captures walk 32/32, layout 40/40; catalog fuzz 40 mutated roots, 400 views, no
+exception, no refused view. No real CFTC file exists on this machine: CFTC paths are tested on the synthetic
+fixture and on built byte sequences only.
+
 Evidence (local, Node 22): full suite 153/153 and typecheck on every head; final RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `cce8ca5`; earlier, before this
 note; RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `4c41a5d` (FAST_FORWARD on
 `ea5aa64`); Chromium 129 layout 35/35 and a 31-check walk with the real local captures;
