@@ -219,7 +219,10 @@ The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`.
   `scripts/terminal_launch.mjs`.
 - `terminal_launch.mjs` checks the checkout (dependencies, Node ≥ 22), reuses a
   server already started from the same checkout (`GET /local/v2/health.json`
-  on the port range: app, root, pid) instead of starting a second one, starts
+  on the port range: app, root, pid, args) instead of starting a second one —
+  only when that server runs with the same data options (port options aside);
+  otherwise it refuses (exit 1) and says to `--stop` it first, so a launch
+  asking for `--captures` or `--archive` never shows other data — starts
   `serve_terminal_local.mjs`, waits until the view answers over HTTP with a
   HOLD / FORBIDDEN chain, and only then opens `http://localhost:<port>/#chaine`
   (Windows default browser from WSL, `xdg-open` elsewhere, or

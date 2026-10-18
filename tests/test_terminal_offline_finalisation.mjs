@@ -125,7 +125,9 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
   assert.ok(await first.until(/navigateur ouvert sur http:\/\/localhost:4573\/#chaine/), first.text());
   assert.ok(first.text().indexOf('prêt :') < first.text().indexOf('navigateur ouvert'), 'ready before the browser');
   const health = await (await fetch('http://127.0.0.1:4573/local/v2/health.json')).json();
-  assert.deepEqual(Object.keys(health).sort(), ['app', 'pid', 'root', 'schemaVersion']);
+  // args (auto-session): the server's options, so a launch asking for other data never reuses it.
+  assert.deepEqual(Object.keys(health).sort(), ['app', 'args', 'pid', 'root', 'schemaVersion']);
+  assert.deepEqual(health.args, PORTS);
   assert.equal(health.app, 'xau-v2-terminal-local');
   assert.equal(health.schemaVersion, 'xau.terminal-local-health.v1');
   assert.equal(health.root, ROOT);
@@ -148,6 +150,14 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
   assert.equal(await portOpen(4574), false, 'no second server on the next port');
   assert.equal(openedLines().length, 2, 'the browser is pointed at the running instance');
   assert.equal(openedLines()[1].url, 'http://localhost:4573/#chaine');
+  // B3b. A launch asking for other data (here an archive) is refused, never pointed at this instance.
+  const other = start([...PORTS, '--archive', 'tests/fixtures/market_evidence_archive_synthetic.json']);
+  const otherExit = await other.exited;
+  assert.equal(otherExit.code, 1, other.text());
+  assert.match(other.text(), /tourne déjà sur le port 4573 avec d'autres options \(--port 4573 --port-range 3\)/);
+  assert.match(other.text(), /--stop/);
+  assert.equal(openedLines().length, 2, 'no browser opened on the wrong data');
+  assert.equal(await portOpen(4574), false, 'no second server either');
   // B4. --status and --stop find this checkout's instance and stop it cleanly.
   const status = spawnSync(process.execPath, [LAUNCH, '--status', ...PORTS], { cwd: ROOT, env: ENV, encoding: 'utf8' });
   assert.equal(status.status, 0);

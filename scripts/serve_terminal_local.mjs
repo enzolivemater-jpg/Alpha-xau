@@ -407,7 +407,9 @@ export async function createTerminalServer(options = {}) {
       return;
     }
     if (pathname === HEALTH_PATH) {
-      const health = { app: 'xau-v2-terminal-local', schemaVersion: 'xau.terminal-local-health.v1', root: ROOT, pid: process.pid };
+      // args: the server's own command-line options, so the launcher never reuses an instance showing other data.
+      const health = { app: 'xau-v2-terminal-local', schemaVersion: 'xau.terminal-local-health.v1', root: ROOT, pid: process.pid,
+        args: Array.isArray(options.launchArgs) ? options.launchArgs : [] };
       send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(health), method);
       return;
     }
@@ -518,7 +520,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     process.exitCode = 1;
   } else {
     const { port: requested, portRange, ...serverOptions } = options;
-    const server = await createTerminalServer(serverOptions);
+    const server = await createTerminalServer({ ...serverOptions, launchArgs: process.argv.slice(2) });
     // A busy or forbidden port is the usual first-run problem (the demo is
     // often restarted): say so in one line instead of an unhandled 'error'
     // event with a raw stack trace.

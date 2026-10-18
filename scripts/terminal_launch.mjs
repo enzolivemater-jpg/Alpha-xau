@@ -94,7 +94,7 @@ export async function probeInstances(port = DEFAULT_PORT, range = DEFAULT_RANGE)
   const found = await Promise.all(ports.map(async (p) => {
     const health = await getJson(p, HEALTH, 800);
     return health && health.app === 'xau-v2-terminal-local' && typeof health.root === 'string' && Number.isSafeInteger(health.pid)
-      ? { port: p, root: health.root, pid: health.pid } : null;
+      ? { port: p, root: health.root, pid: health.pid, args: Array.isArray(health.args) ? health.args.map(String) : null } : null;
   }));
   return found.filter(Boolean);
 }
@@ -186,6 +186,18 @@ async function start(options) {
   }
   const running = await probeInstances(options.port, options.range);
   const own = mine(running);
+  // Reused only when it shows the same data: same server options, in the same order (port options aside).
+  const dataArgs = (args) => {
+    const out = [];
+    for (let i = 0; i < args.length; i += 2) if (!['--port', '--port-range'].includes(args[i])) out.push(args[i], args[i + 1]);
+    return JSON.stringify(out);
+  };
+  if (own && (own.args === null || dataArgs(own.args) !== dataArgs(options.server))) {
+    fail(`diagnostic : un terminal de ce dossier tourne déjà sur le port ${own.port} avec d'autres options`
+      + ` (${own.args === null ? 'inconnues' : own.args.join(' ') || 'aucune'}) : il montrerait d'autres données.`
+      + ' « --stop » l\'arrête ; relancer ensuite avec les options voulues.');
+    return 1;
+  }
   if (own) {
     say(`déjà lancé depuis ce dossier sur le port ${own.port} : pas de second serveur.`);
     await showBrowser(pageUrl(own.port), options.browser);
