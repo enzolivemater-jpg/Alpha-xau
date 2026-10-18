@@ -204,8 +204,11 @@ every path; CHAIN-0, OBS-0 and the golden digest `sha256:9bbd9cac…eef2db3c` un
 | 49 | Event facts (P2) | Consensus source NOT_STARTED, no boundary for a future figure | C-0 consensus evidence contract against the RESOLVED official result; consensus stays UNKNOWN | `backend/event_facts/consensus_evidence_contract.ts`, `docs/XAU_V2_CONSENSUS_EVIDENCE_CONTRACT.md` |
 | 51 | CHAIN-0 audit (no change) | Probed market snapshot injections: observation or capture after the cutoff, expired field, inverted book are all caught; a declared negative age is recomputed by MP-0. A spot far outside the bid/ask book is not flagged: a methodology decision (a last trade may sit outside the current quote), left to review | — | — |
 | 50 | Tooling (P4) | Plan drift needed SHAs found and copied by hand; plans written by hand | RECON-AUTO-1 1.1.0: drift `ADVANCED` / `REWRITTEN` / `DECLARED_UNKNOWN` with commits, `proposed-plan.json`; `--init-plan` from named refs (create-only) | `scripts/recon_auto.mjs`, `tests/test_recon_auto.mjs` |
+| 52 | Tooling (P4) | A failed `--verify full` kept only six output lines per stream: the failing file had to be dug out | `failedTests` (from `FAILED: <file> (exit N)`) and `verify-<step>.log` beside the report; first test of `--verify` | `scripts/recon_auto.mjs`, `tests/test_recon_auto.mjs` |
+| 53 | Terminal | The launcher compared data options in order (same data, other order: refused); the replay or scenario choice was lost on reload | `sameDataOptions()` order-insensitive; choice kept in `#chaine/scenario/<id>` / `#chaine/rejeu/<instant>`, restored only if it exists | `terminal_launch.mjs`, `dashboard.js` |
+| 54 | Labelling audit (no change) | A captured archive replayed 30 s after its last reception (AT_GENERATION) | stays HOLD, HISTORICAL_UNVERIFIED, never "EN DIRECT", "TEMPS RÉEL" or "DONNÉES RÉELLES" | — |
 
-Evidence (local, Node 22): full suite 153/153 and typecheck on the session head before this
+Evidence (local, Node 22): full suite 153/153 and typecheck on every head; final RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `cce8ca5`; earlier, before this
 note; RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `4c41a5d` (FAST_FORWARD on
 `ea5aa64`); Chromium 129 layout 35/35 and a 31-check walk with the real local captures;
 19/19 mutants killed; fuzz: 500 mutated archives through the view, 300 archives and 200
