@@ -18,7 +18,7 @@
  */
 
 import { pathToFileURL } from 'node:url';
-import { createTerminalServer } from './serve_terminal_local.mjs';
+import { SYNTHETIC_ARCHIVE, createTerminalServer } from './serve_terminal_local.mjs';
 
 const VIEWPORTS = [[320, 640], [390, 844], [1024, 768], [1280, 720], [1440, 900]];
 const VARIANTS = [
@@ -28,6 +28,8 @@ const VARIANTS = [
   { name: 'chaine market-unavailable déplié', hash: 'chaine', scenario: 'market-unavailable', expand: true },
   { name: 'chaine invalid-input', hash: 'chaine', scenario: 'invalid-input' },
   { name: 'chaine archive-synthetic déplié', hash: 'chaine', scenario: 'archive-synthetic', expand: true },
+  // --archive mode: the CUTOFF DE REJEU selector is shown; one earlier reception instant is replayed.
+  { name: 'chaine --archive rejeu déplié', hash: 'chaine', archive: true, replayIndex: 2, expand: true },
 ];
 
 /** Runs in the page: clipped and overflowing elements. */
@@ -138,13 +140,20 @@ async function main() {
   const server = await createTerminalServer();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}/`;
+  const archiveServer = await createTerminalServer({ archiveFile: SYNTHETIC_ARCHIVE });
+  await new Promise((resolve) => archiveServer.listen(0, '127.0.0.1', resolve));
+  const archiveBase = `http://127.0.0.1:${archiveServer.address().port}/`;
   let problems = 0;
   try {
     for (const [width, height] of VIEWPORTS) {
       for (const variant of VARIANTS) {
         const page = await browser.newPage({ viewport: { width, height } });
-        await page.goto(`${base}#${variant.hash}`, { waitUntil: 'load' });
+        await page.goto(`${variant.archive ? archiveBase : base}#${variant.hash}`, { waitUntil: 'load' });
         await page.waitForTimeout(800);
+        if (variant.replayIndex !== undefined) {
+          await page.selectOption('#v2-replay-cutoff', { index: variant.replayIndex });
+          await page.waitForTimeout(500);
+        }
         if (variant.scenario) {
           await page.selectOption('#v2-scenario', variant.scenario);
           await page.waitForTimeout(500);
@@ -162,6 +171,7 @@ async function main() {
   } finally {
     await browser.close();
     server.close();
+    archiveServer.close();
   }
   return problems === 0 ? 0 : 1;
 }

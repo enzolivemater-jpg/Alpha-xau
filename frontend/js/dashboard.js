@@ -36,6 +36,7 @@
     STALE_THRESHOLD_S: 60,
     V2_VIEW_URL: '',
     V2_SCENARIOS_URL: '',
+    V2_ARCHIVE_CUTOFFS_URL: '',
   }, window.ALPHA_XAU_CONFIG || {});
 
   const RUNTIME = {
@@ -173,6 +174,13 @@
     v2ScenarioWrap: $('v2-scenario-wrap'),
     v2Scenario: $('v2-scenario'),
     v2ScenarioHint: $('v2-scenario-hint'),
+    v2WhyCutoffs: $('v2-why-cutoffs'),
+    v2ReplayCutoffWrap: $('v2-replay-cutoff-wrap'),
+    v2ReplayCutoff: $('v2-replay-cutoff'),
+    v2ReplayCutoffHint: $('v2-replay-cutoff-hint'),
+    v2ArchiveAvail: $('v2-archive-avail'),
+    v2CapturesFailed: $('v2-captures-failed'),
+    v2ArchiveAvailList: $('v2-archive-avail-list'),
     v2Status: $('v2-status'),
     v2State: $('v2-state'),
     v2Detail: $('v2-detail'),
@@ -196,13 +204,18 @@
     v2Generated: $('v2-generated'),
     v2Stages: $('v2-stages'),
     v2Market: $('v2-market'),
+    v2MarketLegend: $('v2-market-legend'),
     v2MarketState: $('v2-market-state'),
     v2Replay: $('v2-replay'),
     v2Positioning: $('v2-positioning'),
+    v2PositioningFreshness: $('v2-positioning-freshness'),
     v2PositioningThrough: $('v2-positioning-through'),
     v2PositioningSources: $('v2-positioning-sources'),
     v2Capabilities: $('v2-capabilities'),
     v2Mev: $('v2-mev'),
+    v2Prov: $('v2-prov'),
+    v2ProvStatus: $('v2-prov-status'),
+    v2ProvList: $('v2-prov-list'),
     v2MevStatus: $('v2-mev-status'),
     v2MevArchive: $('v2-mev-archive'),
     v2MevCoverage: $('v2-mev-coverage'),
@@ -425,7 +438,11 @@
       const impactCell = row.querySelector('[data-field="impact"]');
       const rule = MACRO_IMPACT[key];
       const movement = dirOf(change);
-      if (change === null || movement === 'flat' || !rule) {
+      if (DEMO_MODE) {
+        // Synthetic values move at random: reading a gold impact into them would be a fake signal.
+        setText(impactCell, 'N/A — DÉMO');
+        setAttr(impactCell, 'data-impact', 'unavailable');
+      } else if (change === null || movement === 'flat' || !rule) {
         setText(impactCell, isNum(value) ? 'Stable' : 'N/A');
         setAttr(impactCell, 'data-impact', 'neutral');
       } else {
@@ -1092,7 +1109,7 @@ let pollTimer = null;
   }
 
   function initWorkspaces() {
-    let initial = window.location.hash === '#chaine' ? 'chain' : 'market';
+    let initial = window.location.hash === '#chaine' || window.location.hash.startsWith('#chaine/') ? 'chain' : 'market';
     if (initial === 'market' && window.location.hash !== '#marche') {
       try { if (window.localStorage.getItem(WORKSPACE_KEY) === 'chain') initial = 'chain'; } catch { /* idem */ }
     }
@@ -1176,6 +1193,28 @@ let pollTimer = null;
   const V2_EVIDENCE_STATUS = { VERIFIED: 'REJEU VÉRIFIÉ', INCOMPLETE: 'REJEU INCOMPLET', INVALID: 'ARCHIVE REJETÉE' };
   const V2_RAW_STATES = { RAW_VERIFIED: 'BRUT RELU', RAW_DIGEST_ONLY: 'EMPREINTE SEULE', RAW_UNKNOWN: 'BRUT INCONNU' };
 
+  /* B4 : provenance par entrée. Seul le marché peut venir d'une archive ; rien n'est dit observé ni validé. */
+  const V2_INPUTS = ['MARKET', 'POSITIONING', 'EVENT_IMPACT', 'GOLD_TRANSMISSION', 'EVIDENCE_GRAPH', 'AUTHORIZATIONS'];
+  const V2_INPUT_LABELS = {
+    MARKET: 'MARCHÉ',
+    POSITIONING: 'POSITIONNEMENT',
+    EVENT_IMPACT: 'EVENT IMPACT',
+    GOLD_TRANSMISSION: 'GOLD TRANSMISSION',
+    EVIDENCE_GRAPH: 'GRAPHE DE PREUVES',
+    AUTHORIZATIONS: 'AUTORISATIONS',
+  };
+  const V2_SOURCE_LABELS = {
+    CAPTURED_ARCHIVE: 'ARCHIVE CAPTURÉE — NON CERTIFIÉE',
+    SYNTHETIC_FIXTURE: 'FIXTURE SYNTHÉTIQUE',
+    LOCAL_INPUT_UNVERIFIED: 'FICHIER LOCAL NON VÉRIFIÉ',
+    UNAVAILABLE: 'NON DISPONIBLE',
+    UNKNOWN: 'PROVENANCE INCONNUE',
+  };
+
+  /** Sources des entrées non marché, sans les entrées absentes ; null si la vue ne les donne pas. */
+  const otherSources = (prov) => (prov === undefined ? null
+    : [...new Set(prov.slice(1).filter((e) => e.source !== 'UNAVAILABLE').map((e) => V2_SOURCE_LABELS[e.source]))]);
+
   /** Libellé d'origine ; un scénario est nommé par son identifiant. */
   const originText = (origin) => (origin.kind === 'LOCAL_SCENARIO' && isText(origin.label)
     ? `${V2_ORIGIN_LABELS[origin.kind]} ${origin.label.toUpperCase()}` : V2_ORIGIN_LABELS[origin.kind]);
@@ -1248,11 +1287,36 @@ let pollTimer = null;
       }
       // Une affirmation forte doit porter toutes ses conditions.
       if (mev.reproducible !== (mev.status === 'VERIFIED')) return 'reproductibilité incohérente';
-      if (mev.nature === 'SIMULATION' && mev.provenanceClass !== 'SYNTHETIC_FIXTURE') return 'nature de marché incohérente';
-      if (mev.nature !== 'SIMULATION' && mev.provenanceClass !== 'CAPTURED') return 'nature de marché incohérente';
+      // Une archive illisible ou mal formée n'a pas de classe : rejetée, rien retenu, présentée comme simulation.
+      const unreadable = mev.status === 'INVALID' && mev.provenanceClass === null;
+      if (unreadable && (mev.nature !== 'SIMULATION' || mev.observations.length > 0)) return 'archive rejetée incohérente';
+      if (!unreadable && mev.nature === 'SIMULATION' && mev.provenanceClass !== 'SYNTHETIC_FIXTURE') return 'nature de marché incohérente';
+      if (!unreadable && mev.nature !== 'SIMULATION' && mev.provenanceClass !== 'CAPTURED') return 'nature de marché incohérente';
       if (mev.nature === 'HISTORICAL_VERIFIED' && (mev.status !== 'VERIFIED' || mev.observations.length === 0
           || mev.observations.some((o) => o.raw !== 'RAW_VERIFIED'))) return 'historique vérifié non prouvé';
     }
+    const prov = view.inputProvenance;
+    if (prov !== undefined) {
+      if (!isList(prov) || prov.length !== V2_INPUTS.length
+          || prov.some((e, i) => !e || e.input !== V2_INPUTS[i] || !has(V2_SOURCE_LABELS, e.source) || typeof e.detail !== 'string')) {
+        return 'provenance des entrées non conforme';
+      }
+      // Seul le marché peut venir d'une archive, et seulement si son manifeste le dit.
+      if (prov.slice(1).some((e) => e.source === 'CAPTURED_ARCHIVE')) return 'provenance contradictoire (entrée non marché attribuée à une archive)';
+      if (prov[0].source === 'CAPTURED_ARCHIVE' && (!mev || mev.provenanceClass !== 'CAPTURED')) return 'provenance du marché contradictoire';
+      if (prov[0].source === 'SYNTHETIC_FIXTURE' && mev && mev.provenanceClass === 'CAPTURED') return 'provenance du marché contradictoire';
+    }
+    // B5 : aucun seuil de fraîcheur n'est approuvé ; une preuve de positionnement n'est jamais « prête ».
+    const pos = view.positioning;
+    if (pos && pos.evidenceState === 'EVIDENCE_READY') return 'positionnement déclaré prêt sans seuil de fraîcheur approuvé';
+    const fresh = pos && pos.freshness;
+    if (pos && isNum(pos.evidenceCount) && pos.evidenceCount > 0
+        && (!fresh || !['NOT_EVALUATED', 'AFTER_KNOWLEDGE_CUTOFF'].includes(fresh.status) || !isText(fresh.plain))) return 'fraîcheur du positionnement non conforme';
+    if (fresh !== undefined && (!fresh || !['NOT_EVALUATED', 'NO_EVIDENCE', 'AFTER_KNOWLEDGE_CUTOFF'].includes(fresh.status))) return 'fraîcheur du positionnement non conforme';
+    // Une preuve postérieure au cutoff n'était pas connue : elle n'a pas d'âge ; une preuve connue n'a pas d'âge négatif.
+    if (fresh && fresh.status === 'AFTER_KNOWLEDGE_CUTOFF'
+        && (fresh.publishedAgeSecondsAtCutoff !== null || !(isNum(pos.evidenceCount) && pos.evidenceCount > 0))) return 'fraîcheur du positionnement non conforme';
+    if (fresh && isNum(fresh.publishedAgeSecondsAtCutoff) && fresh.publishedAgeSecondsAtCutoff < 0) return 'fraîcheur du positionnement non conforme';
     for (const h of view.horizons) {
       // Une direction n'existe qu'avec une méthode approuvée ; il n'y en a aucune.
       if (!h || h.status !== 'ABSTAIN' || h.direction !== 'UNAVAILABLE') return 'horizon non abstenu';
@@ -1334,13 +1398,17 @@ let pollTimer = null;
     el.v2Summary.hidden = true;
     el.v2Mev.hidden = true;
     el.v2MevObs.replaceChildren();
+    el.v2Prov.hidden = true;
+    el.v2ProvList.replaceChildren();
     for (const n of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2CutoffAge, el.v2Digest,
-      el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningThrough, el.v2PositioningSources, el.v2MarketState]) {
+      el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningFreshness, el.v2PositioningThrough, el.v2PositioningSources,
+      el.v2MarketState]) {
       setText(n, '—');
     }
     setAttr(el.v2Digest, 'title', null);
     el.v2Stages.replaceChildren(node('li', 'v2__empty', '—'));
     el.v2Market.replaceChildren(v2EmptyRow(6, '—'));
+    el.v2MarketLegend.hidden = true;
     el.v2Capabilities.replaceChildren(node('li', 'v2__empty', 'Matrice indisponible sans vue V2.'));
     el.v2Horizons.replaceChildren(node('li', 'v2__empty', '—'));
     el.v2Evidence.replaceChildren(node('li', 'v2__empty', '—'));
@@ -1391,9 +1459,19 @@ let pollTimer = null;
   function renderWhy(view) {
     const why = view.holdRationale;
     if (view.chain.outcome !== 'COMPLETED') {
-      el.v2Why.hidden = true;
+      el.v2Why.hidden = false;
+      setText(el.v2WhyLead, 'Entrée rejetée avant la chaîne : aucun étage n\'a été évalué. '
+        + 'Corriger l\'entrée signalée dans DONNÉES MANQUANTES ; aucune décision n\'est possible.');
+      setText(el.v2WhyLift, '');
+      el.v2WhyCutoffs.hidden = true;
+      el.v2WhyList.replaceChildren();
       return;
     }
+    // 4.5.0 : des entrées précalculées à un autre cutoff que la chaîne (rejeu d'archive), dit en clair.
+    const align = view.cutoffAlignment;
+    const misaligned = align && typeof align === 'object' && align.aligned === false && isText(align.plain);
+    setText(el.v2WhyCutoffs, misaligned ? align.plain : '');
+    el.v2WhyCutoffs.hidden = !misaligned;
     el.v2Why.hidden = false;
     const first = why.firstBlockedStage ? label(why.firstBlockedStage) : null;
     setText(el.v2WhyLead, first
@@ -1481,8 +1559,13 @@ let pollTimer = null;
     const mev = view.marketEvidence;
     // Données de marché rejouées : leur nature prime ; la chaîne reste un dry run.
     const market = mev ? `${V2_EVIDENCE_NATURE[mev.nature]} · ${V2_EVIDENCE_STATUS[mev.status]}` : null;
+    // B4 : l'archive ne porte que le marché ; les autres entrées sont nommées à côté.
+    const others = view.origin.kind === 'LOCAL_MARKET_ARCHIVE' ? otherSources(view.inputProvenance) : undefined;
+    const othersText = others === undefined ? ''
+      : others === null ? 'PROVENANCE DES AUTRES ENTRÉES NON FOURNIE · '
+        : `AUTRES ENTRÉES : ${others.length ? others.join(' / ') : 'NON DISPONIBLES'} · `;
     setChainMode(historical ? 'historical' : 'simulated', market ? `${V2_EVIDENCE_NATURE[mev.nature]} · DRY RUN` : `SIMULATION · ${when}`,
-      `${originText(view.origin)} · ${market ? `${market} · ` : ''}`
+      `${originText(view.origin)} · ${othersText}${market ? `${market} · ` : ''}`
         + `${historical ? `HISTORIQUE — cutoff il y a ${fmtAge(temporal.cutoffAgeSeconds)}` : when}`
         + ' · PAS UNE ANALYSE RÉELLE');
 
@@ -1515,6 +1598,7 @@ let pollTimer = null;
     renderStages(view);
 
     setText(el.v2MarketState, view.market.state ? `MP-0 ${view.market.state}` : '—');
+    el.v2MarketLegend.hidden = view.market.fields.length === 0; // nothing to qualify as fresh
     el.v2Market.replaceChildren(view.market.fields.length === 0
       ? v2EmptyRow(6, 'Aucun champ de marché.')
       : fragmentOf(view.market.fields, (f) => {
@@ -1538,12 +1622,18 @@ let pollTimer = null;
     setText(el.v2Positioning, isText(pos.evidenceState)
       ? `${pos.evidenceState} · ${isNum(pos.evidenceCount) ? pos.evidenceCount : 0} preuve(s) · signal ${pos.positioningState || 'N/A'}`
       : 'N/A');
-    setText(el.v2PositioningThrough, isText(pos.observedThrough) ? pos.observedThrough : 'N/A');
+    const fresh = pos.freshness;
+    setText(el.v2PositioningFreshness, fresh && isText(fresh.plain)
+      ? `${fresh.plain}${isNum(fresh.publishedAgeSecondsAtCutoff) ? ` · publiée ${fmtAge(fresh.publishedAgeSecondsAtCutoff)} avant le cutoff` : ''}`
+      : 'N/A');
+    setText(el.v2PositioningThrough, isText(pos.observedThrough)
+      ? `${pos.observedThrough}${fresh && fresh.status === 'AFTER_KNOWLEDGE_CUTOFF' ? ' (après le cutoff)' : ''}` : 'N/A');
     setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length
       ? pos.sourceAuthorities.join(' · ') : 'N/A');
 
     renderReadiness(view);
     renderMarketEvidence(view.marketEvidence);
+    renderInputProvenance(view.inputProvenance);
 
     const counts = {};
     for (const c of view.capabilities) counts[c.status] = (counts[c.status] || 0) + 1;
@@ -1565,6 +1655,28 @@ let pollTimer = null;
   const shortTime = (v) => (isText(v) ? v.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'INCONNU');
 
   /** DATA-1 : provenance complète de chaque valeur retenue au cutoff. */
+  /** B4 : une ligne par entrée ; une vue sans ce champ le dit, sans rien supposer. */
+  function renderInputProvenance(prov) {
+    el.v2Prov.hidden = false;
+    if (prov === undefined) {
+      setText(el.v2ProvStatus, 'PROVENANCE PAR ENTRÉE NON FOURNIE — considérer chaque entrée comme d\'origine inconnue.');
+      el.v2ProvList.replaceChildren();
+      return;
+    }
+    const others = otherSources(prov);
+    setText(el.v2ProvStatus, `MARCHÉ : ${V2_SOURCE_LABELS[prov[0].source]} · AUTRES ENTRÉES : `
+      + `${others.length ? others.join(' / ') : 'NON DISPONIBLES'}`);
+    el.v2ProvList.replaceChildren(fragmentOf(prov, (e) => {
+      const li = node('li', 'prov__item', undefined, { 'data-input': e.input, 'data-source': e.source });
+      const head = node('div', 'prov__head');
+      head.appendChild(node('span', 'prov__input', V2_INPUT_LABELS[e.input]));
+      head.appendChild(node('span', 'prov__source', V2_SOURCE_LABELS[e.source]));
+      li.appendChild(head);
+      li.appendChild(node('p', 'prov__detail', e.detail));
+      return li;
+    }));
+  }
+
   function renderMarketEvidence(mev) {
     el.v2Mev.hidden = mev === null;
     if (mev === null) {
@@ -1667,6 +1779,22 @@ let pollTimer = null;
 
   /* Scénario de simulation choisi ; null = l'entrée du serveur local. */
   let v2Scenario = null;
+
+  /**
+   * Choix restituables par l'ancre : #chaine/scenario/<id> ou #chaine/rejeu/<instant UTC>.
+   * Lus au chargement (appliqués seulement si l'option existe), réécrits à chaque choix.
+   */
+  const V2_HASH = /^#chaine\/(scenario|rejeu)\/([A-Za-z0-9:.-]{1,64})$/;
+  const requestedChoice = (() => {
+    const m = V2_HASH.exec(window.location.hash);
+    return m ? { kind: m[1], value: decodeURIComponent(m[2]) } : null;
+  })();
+  function writeChoiceToHash() {
+    const hash = v2Scenario ? `#chaine/scenario/${v2Scenario}` : v2ReplayCutoff ? `#chaine/rejeu/${v2ReplayCutoff}` : '#chaine';
+    if (window.location.hash !== hash) {
+      try { window.history.replaceState(null, '', hash); } catch { /* ancre non modifiable : choix gardé en mémoire */ }
+    }
+  }
   /* Seule la dernière réponse demandée est affichée. */
   let v2Request = 0;
 
@@ -1689,9 +1817,96 @@ let pollTimer = null;
       el.v2ScenarioWrap.hidden = options.length < 2;
       el.v2Scenario.addEventListener('change', () => {
         v2Scenario = el.v2Scenario.value || null;
+        // Le cutoff de rejeu ne s'applique qu'à l'archive du serveur, jamais à un scénario.
+        el.v2ReplayCutoff.disabled = v2Scenario !== null;
+        writeChoiceToHash();
         refreshV2();
       });
+      if (requestedChoice && requestedChoice.kind === 'scenario'
+          && options.some((o) => o.value === requestedChoice.value && o.value !== '')) {
+        el.v2Scenario.value = requestedChoice.value;
+        v2Scenario = requestedChoice.value;
+        el.v2ReplayCutoff.disabled = true;
+        refreshV2();
+      }
     } catch { /* sans liste, l'entrée du serveur reste affichée */ }
+  }
+
+  /* Cutoff de rejeu choisi pour l'archive du serveur ; null = celui du serveur. */
+  let v2ReplayCutoff = null;
+  const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+  /** Ce que l'archive contient par champ, quel que soit le cutoff : comptes et bornes, aucun jugement. */
+  function renderArchiveAvailability(fields) {
+    if (!isList(fields) || fields.length === 0) return;
+    const day = (at) => (isText(at) && UTC_INSTANT.test(at) ? at.replace('T', ' ').replace(/:\d{2}\.\d{3}Z$/, 'Z') : null);
+    const items = [];
+    for (const f of fields) {
+      if (!f || !/^[A-Za-z0-9]{1,16}$/.test(String(f.field)) || !isNum(f.records) || f.records < 0) continue;
+      const li = node('li', '', undefined, { 'data-records': String(f.records) });
+      li.appendChild(node('span', 'v2__avail-field', String(f.field).toUpperCase()));
+      const sources = isList(f.sources) ? f.sources.filter((x) => typeof x === 'string' && /^[a-z0-9_]{1,32}$/.test(x)) : [];
+      li.appendChild(document.createTextNode(f.records === 0
+        ? (f.captureSeries === false ? ' · aucun enregistrement — aucune série de capture définie (source à décider)' : ' · aucun enregistrement')
+        : ` · ${f.records} enr. · ${sources.join(', ') || 'source ?'} · observé ${day(f.firstObservedAt) ?? '?'} → ${day(f.lastObservedAt) ?? '?'}`
+          + ` · reçu ${day(f.firstIngestedAt) ?? '?'} → ${day(f.lastIngestedAt) ?? '?'}`));
+      items.push(li);
+    }
+    el.v2ArchiveAvailList.replaceChildren(...items);
+    el.v2ArchiveAvail.hidden = items.length === 0;
+  }
+
+  /** Instants de réception de l'archive (--archive) ; sans archive, le sélecteur reste caché. */
+  async function loadArchiveCutoffs() {
+    if (!CONFIG.V2_ARCHIVE_CUTOFFS_URL) return;
+    try {
+      const response = await fetch(CONFIG.V2_ARCHIVE_CUTOFFS_URL, { headers: { accept: 'application/json' } });
+      if (!response.ok) return;
+      const list = await response.json();
+      if (!list || list.schemaVersion !== 'xau.terminal-archive-cutoffs.v1' || !isList(list.cutoffs)) return;
+      const instants = list.cutoffs.filter((at) => typeof at === 'string' && UTC_INSTANT.test(at));
+      // --captures non fusionnées : le marché est absent ; dire pourquoi plutôt qu'un simple rejet.
+      const cap = list.captures;
+      if (cap && typeof cap === 'object' && cap.merged === false) {
+        const problems = isList(cap.problems) ? cap.problems.filter((x) => typeof x === 'string').slice(0, 6) : [];
+        setText(el.v2CapturesFailed, `CAPTURES NON FUSIONNÉES (${isNum(cap.sources) ? cap.sources : '?'} journal(aux)) : `
+          + `${problems.join(' · ') || 'raison inconnue'}. Aucun marché n'est retenu ; HOLD, exécution interdite.`);
+        el.v2CapturesFailed.hidden = false;
+        el.v2ReplayCutoff.hidden = true;
+        setText(el.v2ReplayCutoffHint, '');
+        el.v2ReplayCutoffWrap.hidden = false;
+        return;
+      }
+      if (instants.length === 0) return;
+      const defaultLabel = isText(list.defaultCutoff) ? `Cutoff du serveur (${list.defaultCutoff})` : 'Cutoff du serveur';
+      const options = [node('option', '', defaultLabel, { value: '' })];
+      // Ce qui est arrivé à chaque instant (champs), quand le serveur le dit pour ce même instant.
+      const received = new Map((isList(list.receptions) ? list.receptions : [])
+        .filter((r) => r && typeof r.at === 'string' && isList(r.fields))
+        .map((r) => [r.at, r.fields.filter((f) => typeof f === 'string' && /^[A-Za-z0-9]{1,16}$/.test(f))]));
+      instants.forEach((at, i) => {
+        const fields = received.get(at);
+        options.push(node('option', '', `${at.replace('T', ' ')} — réception ${i + 1}/${instants.length}`
+          + `${fields && fields.length ? ` · ${fields.map((f) => f.toUpperCase()).join(', ')}` : ''}`, { value: at }));
+      });
+      el.v2ReplayCutoff.replaceChildren(...options);
+      setText(el.v2ReplayCutoffHint, `${instants.length} instant${instants.length > 1 ? 's' : ''} de réception de l'archive${list.truncated === true ? ' (les plus récents)' : ''} : `
+        + 'chaque rejeu ne connaît que les données reçues à cet instant. Les autres entrées restent celles du document : '
+        + 'un cutoff différent du leur est signalé comme incohérence. HOLD, exécution interdite.');
+      el.v2ReplayCutoffWrap.hidden = false;
+      renderArchiveAvailability(list.fields);
+      el.v2ReplayCutoff.disabled = v2Scenario !== null;
+      el.v2ReplayCutoff.addEventListener('change', () => {
+        v2ReplayCutoff = el.v2ReplayCutoff.value || null;
+        writeChoiceToHash();
+        refreshV2();
+      });
+      if (requestedChoice && requestedChoice.kind === 'rejeu' && instants.includes(requestedChoice.value)) {
+        el.v2ReplayCutoff.value = requestedChoice.value;
+        v2ReplayCutoff = requestedChoice.value;
+        if (v2Scenario === null) refreshV2();
+      }
+    } catch { /* sans liste, le cutoff du serveur reste appliqué */ }
   }
 
   async function refreshV2() {
@@ -1701,7 +1916,8 @@ let pollTimer = null;
       return;
     }
     const request = ++v2Request;
-    const url = v2Scenario ? `${CONFIG.V2_VIEW_URL}?scenario=${encodeURIComponent(v2Scenario)}` : CONFIG.V2_VIEW_URL;
+    const url = v2Scenario ? `${CONFIG.V2_VIEW_URL}?scenario=${encodeURIComponent(v2Scenario)}`
+      : v2ReplayCutoff ? `${CONFIG.V2_VIEW_URL}?cutoff=${encodeURIComponent(v2ReplayCutoff)}` : CONFIG.V2_VIEW_URL;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), RUNTIME.FETCH_TIMEOUT_MS);
     try {
@@ -1813,6 +2029,7 @@ let pollTimer = null;
 
     /* La vue V2 est indépendante du flux V1 : elle est lue dans les deux modes. */
     loadScenarios();
+    loadArchiveCutoffs();
     refreshV2();
     if (CONFIG.V2_VIEW_URL) setInterval(refreshV2, CONFIG.ANALYSIS_INTERVAL_MS);
 
