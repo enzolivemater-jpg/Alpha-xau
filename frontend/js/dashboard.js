@@ -199,6 +199,7 @@
     v2MarketState: $('v2-market-state'),
     v2Replay: $('v2-replay'),
     v2Positioning: $('v2-positioning'),
+    v2PositioningFreshness: $('v2-positioning-freshness'),
     v2PositioningThrough: $('v2-positioning-through'),
     v2PositioningSources: $('v2-positioning-sources'),
     v2Capabilities: $('v2-capabilities'),
@@ -1289,6 +1290,13 @@ let pollTimer = null;
       if (prov[0].source === 'CAPTURED_ARCHIVE' && (!mev || mev.provenanceClass !== 'CAPTURED')) return 'provenance du marché contradictoire';
       if (prov[0].source === 'SYNTHETIC_FIXTURE' && mev && mev.provenanceClass === 'CAPTURED') return 'provenance du marché contradictoire';
     }
+    // B5 : aucun seuil de fraîcheur n'est approuvé ; une preuve de positionnement n'est jamais « prête ».
+    const pos = view.positioning;
+    if (pos && pos.evidenceState === 'EVIDENCE_READY') return 'positionnement déclaré prêt sans seuil de fraîcheur approuvé';
+    const fresh = pos && pos.freshness;
+    if (pos && isNum(pos.evidenceCount) && pos.evidenceCount > 0
+        && (!fresh || fresh.status !== 'NOT_EVALUATED' || !isText(fresh.plain))) return 'fraîcheur du positionnement non conforme';
+    if (fresh !== undefined && (!fresh || !['NOT_EVALUATED', 'NO_EVIDENCE'].includes(fresh.status))) return 'fraîcheur du positionnement non conforme';
     for (const h of view.horizons) {
       // Une direction n'existe qu'avec une méthode approuvée ; il n'y en a aucune.
       if (!h || h.status !== 'ABSTAIN' || h.direction !== 'UNAVAILABLE') return 'horizon non abstenu';
@@ -1373,7 +1381,8 @@ let pollTimer = null;
     el.v2Prov.hidden = true;
     el.v2ProvList.replaceChildren();
     for (const n of [el.v2ChainState, el.v2Execution, el.v2Integrity, el.v2Cutoff, el.v2CutoffAge, el.v2Digest,
-      el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningThrough, el.v2PositioningSources, el.v2MarketState]) {
+      el.v2Generated, el.v2Replay, el.v2Positioning, el.v2PositioningFreshness, el.v2PositioningThrough, el.v2PositioningSources,
+      el.v2MarketState]) {
       setText(n, '—');
     }
     setAttr(el.v2Digest, 'title', null);
@@ -1580,6 +1589,10 @@ let pollTimer = null;
     const pos = view.positioning || {};
     setText(el.v2Positioning, isText(pos.evidenceState)
       ? `${pos.evidenceState} · ${isNum(pos.evidenceCount) ? pos.evidenceCount : 0} preuve(s) · signal ${pos.positioningState || 'N/A'}`
+      : 'N/A');
+    const fresh = pos.freshness;
+    setText(el.v2PositioningFreshness, fresh && isText(fresh.plain)
+      ? `${fresh.plain}${isNum(fresh.publishedAgeSecondsAtCutoff) ? ` · publiée ${fmtAge(fresh.publishedAgeSecondsAtCutoff)} avant le cutoff` : ''}`
       : 'N/A');
     setText(el.v2PositioningThrough, isText(pos.observedThrough) ? pos.observedThrough : 'N/A');
     setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length

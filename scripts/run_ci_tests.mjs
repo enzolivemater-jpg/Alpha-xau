@@ -148,6 +148,7 @@ const TEST_FILES = [
   'tests/test_data_api_default_acl_preflight.mjs',
   'tests/test_public_schema_create_hardening_contract.mjs',
   'tests/test_positioning_evidence_contract.mjs',
+  'tests/test_positioning_freshness_gate.mjs',
   'tests/test_positioning_persistence_contract.mjs',
   'tests/test_pre_pm_evidence_risk_contract.mjs',
   'tests/test_prepare_recovery_roles.mjs',

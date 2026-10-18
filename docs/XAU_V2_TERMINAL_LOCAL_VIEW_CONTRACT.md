@@ -10,7 +10,7 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.1.0`.
+- `terminal-local-view-4.2.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
@@ -38,6 +38,15 @@ to the header of an archive view, and refuses the whole view when a non-market
 input claims an archive, when the market's claim contradicts the manifest, or
 when the list is malformed. A view without `inputProvenance` (an older 4.0.0
 producer) is still drawn, with "PROVENANCE PAR ENTRÉE NON FOURNIE".
+
+Algorithm 4.2.0 (B5) adds `positioning.freshness`, additively:
+`status` `NOT_EVALUATED` (evidence kept, reason
+`FRESHNESS_POLICY_NOT_APPROVED`, plain "fraîcheur non évaluée — aucun seuil
+approuvé") or `NO_EVIDENCE`, the latest publication instant and its age in
+seconds at the cutoff. The age is a fact, not a freshness judgement: no
+threshold is approved. The terminal draws it under FRAÎCHEUR POSITIONNEMENT
+and refuses a view whose positioning is `EVIDENCE_READY`, or whose evidence
+lacks a `NOT_EVALUATED` freshness.
 
 ## What the view contains
 

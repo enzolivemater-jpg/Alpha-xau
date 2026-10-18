@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.1.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.2.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -66,6 +66,7 @@ export const REASON_CODE_CATEGORY: Readonly<Record<string, BlockerCategory>> = {
   EVIDENCE_AFTER_KNOWLEDGE_CUTOFF: 'DATA',
   DUPLICATE_EVIDENCE_KEY: 'DATA',
   METHODOLOGY_NOT_APPROVED: 'BUSINESS_DECISION',
+  FRESHNESS_POLICY_NOT_APPROVED: 'BUSINESS_DECISION',
   // Regime (R-0)
   MARKET_PRICING_VERSION_MISMATCH: 'INTEGRITY',
   POSITIONING_VERSION_MISMATCH: 'INTEGRITY',
@@ -165,6 +166,7 @@ export const REASON_CODE_PLAIN_FR: Readonly<Record<string, string>> = {
   EVIDENCE_AFTER_KNOWLEDGE_CUTOFF: 'Une preuve de positionnement est postérieure au cutoff.',
   DUPLICATE_EVIDENCE_KEY: 'Une preuve de positionnement est en double.',
   METHODOLOGY_NOT_APPROVED: 'La méthode de lecture du positionnement n\'est pas approuvée.',
+  FRESHNESS_POLICY_NOT_APPROVED: 'Aucun seuil de fraîcheur approuvé pour ce jeu de positionnement : fraîcheur non évaluée.',
   MARKET_PRICING_VERSION_MISMATCH: 'Version du prix de marché incohérente entre étages.',
   POSITIONING_VERSION_MISMATCH: 'Version du positionnement incohérente entre étages.',
   UPSTREAM_CUTOFF_MISMATCH: 'Les étages amont n\'ont pas le même cutoff.',
@@ -389,6 +391,37 @@ export interface TerminalHoldRationale {
   readonly unclassifiedCodes: readonly string[];
 }
 
+export interface TerminalPositioningFreshness {
+  readonly status: 'NOT_EVALUATED' | 'NO_EVIDENCE';
+  readonly reason: 'FRESHNESS_POLICY_NOT_APPROVED' | null;
+  readonly plain: string;
+  readonly latestPublishedAt: string | null;
+  readonly publishedAgeSecondsAtCutoff: number | null;
+}
+
+const NO_POSITIONING_EVIDENCE_FRESHNESS: TerminalPositioningFreshness = {
+  status: 'NO_EVIDENCE', reason: null, plain: 'aucune preuve de positionnement',
+  latestPublishedAt: null, publishedAgeSecondsAtCutoff: null,
+};
+
+/** B5: the latest publication among the kept evidence, and its age at the cutoff. */
+function positioningFreshnessOf(
+  evidence: readonly { readonly publishedAt: string }[],
+  knowledgeCutoff: string,
+): TerminalPositioningFreshness {
+  const published = evidence.map((item) => parseStrictTimestamp(item.publishedAt)).filter((ms): ms is number => ms !== null);
+  if (published.length === 0) return NO_POSITIONING_EVIDENCE_FRESHNESS;
+  const latest = Math.max(...published);
+  const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
+  return {
+    status: 'NOT_EVALUATED',
+    reason: 'FRESHNESS_POLICY_NOT_APPROVED',
+    plain: 'fraîcheur non évaluée — aucun seuil approuvé',
+    latestPublishedAt: new Date(latest).toISOString(),
+    publishedAgeSecondsAtCutoff: cutoffMs === null ? null : Math.floor((cutoffMs - latest) / 1000),
+  };
+}
+
 export interface TerminalView {
   readonly schemaVersion: typeof TERMINAL_VIEW_SCHEMA_VERSION;
   readonly algorithmVersion: typeof TERMINAL_VIEW_ALGORITHM_VERSION;
@@ -430,6 +463,11 @@ export interface TerminalView {
     readonly evidenceCount: number;
     readonly sourceAuthorities: readonly string[];
     readonly observedThrough: string | null;
+    /**
+     * B5: no freshness policy is approved, so freshness is never evaluated. The
+     * publication age at the cutoff is a fact, not a judgement of freshness.
+     */
+    readonly freshness: TerminalPositioningFreshness;
   };
   readonly horizons: readonly { readonly horizon: string; readonly status: string; readonly direction: string }[];
   readonly acceptance: {
@@ -789,7 +827,8 @@ export function buildTerminalView(
       },
       stages: [],
       market: { state: null, observedThrough: null, replay: null, fields: [] },
-      positioning: { evidenceState: null, positioningState: null, evidenceCount: 0, sourceAuthorities: [], observedThrough: null },
+      positioning: { evidenceState: null, positioningState: null, evidenceCount: 0, sourceAuthorities: [], observedThrough: null,
+        freshness: NO_POSITIONING_EVIDENCE_FRESHNESS },
       horizons: [],
       acceptance: { state: null, productionReadiness: null, evidence: [] },
       observability: { state: null, correlationId: null, deploymentId: null },
@@ -859,6 +898,7 @@ export function buildTerminalView(
       evidenceCount: positioning.evidence.length,
       sourceAuthorities: [...positioning.sourceAuthorities],
       observedThrough: positioning.observedThrough,
+      freshness: positioningFreshnessOf(positioning.evidence, result.knowledgeCutoff),
     },
     horizons: result.stages.horizonSynthesis.scenarios.map(({ horizon, status, direction }) => ({ horizon, status, direction })),
     acceptance: {
