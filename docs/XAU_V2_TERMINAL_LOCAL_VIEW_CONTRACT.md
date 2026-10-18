@@ -383,7 +383,9 @@ none selected by default (the server's input stays the default view):
   optional `reportDate`, `contractMarketCode`, `artifactId`, `sourceUrl`
   (https only), `publicationBasis` (`{kind: EXPLICIT_OFFICIAL_MAPPING |
   OFFICIAL_SCHEDULE_INFERRED, reference: https://www.cftc.gov/…}`, shown in the
-  card; absent = "déclaration de l'opérateur seule"); any other key is `DECLARATION_INVALID`; an `artifactId` that
+  card; absent = "déclaration de l'opérateur seule"); each CFTC entry also gives
+  `fileReports` (count, first and last report date of the market in the
+  file, from its rows, declared or not); any other key is `DECLARATION_INVALID`; an `artifactId` that
   is not the file's sha256 is `DECLARATION_DIGEST_MISMATCH`): CFTC COT files (`cot:<file>`). Without a valid
   declaration a file is never converted (`DECLARATION_MISSING` /
   `DECLARATION_INVALID`, its format problem named when visible); unknown

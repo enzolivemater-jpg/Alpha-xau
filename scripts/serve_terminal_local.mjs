@@ -508,7 +508,7 @@ export async function buildLocalView({
   const positioningEntries = [...positioning.values()].map((source) => (source.kind === 'INPUT_DOCUMENT'
     ? { id: source.id, kind: source.kind, label: source.label, status: 'DOCUMENT', sourceApproval: null, dataset: null, reportDate: null,
       publishedAt: null, receivedAt: null, metrics: null, artifactId: null, reasonCodes: [], detail: null, declaredBy: null,
-      dateColumn: null, fileDatasetMarker: null, sourceUrl: null, publicationBasis: null, boundToBytes: null }
+      dateColumn: null, fileDatasetMarker: null, sourceUrl: null, publicationBasis: null, fileReports: null, boundToBytes: null }
     : {
       id: source.id, kind: source.kind, label: source.label,
       status: source.conversion?.status ?? 'REJECTED',
@@ -531,6 +531,9 @@ export async function buildLocalView({
       fileDatasetMarker: source.conversion?.fileDatasetMarker ?? (source.inspection?.datasetMarkers?.length === 1 ? source.inspection.datasetMarkers[0] : null),
       sourceUrl: source.declaration?.sourceUrl ?? null,
       publicationBasis: source.declaration?.publicationBasis ? { ...source.declaration.publicationBasis } : null,
+      // The reports of the market the file holds (from its header and rows), whatever is declared.
+      fileReports: source.inspection && Array.isArray(source.inspection.reportDates) && source.inspection.reportDates.length
+        ? { count: source.inspection.reportDates.length, first: source.inspection.reportDates[0], last: source.inspection.reportDates.at(-1) } : null,
       boundToBytes: source.declaration ? typeof source.declaration.artifactId === 'string' : null,
     }));
   render.catalog = () => ({

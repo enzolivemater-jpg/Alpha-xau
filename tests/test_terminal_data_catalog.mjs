@@ -90,6 +90,9 @@ assert.deepEqual(Object.keys(p), ['input', 'cot:bad-declaration.csv', 'cot:f_dis
 assert.deepEqual([p['cot:gold.csv'].status, p['cot:gold.csv'].metrics, p['cot:gold.csv'].dataset, p['cot:gold.csv'].reportDate, p['cot:gold.csv'].sourceApproval],
   ['EXTRACTED', 14, 'FUTURES_ONLY', '2026-09-22', 'NOT_APPROVED']);
 assert.deepEqual(p['cot:undeclared.csv'].reasonCodes, ['DECLARATION_MISSING']);
+assert.deepEqual(p['cot:gold.csv'].fileReports, { count: 2, first: '2026-09-22', last: '2026-09-29' }, 'the file holds two reports, one is declared');
+assert.deepEqual(p['cot:undeclared.csv'].fileReports, { count: 2, first: '2026-09-22', last: '2026-09-29' }, 'known even before a declaration');
+assert.equal(p['cot:f_disagg.zip'].fileReports, null);
 assert.deepEqual(p['cot:bad-declaration.csv'].reasonCodes, ['DECLARATION_INVALID'], 'an unknown key (approved) is refused');
 assert.deepEqual(p['cot:f_disagg.zip'].reasonCodes, ['UNSUPPORTED_FORMAT']);
 assert.match(p['cot:f_disagg.zip'].detail, /archive ZIP/);
@@ -234,6 +237,7 @@ assert.equal(d.querySelector('#v2-prov [data-input="POSITIONING"]').getAttribute
 change(dom, d.getElementById('v2-data-positioning'), 'cot:gold.csv');
 await settle();
 assert.match(d.getElementById('v2-data-card-positioning').textContent, /LU — 14 mesures brutes, aucune méthode approuvée.*futures seuls.*2026-09-22/);
+assert.match(d.getElementById('v2-data-card-positioning').textContent, /Rapports dans le fichier2 \(2026-09-22 → 2026-09-29\) · un seul est lu : celui déclaré/);
 assert.match(d.getElementById('v2-data-card-positioning').textContent, /Base de la date de publicationnon indiquée \(déclaration de l'opérateur seule\)/);
 assert.equal(dom.window.location.hash, '#chaine/donnees/log:evidence:fred-log/cot:gold.csv');
 assert.notEqual(d.getElementById('v2-status').getAttribute('data-state'), 'rejected');

@@ -1913,6 +1913,8 @@ let pollTimer = null;
           ['État', p.status === 'EXTRACTED' ? `LU — ${isNum(p.metrics) ? p.metrics : '?'} mesures brutes, aucune méthode approuvée` : V2_COT_STATUS[p.status] || label(p.status)],
           ['Jeu déclaré', p.dataset === 'FUTURES_ONLY' ? 'futures seuls' : p.dataset === 'FUTURES_AND_OPTIONS_COMBINED' ? 'futures et options' : '—'],
           ['Rapport du', isText(p.reportDate) ? p.reportDate : '—'],
+          ['Rapports dans le fichier', p.fileReports && isNum(p.fileReports.count)
+            ? `${p.fileReports.count} (${p.fileReports.first} → ${p.fileReports.last}) · un seul est lu : celui déclaré` : '—'],
           ['Publié / reçu (déclarés)', `${instant(p.publishedAt)} / ${instant(p.receivedAt)}`],
           ['Empreinte', isText(p.artifactId) ? p.artifactId : '—'],
           ['Liée aux octets', p.boundToBytes === true ? 'oui : la déclaration porte cette empreinte' : p.boundToBytes === false ? 'non (déclaration sans empreinte)' : '—'],
