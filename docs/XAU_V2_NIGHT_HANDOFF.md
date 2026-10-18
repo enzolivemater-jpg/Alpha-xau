@@ -185,6 +185,34 @@ plus one `workflow_dispatch:` line) run `39117320216` 11/11. **No CI run exists 
 `58d63e4` typecheck clean, 144/144 (Node 22), DATA-3 real captures 115/115; this branch:
 see `docs/XAU_V2_RC_OFFLINE_QUALIFICATION.md`.
 
+## Autonomous session 2026-10-18 (branch `feat/auto-session-1`, local, on RC `ea5aa64`)
+
+Branch created from `ea5aa64` (RC OFFLINE, CI 11/11 by the user's statement; no CI on any
+commit below). Nothing pushed; `main`, REC-1 and production untouched; HOLD / FORBIDDEN on
+every path; CHAIN-0, OBS-0 and the golden digest `sha256:9bbd9cac…eef2db3c` unchanged.
+
+| # | Domain | Defect (demonstrated) or gap | Fix | Main files |
+| --- | --- | --- | --- | --- |
+| 41 | Terminal | Positioning evidence published after an earlier replay cutoff read "publiée -7 h avant le cutoff" | view 4.3.0 `AFTER_KNOWLEDGE_CUTOFF`, no age; page refuses a negative age | `terminal_view.ts`, `dashboard.js`, `tests/test_terminal_lookahead_positioning.mjs` |
+| 42 | Terminal (P1) | `--archive` could only be replayed at one cutoff fixed at start | `/local/v2/archive-cutoffs.json` (reception instants, fields received, per-field availability, capture series); `?cutoff=` replay; CUTOFF DE REJEU selector | `serve_terminal_local.mjs`, `frontend/`, `tests/test_terminal_archive_cutoffs.mjs` |
+| 43 | Terminal (P1) | Real capture logs needed a manual DATA-3 merge before `--archive` | `--captures DIR` (in-memory merge, replay after the last reception), `--captures-local`, `xau-terminal-captures.cmd` | same, `terminal_launch.mjs`, `tests/test_terminal_captures.mjs` |
+| 44 | Terminal (P0, on the RC) | An unreadable archive or failed merge made the page refuse the whole view ("nature de marché incohérente"): 128/150 mutated archives on `ea5aa64` | page accepts exactly INVALID / no class / SIMULATION / no observation as ARCHIVE REJETÉE, HOLD; failed merge reasons shown; 0/150 after | `dashboard.js`, `tests/test_terminal_captures.mjs` |
+| 45 | Terminal (P0) | The launcher reused a running instance started with other data options | `health.json` `args`; mismatch exits 1 with "--stop first" | `terminal_launch.mjs`, `tests/test_terminal_offline_finalisation.mjs` |
+| 46 | Terminal (P3) | A replay at another instant showed only "1 incohérence interne" | view 4.5.0 `cutoffAlignment` (input summary cutoffs vs chain cutoff), shown under POURQUOI HOLD; same view from the unified rehearsal (RC-0) | `terminal_view.ts`, `unified_rehearsal.ts`, `tests/test_terminal_cutoff_alignment.mjs` |
+| 47 | Terminal | Start lines written in two writes: `test_terminal_cli_process` failed 1 run in 3 under load | one write | `serve_terminal_local.mjs` |
+| 48 | Positioning (P2) | No offline path from a CFTC COT file to P-0 | CFTC disaggregated futures-only adapter (pure, one report per call, declared instants, `NOT_APPROVED`); terminal `--positioning-cot` (view 4.4.0, `LOCAL_INPUT_UNVERIFIED`) | `backend/positioning_engine/cftc_cot_offline_adapter.ts`, `tests/test_cftc_cot_offline_adapter.mjs`, `tests/test_terminal_positioning_cot.mjs` |
+| 49 | Event facts (P2) | Consensus source NOT_STARTED, no boundary for a future figure | C-0 consensus evidence contract against the RESOLVED official result; consensus stays UNKNOWN | `backend/event_facts/consensus_evidence_contract.ts`, `docs/XAU_V2_CONSENSUS_EVIDENCE_CONTRACT.md` |
+| 50 | Tooling (P4) | Plan drift needed SHAs found and copied by hand; plans written by hand | RECON-AUTO-1 1.1.0: drift `ADVANCED` / `REWRITTEN` / `DECLARED_UNKNOWN` with commits, `proposed-plan.json`; `--init-plan` from named refs (create-only) | `scripts/recon_auto.mjs`, `tests/test_recon_auto.mjs` |
+
+Evidence (local, Node 22): full suite 153/153 and typecheck on the session head before this
+note; RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `4c41a5d` (FAST_FORWARD on
+`ea5aa64`); Chromium 129 layout 35/35 and a 31-check walk with the real local captures;
+19/19 mutants killed; fuzz: 500 mutated archives through the view, 300 archives and 200
+input documents through the page, no exception and no refused server view. Not tested:
+Windows `.cmd` execution, Firefox (absent), Safari (impossible here). The CFTC column names
+are not verified against a real CFTC file; the consensus contract has no approved source.
+Captures are merged once at start: logs added later need a restart.
+
 ## Integration with the cloud branch (DONE locally on `integration/pr-149-plus-cloud-canonical-json`)
 
 Created from `4e132f4`; `84e5374` cherry-picked as `979d601` with no conflict (git auto-merged
