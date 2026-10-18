@@ -226,6 +226,41 @@ try {
   assert.equal(report.result.head, r.sha('cand2'));
   console.log('PASS unknown refs, SHA mismatches, foreign bases and merge commits block; stacked candidates chain');
 
+  // --- 7b. 1.1.0 --init-plan: named refs only, current SHAs, stacked bases; the proposal runs as is.
+  {
+    const proposed = recon.initPlan({ repo: r.dir, env: ENV, integrationBranch: 'refs/heads/recon/test',
+      canonical: { name: 'canon', ref: 'refs/heads/canon' },
+      candidates: [{ name: 'cand', ref: 'refs/heads/cand', origin: 'LOCAL' }, { name: 'cand2', ref: 'refs/heads/cand2', origin: 'CLOUD' }] });
+    assert.deepEqual(proposed.problems, []);
+    assert.deepEqual(proposed.plan, plan(ref(r, 'canon'), [good, cand(r, 'cand2', good.sha, 'CLOUD')]), 'merge-base, then the stacked parent');
+    assert.equal((await run(r, proposed.plan)).classification, 'PASS');
+    const side2 = recon.initPlan({ repo: r.dir, env: ENV, integrationBranch: 'refs/heads/recon/test',
+      canonical: { name: 'canon', ref: 'refs/heads/canon' }, candidates: [{ name: 'side', ref: 'refs/heads/side', origin: 'LOCAL' }] });
+    assert.equal(side2.plan.candidates[0].base, r.base, 'an unrelated branch is based on its merge-base with the canonical');
+    for (const [name, args, problem] of [
+      ['unknown ref', { canonical: { name: 'canon', ref: 'refs/heads/canon' }, candidates: [{ name: 'x', ref: 'refs/heads/nope', origin: 'LOCAL' }] }, /UNKNOWN_REF/],
+      ['protected ref', { canonical: { name: 'canon', ref: 'refs/heads/main' }, candidates: [{ name: 'cand', ref: 'refs/heads/cand', origin: 'LOCAL' }] }, /INVALID_REF/],
+      ['bad origin', { canonical: { name: 'canon', ref: 'refs/heads/canon' }, candidates: [{ name: 'cand', ref: 'refs/heads/cand', origin: 'MAYBE' }] }, /INVALID_PLAN/],
+      ['bad branch', { canonical: { name: 'canon', ref: 'refs/heads/canon' }, candidates: [{ name: 'cand', ref: 'refs/heads/cand', origin: 'LOCAL' }], integrationBranch: 'refs/heads/main' }, /INVALID_PLAN/],
+    ]) {
+      const out = recon.initPlan({ repo: r.dir, env: ENV, integrationBranch: 'refs/heads/recon/test', ...args });
+      assert.equal(out.plan, null, name);
+      assert.match(out.problems.join(), problem, name);
+    }
+    // CLI: written create-only, never over an existing file.
+    const outPlan = path.join(ROOT, 'init-plan.json');
+    const init = (...extra) => spawnSync(process.execPath, [SCRIPT, '--init-plan', '--repo', r.dir, '--canonical', 'canon=refs/heads/canon',
+      '--candidate', 'cand=refs/heads/cand@LOCAL', '--integration-branch', 'refs/heads/recon/test', '--out-plan', outPlan, ...extra],
+    { encoding: 'utf8', env: ENV });
+    assert.equal(init().status, 0);
+    assert.deepEqual(JSON.parse(readFileSync(outPlan, 'utf8')), plan(ref(r, 'canon'), [good]));
+    const again = init();
+    assert.equal(again.status, 2);
+    assert.match(again.stderr, /EEXIST/);
+    assert.equal(spawnSync(process.execPath, [SCRIPT, '--init-plan', '--canonical', 'canon=refs/heads/canon'], { encoding: 'utf8' }).status, 64);
+  }
+  console.log('PASS --init-plan proposes a valid plan from named refs (current SHAs, stacked bases), create-only');
+
   // --- 8. Malicious or malformed plans are refused before any git command.
   const okPlan = plan(ref(r, 'canon'), [good]);
   for (const [label, mutate] of [

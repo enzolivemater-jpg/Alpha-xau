@@ -35,7 +35,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import {
-  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, symlinkSync, unlinkSync, writeSync,
+  closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, symlinkSync, unlinkSync, writeFileSync, writeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -318,6 +318,49 @@ export function renderMarkdown(report) {
 }
 
 /**
+ * 1.1.0 plan proposal from refs a human names (nothing is discovered): each ref
+ * is resolved to its current commit; a candidate's base is the previous
+ * candidate when that one is an ancestor of it (a stack), else its merge-base
+ * with the canonical commit. Read-only git. Returns { plan, problems }: plan is
+ * null unless every ref resolves, a merge-base exists and the result is a valid
+ * plan. The caller writes it for review; it is never run by itself.
+ */
+export function initPlan({ repo = process.cwd(), canonical, candidates, integrationBranch, env = process.env }) {
+  const ctx = { repo: path.resolve(repo), workRoot: path.resolve(repo), env, commands: [] };
+  const problems = [];
+  if (!canonical || !Array.isArray(candidates) || candidates.length === 0) return { plan: null, problems: ['USAGE'] };
+  const resolve = (entry) => {
+    if (!validRef(entry.ref) || !NAME.test(entry.name ?? '')) {
+      problems.push(`INVALID_REF:${entry.name}`);
+      return null;
+    }
+    const sha = resolveRef(ctx, entry.ref);
+    if (sha === null) problems.push(`UNKNOWN_REF:${entry.ref}`);
+    return sha;
+  };
+  const canonicalSha = resolve(canonical);
+  const proposed = [];
+  let previous = null;
+  for (const k of candidates) {
+    const sha = resolve(k);
+    if (sha === null || canonicalSha === null) continue;
+    let base = null;
+    if (previous !== null && isAncestor(ctx, previous, sha) && previous !== sha) base = previous;
+    else {
+      const mb = runGit(ctx, ['merge-base', canonicalSha, sha]);
+      base = mb.status === 0 && SHA.test(mb.stdout) ? mb.stdout : null;
+    }
+    if (base === null) problems.push(`NO_MERGE_BASE:${k.name}`);
+    proposed.push({ name: k.name, ref: k.ref, sha, base, origin: k.origin });
+    previous = sha;
+  }
+  if (problems.length) return { plan: null, problems };
+  const plan = validatePlan({ schemaVersion: RECON_PLAN_SCHEMA_VERSION, canonical: { ...canonical, sha: canonicalSha },
+    candidates: proposed, integrationBranch });
+  return plan === null ? { plan: null, problems: ['INVALID_PLAN'] } : { plan, problems: [] };
+}
+
+/**
  * Runs one reconciliation. Never throws for an expected failure: the report
  * carries the classification and the reasons.
  */
@@ -548,6 +591,29 @@ export async function reconcile({
   }
 }
 
+/**
+ * --init-plan --canonical NAME=REF --candidate NAME=REF@ORIGIN... --integration-branch refs/heads/recon/X
+ * --out-plan FILE: the proposal, written create-only.
+ */
+export function parseInitArgs(argv) {
+  const options = { repo: process.cwd(), canonical: null, candidates: [], integrationBranch: null, outPlan: null };
+  const entry = (value, withOrigin) => {
+    const m = typeof value === 'string' ? value.match(withOrigin ? /^([^=]+)=([^@]+)@(CLOUD|LOCAL)$/ : /^([^=]+)=([^@]+)$/) : null;
+    return m ? { name: m[1], ref: m[2], ...(withOrigin ? { origin: m[3] } : {}) } : null;
+  };
+  for (let i = 1; i < argv.length; i += 2) {
+    const [flag, value] = [argv[i], argv[i + 1]];
+    if (value === undefined) return null;
+    if (flag === '--repo') options.repo = path.resolve(value);
+    else if (flag === '--canonical' && entry(value, false)) options.canonical = entry(value, false);
+    else if (flag === '--candidate' && entry(value, true)) options.candidates.push(entry(value, true));
+    else if (flag === '--integration-branch') options.integrationBranch = value;
+    else if (flag === '--out-plan') options.outPlan = path.resolve(value);
+    else return null;
+  }
+  return options.canonical && options.candidates.length && options.integrationBranch && options.outPlan ? options : null;
+}
+
 export function parseArgs(argv) {
   const options = { repo: process.cwd(), planFile: null, outDir: null, workRoot: undefined, verify: [], apply: false, recoverStaleLock: false };
   for (let i = 0; i < argv.length; i += 1) {
@@ -573,6 +639,27 @@ export function parseArgs(argv) {
 }
 
 async function main() {
+  if (process.argv[2] === '--init-plan') {
+    const init = parseInitArgs(process.argv.slice(2));
+    if (init === null) {
+      process.stderr.write('usage: node scripts/recon_auto.mjs --init-plan --canonical NAME=REF --candidate NAME=REF@LOCAL|CLOUD...'
+        + ' --integration-branch refs/heads/recon/NAME --out-plan FILE [--repo DIR]\n');
+      return 64;
+    }
+    const { plan, problems } = initPlan(init);
+    if (plan === null) {
+      process.stderr.write(`no plan proposed: ${problems.join(', ')}\n`);
+      return 2;
+    }
+    try {
+      writeFileSync(init.outPlan, `${JSON.stringify(plan, null, 2)}\n`, { flag: 'wx' }); // never overwrites
+    } catch (error) {
+      process.stderr.write(`not written: ${init.outPlan} (${error.code ?? error.message})\n`);
+      return 2;
+    }
+    process.stdout.write(`plan proposed in ${init.outPlan} (${plan.candidates.length} candidate(s)); review it, then run with --plan\n`);
+    return 0;
+  }
   const options = parseArgs(process.argv.slice(2));
   if (options === null) {
     process.stderr.write('usage: node scripts/recon_auto.mjs --plan plan.json [--repo DIR] [--out DIR] [--work-root DIR]'

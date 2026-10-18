@@ -36,6 +36,23 @@ and refs; the integration branch is `refs/heads/recon/<name>`. Anything else,
 including a getter that throws, is `INVALID_PLAN` and no git command runs.
 Nothing is discovered: an unknown branch is never selected.
 
+### Proposing a plan (`--init-plan`, 1.1.0)
+
+```sh
+node scripts/recon_auto.mjs --init-plan --canonical rc=refs/heads/recon/terminal-offline-final \
+  --candidate auto=refs/heads/feat/auto-session-1@LOCAL \
+  --integration-branch refs/heads/recon/auto-session-1 --out-plan plan.json
+```
+
+Only the refs named on the command line are used (nothing is discovered).
+Each resolves to its current commit; a candidate's base is the previous
+candidate when that one is its ancestor (a stack), else its merge-base with
+the canonical commit. The result must pass the plan validation above; it is
+written create-only (an existing file is never replaced, exit 2) and never
+run by itself. Exit 0 written, 2 no plan (unknown or invalid ref, no
+merge-base, invalid result), 64 usage. A human reviews the file, then runs it
+with `--plan`.
+
 ## Algorithm
 
 1. Lock `<git-common-dir>/recon-auto.lock` (O_EXCL). A live owner:
