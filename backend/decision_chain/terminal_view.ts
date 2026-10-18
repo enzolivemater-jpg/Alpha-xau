@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.5.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.6.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -391,6 +391,36 @@ export interface TerminalHoldRationale {
   readonly unclassifiedCodes: readonly string[];
 }
 
+export const TERMINAL_POSITIONING_EVIDENCE_ROWS = 64;
+
+export interface TerminalPositioningEvidenceRow {
+  readonly sourceAuthority: string;
+  readonly datasetCode: string;
+  readonly instrumentCode: string;
+  readonly metricCode: string;
+  readonly value: number;
+  readonly unit: string;
+  readonly periodEnd: string;
+  readonly publishedAt: string;
+  readonly observedAt: string;
+  readonly afterCutoff: boolean;
+}
+
+function positioningEvidenceRowsOf(
+  evidence: readonly { readonly sourceAuthority: string; readonly datasetCode: string; readonly instrumentCode: string;
+    readonly metricCode: string; readonly value: number; readonly unit: string; readonly periodEnd: string;
+    readonly publishedAt: string; readonly observedAt: string }[],
+  knowledgeCutoff: string,
+): TerminalPositioningEvidenceRow[] {
+  const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
+  const after = (at: string) => { const ms = parseStrictTimestamp(at); return cutoffMs !== null && ms !== null && ms > cutoffMs; };
+  return evidence.slice(0, TERMINAL_POSITIONING_EVIDENCE_ROWS).map((e) => ({
+    sourceAuthority: e.sourceAuthority, datasetCode: e.datasetCode, instrumentCode: e.instrumentCode, metricCode: e.metricCode,
+    value: e.value, unit: e.unit, periodEnd: e.periodEnd, publishedAt: e.publishedAt, observedAt: e.observedAt,
+    afterCutoff: after(e.publishedAt) || after(e.observedAt),
+  }));
+}
+
 export interface TerminalPositioningFreshness {
   readonly status: 'NOT_EVALUATED' | 'NO_EVIDENCE' | 'AFTER_KNOWLEDGE_CUTOFF';
   readonly reason: 'FRESHNESS_POLICY_NOT_APPROVED' | 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF' | null;
@@ -527,6 +557,13 @@ export interface TerminalView {
     readonly evidenceState: string | null;
     readonly positioningState: string | null;
     readonly evidenceCount: number;
+    /**
+     * 4.6.0: the raw evidence P-0 kept, as facts (value, unit, period, instants, source), in P-0's order,
+     * at most TERMINAL_POSITIONING_EVIDENCE_ROWS rows. Nothing derived (no net, ratio or rank): no method is approved.
+     * afterCutoff: published or observed after the knowledge cutoff (P-0 rejects it; it is shown, flagged).
+     */
+    readonly evidence?: readonly TerminalPositioningEvidenceRow[];
+    readonly evidenceTruncated?: boolean;
     readonly sourceAuthorities: readonly string[];
     readonly observedThrough: string | null;
     /**
@@ -997,6 +1034,8 @@ export function buildTerminalView(
       evidenceState: positioning.evidenceState,
       positioningState: positioning.positioningState,
       evidenceCount: positioning.evidence.length,
+      evidence: positioningEvidenceRowsOf(positioning.evidence, result.knowledgeCutoff),
+      evidenceTruncated: positioning.evidence.length > TERMINAL_POSITIONING_EVIDENCE_ROWS,
       sourceAuthorities: [...positioning.sourceAuthorities],
       observedThrough: positioning.observedThrough,
       freshness: positioningFreshnessOf(positioning.evidence, result.knowledgeCutoff),

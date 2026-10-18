@@ -90,5 +90,32 @@ assert.equal(item.getAttribute('data-source'), 'LOCAL_INPUT_UNVERIFIED');
 assert.match(item.textContent, /fichier CFTC COT local/);
 assert.match(d.getElementById('v2-positioning').textContent, /ABSTAIN · 14 preuve\(s\) · signal UNAVAILABLE/);
 assert.equal(d.getElementById('v2-positioning-sources').textContent, 'cftc');
+// 4.6.0: the raw values themselves, grouped by report, flagged when after the cutoff; nothing derived.
+assert.equal(own.positioning.evidence.length, 14);
+assert.equal(own.positioning.evidenceTruncated, false);
+const mm = own.positioning.evidence.find((e) => e.metricCode === 'managed_money_long');
+assert.deepEqual([mm.value, mm.unit, mm.periodEnd, mm.sourceAuthority, mm.afterCutoff], [200000, 'CONTRACTS', '2026-09-22', 'cftc', false]);
+assert.ok(late.positioning.evidence.every((e) => e.afterCutoff === true), 'published after the cutoff: every row flagged');
+const groups = d.querySelectorAll('#v2-positioning-evidence .v2__pos-group');
+assert.equal(groups.length, 1);
+assert.match(groups[0].textContent, /^CFTC · cot_disaggregated_futures_only · CFTC:088691 · rapport du 2026-09-22 · publié 2026-09-25 19:30:00Z · reçu 2026-09-25 19:45:00Z/);
+assert.match(groups[0].textContent, /MANAGED MONEY LONG200\u202f000 contrats/);
+assert.equal(d.querySelectorAll('#v2-positioning-evidence .v2__pos-list li').length, 14);
+assert.doesNotMatch(d.getElementById('v2-positioning-evidence').textContent, /\bnet\b|ratio|percentile|haussier|baissier|BULL|BEAR/i, 'nothing derived');
 dom.window.close();
+// A view whose rows disagree with the kept count is refused (no silent partial display).
+{
+  const bad = structuredClone(own);
+  bad.positioning.evidence.pop();
+  const dom2 = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/' });
+  dom2.window.fetch = (url) => (String(url) === VIEW_PATH ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(structuredClone(bad)) })
+    : Promise.reject(new Error(`unexpected fetch ${url}`)));
+  dom2.window.ALPHA_XAU_CONFIG = { SUPABASE_URL: '', SUPABASE_ANON_KEY: '', ANALYSIS_INTERVAL_MS: 1e6, V2_VIEW_URL: VIEW_PATH };
+  const sc = dom2.window.document.createElement('script');
+  sc.textContent = js;
+  dom2.window.document.body.appendChild(sc);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(dom2.window.document.getElementById('v2-status').getAttribute('data-state'), 'rejected');
+  dom2.window.close();
+}
 console.log('PASS the terminal names the CFTC file in PROVENANCE DES ENTRÉES and shows 14 kept, abstaining tuples');

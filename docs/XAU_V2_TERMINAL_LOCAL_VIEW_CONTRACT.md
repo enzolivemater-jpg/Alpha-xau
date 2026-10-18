@@ -10,7 +10,7 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.5.0`.
+- `terminal-local-view-4.6.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
@@ -75,6 +75,15 @@ horizon synthesis abstain with `UPSTREAM_CUTOFF_MISMATCH`, and the page now
 says which cutoffs differ under POURQUOI HOLD. `aligned` is false exactly
 when the horizon synthesis reports that mismatch (test on every scenario
 and archive replay instant).
+
+Algorithm 4.6.0 adds `positioning.evidence` (and `evidenceTruncated`): the
+raw evidence P-0 kept, in P-0's order, at most 64 rows: source authority,
+dataset, instrument, metric code, value, unit, period end, published and
+observed instants, and `afterCutoff` (published or observed after the
+cutoff; P-0 rejects it, the row is shown flagged). Nothing is derived: no
+net, ratio, rank or direction (no positioning method is approved). The page
+groups the rows by report under PREUVES DE POSITIONNEMENT — VALEURS BRUTES
+and refuses a view whose untruncated rows do not match `evidenceCount`.
 
 ## What the view contains
 

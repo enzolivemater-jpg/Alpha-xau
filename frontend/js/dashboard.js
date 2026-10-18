@@ -218,6 +218,9 @@
     v2PositioningFreshness: $('v2-positioning-freshness'),
     v2PositioningThrough: $('v2-positioning-through'),
     v2PositioningSources: $('v2-positioning-sources'),
+    v2PositioningEvidence: $('v2-positioning-evidence'),
+    v2PositioningEvidenceNote: $('v2-positioning-evidence-note'),
+    v2PositioningEvidenceGroups: $('v2-positioning-evidence-groups'),
     v2Capabilities: $('v2-capabilities'),
     v2Mev: $('v2-mev'),
     v2Prov: $('v2-prov'),
@@ -1324,6 +1327,11 @@ let pollTimer = null;
     if (fresh && fresh.status === 'AFTER_KNOWLEDGE_CUTOFF'
         && (fresh.publishedAgeSecondsAtCutoff !== null || !(isNum(pos.evidenceCount) && pos.evidenceCount > 0))) return 'fraîcheur du positionnement non conforme';
     if (fresh && isNum(fresh.publishedAgeSecondsAtCutoff) && fresh.publishedAgeSecondsAtCutoff < 0) return 'fraîcheur du positionnement non conforme';
+    // 4.6.0 : les valeurs brutes, quand elles sont données, sont exactement celles que P-0 a gardées.
+    if (pos && pos.evidence !== undefined) {
+      if (!isList(pos.evidence) || pos.evidence.some((r) => !r || !isText(r.metricCode) || !isNum(r.value) || typeof r.afterCutoff !== 'boolean')
+          || (pos.evidenceTruncated !== true && pos.evidence.length !== pos.evidenceCount)) return 'preuves de positionnement non conformes';
+    }
     for (const h of view.horizons) {
       // Une direction n'existe qu'avec une méthode approuvée ; il n'y en a aucune.
       if (!h || h.status !== 'ABSTAIN' || h.direction !== 'UNAVAILABLE') return 'horizon non abstenu';
@@ -1637,6 +1645,7 @@ let pollTimer = null;
       ? `${pos.observedThrough}${fresh && fresh.status === 'AFTER_KNOWLEDGE_CUTOFF' ? ' (après le cutoff)' : ''}` : 'N/A');
     setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length
       ? pos.sourceAuthorities.join(' · ') : 'N/A');
+    renderPositioningEvidence(pos);
 
     renderReadiness(view);
     renderMarketEvidence(view.marketEvidence);
@@ -1987,6 +1996,47 @@ let pollTimer = null;
   /* Cutoff de rejeu choisi pour l'archive du serveur ; null = celui du serveur. */
   let v2ReplayCutoff = null;
   const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+  /** Entier lisible (espaces fines entre milliers), indépendant de la locale du navigateur. */
+  const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f');
+
+  /**
+   * 4.6.0 : les preuves de positionnement brutes, groupées par rapport. Des faits (valeur, unité, période,
+   * instants, source), jamais une lecture : aucun net, ratio, rang ni direction n'est calculé.
+   */
+  function renderPositioningEvidence(pos) {
+    const rows = pos && isList(pos.evidence) ? pos.evidence : [];
+    el.v2PositioningEvidence.hidden = rows.length === 0;
+    if (!rows.length) {
+      el.v2PositioningEvidenceGroups.replaceChildren();
+      return;
+    }
+    const groups = new Map();
+    for (const r of rows) {
+      if (!r || !isText(r.metricCode) || !isNum(r.value) || !isText(r.periodEnd)) continue;
+      const key = [r.sourceAuthority, r.datasetCode, r.instrumentCode, r.periodEnd, r.publishedAt, r.observedAt].join('|');
+      if (!groups.has(key)) groups.set(key, { head: r, items: [] });
+      groups.get(key).items.push(r);
+    }
+    setText(el.v2PositioningEvidenceNote, `${rows.length}${pos.evidenceTruncated === true ? ' premières' : ''} valeur(s) gardée(s) par P-0, `
+      + 'telles que lues. Aucune lecture n\'est faite : méthode de positionnement non approuvée, signal UNAVAILABLE, HOLD.');
+    el.v2PositioningEvidenceGroups.replaceChildren(...[...groups.values()].map(({ head, items }) => {
+      const wrap = node('div', 'v2__pos-group');
+      const after = items.some((i) => i.afterCutoff === true);
+      wrap.appendChild(node('p', 'v2__pos-group-head', `${String(head.sourceAuthority).toUpperCase()} · ${head.datasetCode} · ${head.instrumentCode}`
+        + ` · rapport du ${head.periodEnd} · publié ${instant(head.publishedAt)} · reçu ${instant(head.observedAt)}`
+        + `${after ? ' · APRÈS LE CUTOFF : écartée' : ''}`, { 'data-after-cutoff': String(after) }));
+      const list = node('ul', 'v2__pos-list');
+      for (const i of items) {
+        const li = node('li', '');
+        li.appendChild(node('span', 'v2__pos-metric', label(i.metricCode).toUpperCase()));
+        li.appendChild(node('span', 'v2__pos-value num', `${groupDigits(i.value)} ${i.unit === 'CONTRACTS' ? 'contrats' : label(i.unit)}`));
+        list.appendChild(li);
+      }
+      wrap.appendChild(list);
+      return wrap;
+    }));
+  }
 
   /** Ce que l'archive contient par champ, quel que soit le cutoff : comptes et bornes, aucun jugement. */
   function renderArchiveAvailability(fields) {

@@ -67,7 +67,7 @@ assert.equal(outcome.kind, 'COMPLETED');
 const digest = await chain.computeDecisionChainDigest(outcome.result);
 const view = tv.buildTerminalView(outcome, digest, ORIGIN, AT);
 assert.equal(view.schemaVersion, 'xau.terminal-local-view.v4');
-assert.equal(view.algorithmVersion, 'terminal-local-view-4.5.0');
+assert.equal(view.algorithmVersion, 'terminal-local-view-4.6.0');
 assert.equal(view.simulated, true);
 assert.equal(view.generatedAt, AT);
 assert.deepEqual(view.origin, ORIGIN);
@@ -104,8 +104,13 @@ assert.deepEqual(spot, { field: 'spot', role: 'REQUIRED', value: 3900, statusAtC
 assert.equal(view.market.fields.find((f) => f.field === 'dxy').statusAtCutoff, 'UNAVAILABLE');
 assert.deepEqual(view.market.replay, { mode: 'LATEST_ONLY', reproducible: false, reason: 'INGESTION_CUTOFF_NOT_AVAILABLE' });
 // B5: no freshness policy approved, so the evidence is kept but abstains; its age is shown, not judged.
+// 4.6.0: the kept evidence itself, as raw facts (the golden fixture's one synthetic tuple).
 assert.deepEqual(view.positioning, { evidenceState: 'ABSTAIN', positioningState: 'UNAVAILABLE',
   evidenceCount: 1, sourceAuthorities: ['authority_test'], observedThrough: '2026-09-30T19:31:00.000Z',
+  evidence: [{ sourceAuthority: 'authority_test', datasetCode: 'weekly_positions', instrumentCode: 'GC', metricCode: 'managed_money_net',
+    value: 12345, unit: 'CONTRACTS', periodEnd: '2026-09-29', publishedAt: '2026-09-30T19:30:00.000Z', observedAt: '2026-09-30T19:31:00.000Z',
+    afterCutoff: false }],
+  evidenceTruncated: false,
   freshness: { status: 'NOT_EVALUATED', reason: 'FRESHNESS_POLICY_NOT_APPROVED', plain: 'fraîcheur non évaluée — aucun seuil approuvé',
     latestPublishedAt: '2026-09-30T19:30:00.000Z', publishedAgeSecondsAtCutoff: 67500 } });
 assert.deepEqual(view.horizons, ['H1', 'H2', 'H3', 'H4', 'H5'].map((horizon) =>
