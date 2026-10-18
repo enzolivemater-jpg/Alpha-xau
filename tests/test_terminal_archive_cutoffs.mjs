@@ -96,7 +96,9 @@ try {
   assert.equal((await get(port, `${VIEW_PATH}?cutoff=yesterday`)).status, 400);
   assert.equal((await get(port, `${VIEW_PATH}?scenario=archive-correction&cutoff=${encodeURIComponent(at)}`)).status, 400);
   assert.equal((await get(port, ARCHIVE_CUTOFFS_PATH, 'evil.example:80')).status, 403);
-  assert.match(localIndexHtml(), new RegExp(`V2_ARCHIVE_CUTOFFS_URL: '${ARCHIVE_CUTOFFS_PATH}'`));
+  assert.match(localIndexHtml({ archiveCutoffs: true }), new RegExp(`V2_ARCHIVE_CUTOFFS_URL: '${ARCHIVE_CUTOFFS_PATH}'`));
+  // The archive server's page carries the URL; the default page does not (no request answered 404).
+  assert.match((await get(port, '/')).body, new RegExp(`V2_ARCHIVE_CUTOFFS_URL: '${ARCHIVE_CUTOFFS_PATH}'`));
 } finally {
   archiveServer.close();
 }
@@ -104,6 +106,9 @@ const plainServer = await createTerminalServer({});
 const plain = await listenOnLoopback(plainServer, { port: 4598, range: 5 });
 try {
   assert.equal((await get(plain.port, ARCHIVE_CUTOFFS_PATH)).status, 404);
+  const page = (await get(plain.port, '/')).body;
+  assert.match(page, /V2_ARCHIVE_CUTOFFS_URL: '',/, 'without an archive the page never asks for replay cutoffs');
+  assert.doesNotMatch(page, new RegExp(ARCHIVE_CUTOFFS_PATH.replace(/[./]/g, '\\$&')));
   assert.equal((await get(plain.port, `${VIEW_PATH}?cutoff=${encodeURIComponent(expected[0])}`)).status, 400);
 } finally {
   plainServer.close();

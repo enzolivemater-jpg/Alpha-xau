@@ -71,7 +71,11 @@ const CONTENT_TYPES = {
 };
 
 /** index.html with the local URLs; refuses to start if a hook moved. */
-export function localIndexHtml() {
+/**
+ * `archiveCutoffs`: the server replays an archive (--archive or --captures); only then does the page
+ * get the replay-cutoff URL, so the default page never asks a route that answers 404.
+ */
+export function localIndexHtml({ archiveCutoffs: withArchive = false } = {}) {
   const html = readFileSync(path.join(FRONTEND, 'index.html'), 'utf8');
   for (const placeholder of [VIEW_URL_PLACEHOLDER, SCENARIOS_URL_PLACEHOLDER, CUTOFFS_URL_PLACEHOLDER]) {
     if (html.split(placeholder).length !== 2) {
@@ -80,7 +84,7 @@ export function localIndexHtml() {
   }
   return html.replace(VIEW_URL_PLACEHOLDER, `V2_VIEW_URL: '${VIEW_PATH}',`)
     .replace(SCENARIOS_URL_PLACEHOLDER, `V2_SCENARIOS_URL: '${SCENARIOS_PATH}',`)
-    .replace(CUTOFFS_URL_PLACEHOLDER, `V2_ARCHIVE_CUTOFFS_URL: '${ARCHIVE_CUTOFFS_PATH}',`);
+    .replace(CUTOFFS_URL_PLACEHOLDER, withArchive ? `V2_ARCHIVE_CUTOFFS_URL: '${ARCHIVE_CUTOFFS_PATH}',` : CUTOFFS_URL_PLACEHOLDER);
 }
 
 /**
@@ -394,7 +398,7 @@ export function listenOnLoopback(server, { port, range = 1 }) {
 
 export async function createTerminalServer(options = {}) {
   const view = await buildLocalView(options);
-  const index = localIndexHtml();
+  const index = localIndexHtml({ archiveCutoffs: view.archiveCutoffs() !== null });
   const csp = contentSecurityPolicy(index);
   const server = createServer(async (request, response) => {
     const method = request.method ?? 'GET';

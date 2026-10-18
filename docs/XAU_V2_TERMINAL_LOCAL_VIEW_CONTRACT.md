@@ -308,7 +308,9 @@ With `--archive`, the server also answers `/local/v2/archive-cutoffs.json`
 (`--cutoff`, else the input document's). `/local/v2/terminal.json?cutoff=ISO`
 replays the archive at that instant: an explicit UTC instant only, in archive
 mode only and never with `?scenario=` (HTTP 400 otherwise); without
-`--archive` the list is 404. The page shows a **CUTOFF DE REJEU (ARCHIVE)**
+`--archive` the list is 404 and the served page does not carry its URL
+(`V2_ARCHIVE_CUTOFFS_URL` stays empty), so the default page never asks it. The
+page shows a **CUTOFF DE REJEU (ARCHIVE)**
 selector only when the list has instants, and disables it while a scenario
 is selected. A replay knows only what the archive had received at that
 instant; the other inputs stay those of the input document, so a cutoff that

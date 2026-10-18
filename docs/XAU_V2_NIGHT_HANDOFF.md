@@ -207,6 +207,7 @@ every path; CHAIN-0, OBS-0 and the golden digest `sha256:9bbd9cac…eef2db3c` un
 | 52 | Tooling (P4) | A failed `--verify full` kept only six output lines per stream: the failing file had to be dug out | `failedTests` (from `FAILED: <file> (exit N)`) and `verify-<step>.log` beside the report; first test of `--verify` | `scripts/recon_auto.mjs`, `tests/test_recon_auto.mjs` |
 | 53 | Terminal | The launcher compared data options in order (same data, other order: refused); the replay or scenario choice was lost on reload | `sameDataOptions()` order-insensitive; choice kept in `#chaine/scenario/<id>` / `#chaine/rejeu/<instant>`, restored only if it exists | `terminal_launch.mjs`, `dashboard.js` |
 | 54 | Labelling audit (no change) | A captured archive replayed 30 s after its last reception (AT_GENERATION) | stays HOLD, HISTORICAL_UNVERIFIED, never "EN DIRECT", "TEMPS RÉEL" or "DONNÉES RÉELLES" | — |
+| 55 | Terminal (regression of row 42, caught before delivery) | Without an archive the page still asked `/local/v2/archive-cutoffs.json`: one HTTP 404 and a console error on the default page (the RC walk went 22/23) | the cutoffs URL is injected only in `--archive` / `--captures` mode; RC walk 23/23 again | `serve_terminal_local.mjs`, `tests/test_terminal_archive_cutoffs.mjs` |
 
 Evidence (local, Node 22): full suite 153/153 and typecheck on every head; final RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `cce8ca5`; earlier, before this
 note; RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `4c41a5d` (FAST_FORWARD on
