@@ -100,7 +100,7 @@ proved and does not change P-0's deliberate `UNAVAILABLE` positioning state.
 
 `backend/positioning_engine/cftc_cot_offline_adapter.ts`
 (`xau.positioning-cftc-cot-offline.v1` /
-`cftc-cot-disaggregated-offline-adapter-1.1.0`) converts a CFTC
+`cftc-cot-disaggregated-offline-adapter-1.2.0`) converts a CFTC
 Commitments of Traders file **already on the operator's disk**
 (Disaggregated, comma-separated text) into P-0 tuples. The CFTC publishes it
 as Futures Only and as Futures-and-Options Combined with the same columns, so
@@ -126,6 +126,11 @@ pure: no network, clock, process or file access; the caller hashes the bytes.
   width, report date impossible or disagreeing with its `YYMMDD` twin,
   duplicate row, non-integer or negative position, publication before the
   report date, reception before publication.
+- Unknown formats are named (1.2.0): `UNSUPPORTED_FORMAT` for a ZIP archive,
+  an Excel or other binary / UTF-16 / non-UTF-8 file, an HTML or JSON page, or
+  another separator (semicolon, tab); `UNSUPPORTED_LAYOUT` for another CFTC
+  report (legacy, Traders in Financial Futures, or a CFTC header of unknown
+  type). Extra columns, as in the real files, are accepted.
 - `sourceApproval` is always `NOT_APPROVED`. The column names follow the
   CFTC disaggregated text layout; they are **not verified against a retained
   real CFTC file** in this repository (the test fixture is synthetic and says

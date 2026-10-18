@@ -19,7 +19,7 @@ const RECEIVED = '2026-10-02T19:45:00.000Z';
 const base = { text, artifactId, publishedAt: PUBLISHED, receivedAt: RECEIVED, dataset: 'FUTURES_ONLY' };
 
 assert.equal(cot.CFTC_COT_ADAPTER_SCHEMA_VERSION, 'xau.positioning-cftc-cot-offline.v1');
-assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.1.0');
+assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.2.0');
 
 // --- CSV reader: quotes, escaped quotes, CRLF; unterminated or stray quotes are refused.
 assert.deepEqual(cot.parseCsv('a,"b, c","d ""e"""\r\n1,2,3\n'), [['a', 'b, c', 'd "e"'], ['1', '2', '3']]);
@@ -115,6 +115,35 @@ assert.equal(cot.convertCftcCotReport(null).status, 'REJECTED');
 // A BOM is tolerated; nothing else changes.
 assert.equal(cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', text: `﻿${text}` }).status, 'EXTRACTED');
 console.log(`PASS ${cases.length} defects each reject the whole conversion with their own reason, never a partial set`);
+
+// --- 1.2.0: unknown formats are named, never read as a list of missing columns.
+const asRead = (bytes) => Buffer.from(bytes).toString('utf8'); // as the server decodes a file
+const headerOf = (cols) => `${cols.join(',')}\r\n"GOLD - COMMODITY EXCHANGE INC.",260929,2026-09-29,088691${',1'.repeat(cols.length - 4)}\r\n`;
+const formats = [
+  ['ZIP archive', asRead([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]), 'UNSUPPORTED_FORMAT', /archive ZIP/],
+  ['Excel .xls (OLE2)', asRead([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00, 0x00]), 'UNSUPPORTED_FORMAT', /binaire|UTF-8/],
+  ['UTF-16 text', asRead(Buffer.from(`\ufeff${text}`, 'utf16le')), 'UNSUPPORTED_FORMAT', /binaire|UTF-8/],
+  ['HTML page', '<!DOCTYPE html><html><body>COT</body></html>', 'UNSUPPORTED_FORMAT', /HTML/],
+  ['JSON', '{"report":[]}', 'UNSUPPORTED_FORMAT', /JSON/],
+  ['semicolons', text.replace(/,/g, ';'), 'UNSUPPORTED_FORMAT', /point-virgule/],
+  ['tabs', text.replace(/,/g, '\t'), 'UNSUPPORTED_FORMAT', /tabulation/],
+  ['legacy COT', headerOf(['Market_and_Exchange_Names', 'As_of_Date_In_Form_YYMMDD', 'Report_Date_as_YYYY-MM-DD', 'CFTC_Contract_Market_Code',
+    'Open_Interest_All', 'NonComm_Positions_Long_All', 'NonComm_Positions_Short_All']), 'UNSUPPORTED_LAYOUT', /legacy/],
+  ['TFF', headerOf(['Market_and_Exchange_Names', 'As_of_Date_In_Form_YYMMDD', 'Report_Date_as_YYYY-MM-DD', 'CFTC_Contract_Market_Code',
+    'Open_Interest_All', 'Dealer_Positions_Long_All', 'Lev_Money_Positions_Long_All']), 'UNSUPPORTED_LAYOUT', /TFF/],
+  ['unknown CFTC report', headerOf(['Market_and_Exchange_Names', 'As_of_Date_In_Form_YYMMDD', 'Report_Date_as_YYYY-MM-DD',
+    'CFTC_Contract_Market_Code', 'Open_Interest_All']), 'UNSUPPORTED_LAYOUT', /type inconnu/],
+];
+for (const [name, body, reason, detail] of formats) {
+  const r = cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', text: body });
+  assert.deepEqual([r.status, r.reasonCodes], ['REJECTED', [reason]], `${name}: ${r.reasonCodes} ${r.detail}`);
+  assert.match(r.detail, detail, name);
+  assert.equal(r.evidence.length, 0, name);
+}
+// Extra columns, as in the real CFTC files, are fine.
+const wider = text.split('\r\n').map((l, i) => (l ? `${l},${i === 0 ? 'Conc_Gross_LE_4_TDR_Long_All' : '12.5'}` : l)).join('\r\n');
+assert.equal(cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', text: wider }).status, 'EXTRACTED');
+console.log(`PASS ${formats.length} unknown formats and CFTC layouts are rejected with their own named reason; extra columns accepted`);
 
 // --- Static: the adapter has no network, clock or file access.
 const source = readFileSync(new URL('../backend/positioning_engine/cftc_cot_offline_adapter.ts', import.meta.url), 'utf8');

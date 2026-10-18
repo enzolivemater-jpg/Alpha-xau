@@ -27,7 +27,7 @@ import type { PositioningEvidenceInput } from './evidence_contract.js';
 import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const CFTC_COT_ADAPTER_SCHEMA_VERSION = 'xau.positioning-cftc-cot-offline.v1' as const;
-export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.1.0' as const;
+export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.2.0' as const;
 export const CFTC_SOURCE_AUTHORITY = 'cftc' as const;
 /**
  * 1.1.0: the CFTC publishes the disaggregated report as Futures Only and as
@@ -69,6 +69,8 @@ const IDENTITY_COLUMNS = {
 
 export type CftcCotReasonCode =
   | 'INVALID_REQUEST'
+  | 'UNSUPPORTED_FORMAT'
+  | 'UNSUPPORTED_LAYOUT'
   | 'MALFORMED_CSV'
   | 'MISSING_COLUMN'
   | 'DUPLICATE_COLUMN'
@@ -185,6 +187,37 @@ export function parseCsv(text: string): string[][] | null {
   return rows;
 }
 
+/**
+ * 1.2.0: what the bytes are when they are plainly not a comma-separated text
+ * (archive, spreadsheet, web page, JSON, another separator), so the operator
+ * reads the real problem instead of a list of missing columns. null: try CSV.
+ */
+function unsupportedFormat(text: string): string | null {
+  if (text.startsWith('PK\u0003\u0004')) return 'archive ZIP (décompresser le fichier texte CFTC)';
+  if (text.startsWith('\u00d0\u00cf\u0011\u00e0')) return 'classeur Excel (.xls)';
+  if (text.includes('\u0000')) return 'contenu binaire ou UTF-16';
+  if (text.includes('\ufffd')) return 'octets invalides en UTF-8 (fichier binaire ?)';
+  const head = text.trimStart().slice(0, 64).toLowerCase();
+  if (head.startsWith('<')) return 'page HTML ou XML';
+  if (head.startsWith('{') || head.startsWith('[')) return 'JSON';
+  const firstLine = text.split(/\r?\n/, 1)[0];
+  if (!firstLine.includes(',')) {
+    if (firstLine.includes(';')) return 'séparateur point-virgule';
+    if (firstLine.includes('\t')) return 'séparateur tabulation';
+    return 'aucune virgule dans l\'en-tête';
+  }
+  return null;
+}
+
+/** The CFTC report a header belongs to, when it is a CFTC header but not the disaggregated one. */
+function otherCftcLayout(index: Map<string, number>): string | null {
+  if (!index.has('Market_and_Exchange_Names') || !index.has('CFTC_Contract_Market_Code')) return null;
+  if (index.has('NonComm_Positions_Long_All')) return 'legacy (Commitments of Traders classique)';
+  if (index.has('Dealer_Positions_Long_All') || index.has('Lev_Money_Positions_Long_All')) return 'Traders in Financial Futures (TFF)';
+  if (!index.has('M_Money_Positions_Long_All')) return 'de type inconnu';
+  return null;
+}
+
 const reject = (
   reasons: readonly CftcCotReasonCode[], detail: string, partial: Partial<CftcCotConversion> = {},
 ): CftcCotConversion => ({
@@ -222,8 +255,11 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
   if (publishedMs === null || receivedMs === null) return reject(['INVALID_REQUEST'], 'publishedAt et receivedAt doivent être des instants explicites');
   if (isStrictlyAfter(publishedAt, receivedAt)) return reject(['RECEIVED_BEFORE_PUBLISHED'], 'réception déclarée avant la publication déclarée');
 
-  const rows = parseCsv(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
-  if (rows === null || rows.length === 0) return reject(['MALFORMED_CSV'], 'CSV illisible (guillemet non fermé ou fichier vide)');
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const format = unsupportedFormat(body);
+  if (format !== null) return reject(['UNSUPPORTED_FORMAT'], `format non pris en charge : ${format} (texte CSV CFTC attendu)`);
+  const rows = parseCsv(body);
+  if (rows === null || rows.length === 0) return reject(['MALFORMED_CSV'], 'CSV illisible : guillemets incohérents ou fichier vide');
   const header = rows[0].map((name) => name.trim());
   const index = new Map<string, number>();
   for (const [i, name] of header.entries()) {
@@ -232,7 +268,12 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
   }
   const needed = [...Object.values(IDENTITY_COLUMNS), ...CFTC_COT_METRIC_COLUMNS.map(([, column]) => column)];
   const missing = needed.filter((name) => !index.has(name));
-  if (missing.length) return reject(['MISSING_COLUMN'], `colonne(s) absente(s) : ${missing.join(', ')}`);
+  if (missing.length) {
+    // A CFTC file of another report (legacy, financial futures) is named as such, not as a list of columns.
+    const layout = otherCftcLayout(index);
+    if (layout !== null) return reject(['UNSUPPORTED_LAYOUT'], `rapport CFTC ${layout} : seul le rapport désagrégé (disaggregated) est pris en charge`);
+    return reject(['MISSING_COLUMN'], `colonne(s) absente(s) : ${missing.join(', ')}`);
+  }
   const cell = (row: string[], name: string): string => (row[index.get(name) as number] ?? '').trim();
 
   const marketRows = [];
