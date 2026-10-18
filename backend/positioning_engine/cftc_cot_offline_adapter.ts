@@ -27,7 +27,7 @@ import type { PositioningEvidenceInput } from './evidence_contract.js';
 import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const CFTC_COT_ADAPTER_SCHEMA_VERSION = 'xau.positioning-cftc-cot-offline.v1' as const;
-export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.2.0' as const;
+export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.3.0' as const;
 export const CFTC_SOURCE_AUTHORITY = 'cftc' as const;
 /**
  * 1.1.0: the CFTC publishes the disaggregated report as Futures Only and as
@@ -62,10 +62,19 @@ export const CFTC_COT_METRIC_COLUMNS = [
 ] as const;
 const IDENTITY_COLUMNS = {
   market: 'Market_and_Exchange_Names',
-  reportDate: 'Report_Date_as_YYYY-MM-DD',
   asOfYymmdd: 'As_of_Date_In_Form_YYMMDD',
   contractCode: 'CFTC_Contract_Market_Code',
 } as const;
+/**
+ * 1.3.0: the report date column. The CFTC variable list for the disaggregated
+ * files (HistoricalViewable/CFTC_023168) names it As_of_Date_Form_YYYY-MM-DD;
+ * 1.0.0 assumed Report_Date_as_YYYY-MM-DD. Which one the real text file
+ * carries is not verified here (no real file in the repository), so either is
+ * read; when both are present they must agree on every row.
+ */
+export const CFTC_COT_DATE_COLUMNS = ['Report_Date_as_YYYY-MM-DD', 'As_of_Date_Form_YYYY-MM-DD'] as const;
+/** Documented field 191: which publication the row belongs to. Read and shown verbatim, never interpreted. */
+export const CFTC_COT_DATASET_MARKER_COLUMN = 'FutOnly_or_Combined' as const;
 
 export type CftcCotReasonCode =
   | 'INVALID_REQUEST'
@@ -109,6 +118,9 @@ export interface CftcCotConversion {
   readonly sourceApproval: 'NOT_APPROVED';
   readonly artifactId: string | null;
   readonly dataset: CftcCotDataset | null;
+  /** 1.3.0: the date column read, and the file's own FutOnly_or_Combined value for that report (verbatim), or null. */
+  readonly dateColumn: string | null;
+  readonly fileDatasetMarker: string | null;
   readonly marketName: string | null;
   readonly reportDate: string | null;
   /** Report dates of that market found in the file, in order. */
@@ -209,6 +221,46 @@ function unsupportedFormat(text: string): string | null {
   return null;
 }
 
+/**
+ * 1.3.0: what a file's header offers, before any declaration (for checking a
+ * real file): format problem, other CFTC layout, required columns missing,
+ * date columns and dataset marker column present, report dates of a market.
+ * Reads only; converts nothing; never throws.
+ */
+export function inspectCftcCotFile(text: unknown, contractMarketCode: string = CFTC_GOLD_CONTRACT_MARKET_CODE) {
+  const result = { formatProblem: null as string | null, layout: null as string | null, columnCount: 0,
+    missingColumns: [] as string[], dateColumns: [] as string[], datasetMarkerColumn: false,
+    marketRows: 0, reportDates: [] as string[], datasetMarkers: [] as string[] };
+  if (typeof text !== 'string') return { ...result, formatProblem: 'texte absent' };
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  result.formatProblem = unsupportedFormat(body);
+  if (result.formatProblem !== null) return result;
+  const rows = parseCsv(body);
+  if (rows === null || rows.length === 0) return { ...result, formatProblem: 'CSV illisible' };
+  const header = rows[0].map((name) => name.trim());
+  const index = new Map(header.map((name, i) => [name, i] as [string, number]));
+  result.columnCount = header.length;
+  result.dateColumns = CFTC_COT_DATE_COLUMNS.filter((name) => index.has(name));
+  result.datasetMarkerColumn = index.has(CFTC_COT_DATASET_MARKER_COLUMN);
+  result.missingColumns = [...Object.values(IDENTITY_COLUMNS), ...CFTC_COT_METRIC_COLUMNS.map(([, column]) => column)]
+    .filter((name) => !index.has(name));
+  if (result.dateColumns.length === 0) result.missingColumns.push(CFTC_COT_DATE_COLUMNS.join(' ou '));
+  result.layout = result.missingColumns.length ? otherCftcLayout(index) : null;
+  const code = index.get(IDENTITY_COLUMNS.contractCode);
+  if (code === undefined) return result;
+  const dates = new Set<string>();
+  const markers = new Set<string>();
+  for (const row of rows.slice(1)) {
+    if ((row[code] ?? '').trim() !== contractMarketCode) continue;
+    result.marketRows += 1;
+    for (const name of result.dateColumns) dates.add((row[index.get(name) as number] ?? '').trim());
+    if (result.datasetMarkerColumn) markers.add((row[index.get(CFTC_COT_DATASET_MARKER_COLUMN) as number] ?? '').trim());
+  }
+  result.reportDates = [...dates].sort();
+  result.datasetMarkers = [...markers].sort();
+  return result;
+}
+
 /** The CFTC report a header belongs to, when it is a CFTC header but not the disaggregated one. */
 /** The format problem of a file's text, for listing a file before any conversion (null: looks like CSV text). */
 export function cftcCotFormatProblem(text: unknown): string | null {
@@ -235,6 +287,8 @@ const reject = (
   sourceApproval: 'NOT_APPROVED',
   artifactId: null,
   dataset: null,
+  dateColumn: null,
+  fileDatasetMarker: null,
   marketName: null,
   reportDate: null,
   availableReportDates: [],
@@ -272,8 +326,10 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
     if (index.has(name)) return reject(['DUPLICATE_COLUMN'], `colonne en double : ${name}`);
     index.set(name, i);
   }
+  const dateColumns = CFTC_COT_DATE_COLUMNS.filter((name) => index.has(name));
   const needed = [...Object.values(IDENTITY_COLUMNS), ...CFTC_COT_METRIC_COLUMNS.map(([, column]) => column)];
-  const missing = needed.filter((name) => !index.has(name));
+  const missing = [...needed.filter((name) => !index.has(name)),
+    ...(dateColumns.length === 0 ? [CFTC_COT_DATE_COLUMNS.join(' ou ')] : [])];
   if (missing.length) {
     // A CFTC file of another report (legacy, financial futures) is named as such, not as a list of columns.
     const layout = otherCftcLayout(index);
@@ -291,7 +347,10 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
 
   const byDate = new Map<string, { row: string[]; line: number }>();
   for (const entry of marketRows) {
-    const date = cell(entry.row, IDENTITY_COLUMNS.reportDate);
+    const date = cell(entry.row, dateColumns[0]);
+    if (dateColumns.some((name) => cell(entry.row, name) !== date)) {
+      return reject(['REPORT_DATE_MISMATCH'], `ligne ${entry.line} : ${dateColumns.map((name) => `${name}=${cell(entry.row, name)}`).join(' ≠ ')}`);
+    }
     const yymmdd = cell(entry.row, IDENTITY_COLUMNS.asOfYymmdd);
     if (!isCivilDate(date)) return reject(['INVALID_REPORT_DATE'], `ligne ${entry.line} : date de rapport « ${date} »`);
     if (!YYMMDD.test(yymmdd) || `${date.slice(2, 4)}${date.slice(5, 7)}${date.slice(8, 10)}` !== yymmdd) {
@@ -343,6 +402,8 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
     sourceApproval: 'NOT_APPROVED',
     artifactId,
     dataset,
+    dateColumn: dateColumns.join(' + '),
+    fileDatasetMarker: index.has(CFTC_COT_DATASET_MARKER_COLUMN) ? cell(row, CFTC_COT_DATASET_MARKER_COLUMN) || null : null,
     marketName: cell(row, IDENTITY_COLUMNS.market),
     reportDate,
     availableReportDates,

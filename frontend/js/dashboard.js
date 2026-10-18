@@ -1906,6 +1906,9 @@ let pollTimer = null;
           ['Rapport du', isText(p.reportDate) ? p.reportDate : '—'],
           ['Publié / reçu (déclarés)', `${instant(p.publishedAt)} / ${instant(p.receivedAt)}`],
           ['Empreinte', isText(p.artifactId) ? p.artifactId : '—'],
+          ['Liée aux octets', p.boundToBytes === true ? 'oui : la déclaration porte cette empreinte' : p.boundToBytes === false ? 'non (déclaration sans empreinte)' : '—'],
+          ['Source déclarée', isText(p.sourceUrl) ? `${p.sourceUrl} (déclarée par l'opérateur, non vérifiée)` : '—'],
+          ['Le fichier indique', `${isText(p.fileDatasetMarker) ? `FutOnly_or_Combined = ${p.fileDatasetMarker}` : 'aucun marqueur de jeu'}${isText(p.dateColumn) ? ` · date lue : ${p.dateColumn}` : ''}`],
           ...(p.status !== 'EXTRACTED' ? [['Raison', `${isList(p.reasonCodes) ? p.reasonCodes.map(label).join(' · ') : ''}${isText(p.detail) ? ` — ${p.detail}` : ''}`]] : []),
         ]);
     }

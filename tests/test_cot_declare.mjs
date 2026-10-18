@@ -8,7 +8,8 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFi
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { declarationPathOf, declare, parseArgs } from '../scripts/cot_declare.mjs';
+import { createHash } from 'node:crypto';
+import { declarationPathOf, declare, inspect, parseArgs } from '../scripts/cot_declare.mjs';
 import { buildLocalView } from '../scripts/serve_terminal_local.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/cot_declare.mjs', import.meta.url));
@@ -32,10 +33,11 @@ assert.equal(existsSync(declarationPathOf(file)), false);
 out = spawnSync(process.execPath, [SCRIPT, file, ...args, '--report-date', '2026-09-22'], { encoding: 'utf8' });
 assert.equal(out.status, 0, out.stderr);
 assert.match(out.stdout, /déclaré : gold\.declaration\.json — rapport du 2026-09-22, 14 mesures, futures seuls ; source non approuvée/);
-assert.deepEqual(JSON.parse(readFileSync(declarationPathOf(file), 'utf8')), { schemaVersion: 'xau.cftc-cot-declaration.v1',
+const digest = `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`;
+assert.deepEqual(JSON.parse(readFileSync(declarationPathOf(file), 'utf8')), { schemaVersion: 'xau.cftc-cot-declaration.v1', artifactId: digest,
   dataset: 'FUTURES_ONLY', publishedAt: '2026-09-25T19:30:00.000Z', receivedAt: '2026-09-25T19:45:00.000Z', reportDate: '2026-09-22' });
 const entry = (await buildLocalView({ dataRoot: ROOT })).catalog().positioning.find((p) => p.id === 'cot:gold.csv');
-assert.deepEqual([entry.status, entry.metrics, entry.reportDate, entry.sourceApproval], ['EXTRACTED', 14, '2026-09-22', 'NOT_APPROVED']);
+assert.deepEqual([entry.status, entry.metrics, entry.reportDate, entry.sourceApproval, entry.boundToBytes], ['EXTRACTED', 14, '2026-09-22', 'NOT_APPROVED', true]);
 // Never replaced.
 const before = readFileSync(declarationPathOf(file), 'utf8');
 out = spawnSync(process.execPath, [SCRIPT, file, ...args, '--report-date', '2026-09-22'], { encoding: 'utf8' });
@@ -53,6 +55,35 @@ for (const [name, body, reason] of [['f.zip', Buffer.from([0x50, 0x4b, 0x03, 0x0
   assert.equal(existsSync(declarationPathOf(target)), false, name);
 }
 assert.equal(spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' }).status, 64);
+// The declaration is bound to the bytes: a file changed after it was declared is refused by the terminal.
+{
+  const other = path.join(ROOT, 'positioning', 'gold2.csv');
+  copyFileSync(new URL('./fixtures/cftc_cot_disaggregated_synthetic.csv', import.meta.url), other);
+  const r = await declare({ ...parseArgs([other, ...args, '--report-date', '2026-09-22', '--source-url', 'https://www.cftc.gov/files/dea/history/fut_disagg_txt_2026.zip']) });
+  assert.equal(r.ok, true, r.message);
+  let e = (await buildLocalView({ dataRoot: ROOT })).catalog().positioning.find((p) => p.id === 'cot:gold2.csv');
+  assert.deepEqual([e.status, e.sourceUrl, e.boundToBytes], ['EXTRACTED', 'https://www.cftc.gov/files/dea/history/fut_disagg_txt_2026.zip', true]);
+  writeFileSync(other, readFileSync(other, 'utf8').replace(',201000,', ',201001,'));
+  e = (await buildLocalView({ dataRoot: ROOT })).catalog().positioning.find((p) => p.id === 'cot:gold2.csv');
+  assert.deepEqual([e.status, e.reasonCodes, e.metrics], ['REJECTED', ['DECLARATION_DIGEST_MISMATCH'], 0]);
+  assert.match(e.detail, /le fichier a changé depuis sa déclaration/);
+  assert.equal(parseArgs([other, ...args, '--source-url', 'http://insecure.example/x']), null, 'https only');
+  assert.equal(parseArgs([other, ...args, '--source-url', 'javascript:alert(1)']), null);
+}
+// --inspect: what a file offers, written nowhere; the declaration flags are refused with it.
+{
+  const seen = await inspect(parseArgs([file, '--inspect']));
+  assert.equal(seen.ok, true);
+  assert.match(seen.message, /colonne\(s\) date : Report_Date_as_YYYY-MM-DD · FutOnly_or_Combined : absente/);
+  assert.match(seen.message, /rapports : 2026-09-22, 2026-09-29/);
+  assert.equal(parseArgs([file, '--inspect', '--dataset', 'futures-only']), null);
+  const zip = path.join(ROOT, 'positioning', 'f.zip');
+  const z = spawnSync(process.execPath, [SCRIPT, zip, '--inspect'], { encoding: 'utf8' });
+  assert.equal(z.status, 1);
+  assert.match(z.stderr, /archive ZIP.*non compatible en l'état/s);
+  assert.equal(existsSync(declarationPathOf(zip)), false);
+}
 const source = readFileSync(SCRIPT, 'utf8');
-assert.doesNotMatch(source, /\bfetch\(|https?:\/\/|Date\.now\(|new Date\(\)/, 'no network, no clock');
+// The declared source URL is recorded, never called: no network API, no clock.
+assert.doesNotMatch(source, /\bfetch\(|node:https?|node:net|node:dgram|Date\.now\(|new Date\(\)/, 'no network, no clock');
 console.log('PASS cot_declare: converts first, declares only a file that converts (create-only), names unknown formats, approves nothing');

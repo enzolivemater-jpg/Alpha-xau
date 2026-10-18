@@ -19,7 +19,7 @@ const RECEIVED = '2026-10-02T19:45:00.000Z';
 const base = { text, artifactId, publishedAt: PUBLISHED, receivedAt: RECEIVED, dataset: 'FUTURES_ONLY' };
 
 assert.equal(cot.CFTC_COT_ADAPTER_SCHEMA_VERSION, 'xau.positioning-cftc-cot-offline.v1');
-assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.2.0');
+assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.3.0');
 
 // --- CSV reader: quotes, escaped quotes, CRLF; unterminated or stray quotes are refused.
 assert.deepEqual(cot.parseCsv('a,"b, c","d ""e"""\r\n1,2,3\n'), [['a', 'b, c', 'd "e"'], ['1', '2', '3']]);
@@ -144,6 +144,54 @@ for (const [name, body, reason, detail] of formats) {
 const wider = text.split('\r\n').map((l, i) => (l ? `${l},${i === 0 ? 'Conc_Gross_LE_4_TDR_Long_All' : '12.5'}` : l)).join('\r\n');
 assert.equal(cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', text: wider }).status, 'EXTRACTED');
 console.log(`PASS ${formats.length} unknown formats and CFTC layouts are rejected with their own named reason; extra columns accepted`);
+
+// --- 1.3.0: a file laid out exactly as the CFTC variable list (191 fields, date column As_of_Date_Form_YYYY-MM-DD,
+// FutOnly_or_Combined) converts. The layout is the official documentation; the values are synthetic.
+const official = readFileSync(new URL('./fixtures/cftc_disaggregated_variables_official.txt', import.meta.url), 'utf8')
+  .split('\n').filter((l) => l && !l.startsWith('#'));
+assert.equal(official.length, 191);
+const officialRow = (date, code, marker) => official.map((name, i) => {
+  if (name === 'Market_and_Exchange_Names') return '"SYNTHETIC GOLD FIXTURE, NOT CFTC DATA"';
+  if (name === 'As_of_Date_In_Form_YYMMDD') return date.slice(2).replace(/-/g, '');
+  if (name === 'As_of_Date_Form_YYYY-MM-DD') return date;
+  if (name === 'CFTC_Contract_Market_Code') return code;
+  if (name === 'FutOnly_or_Combined') return marker;
+  if (name === 'Contract_Units') return '"(CONTRACTS OF 100 TROY OUNCES)"';
+  if (/^(Pct_|Conc_)/.test(name)) return '12.3';
+  if (/Code/.test(name)) return 'X1';
+  return String(1000 + i);
+}).join(',');
+const officialText = `${official.join(',')}\r\n${officialRow('2026-09-29', '088691', 'FutOnly')}\r\n${officialRow('2026-09-29', '084691', 'FutOnly')}\r\n`;
+const doc = cot.convertCftcCotReport({ ...base, text: officialText });
+assert.equal(doc.status, 'EXTRACTED', doc.detail);
+assert.equal(doc.dateColumn, 'As_of_Date_Form_YYYY-MM-DD');
+assert.equal(doc.fileDatasetMarker, 'FutOnly', 'shown verbatim, never interpreted');
+assert.equal(doc.reportDate, '2026-09-29');
+assert.equal(doc.evidence.find((e) => e.metricCode === 'managed_money_long').value, 1000 + official.indexOf('M_Money_Positions_Long_All'));
+assert.equal(doc.evidence.find((e) => e.metricCode === 'swap_dealer_short').value, 1000 + official.indexOf('Swap__Positions_Short_All'));
+// The marker never decides: a declaration that says otherwise is still the operator's (shown side by side).
+assert.equal(cot.convertCftcCotReport({ ...base, text: officialText, dataset: 'FUTURES_AND_OPTIONS_COMBINED' }).status, 'EXTRACTED');
+// Both date columns: must agree on every row of the market.
+const both = (d1, d2) => `${text.split('\r\n')[0]},As_of_Date_Form_YYYY-MM-DD\r\n${text.split('\r\n').slice(1).filter(Boolean)
+  .map((l) => `${l},${l.includes('088691') && l.includes('2026-09-29') ? d2 : d1}`).join('\r\n')}\r\n`;
+const agree = cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', text: text.split('\r\n').map((l, i) => (!l ? l
+  : i === 0 ? `${l},As_of_Date_Form_YYYY-MM-DD` : `${l},${l.split(',').find((c) => /^\d{4}-\d{2}-\d{2}$/.test(c))}`)).join('\r\n') });
+assert.equal(agree.status, 'EXTRACTED', agree.detail);
+assert.equal(agree.dateColumn, 'Report_Date_as_YYYY-MM-DD + As_of_Date_Form_YYYY-MM-DD');
+const disagree = cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', text: both('2026-09-22', '2026-09-30') });
+assert.deepEqual([disagree.status, disagree.reasonCodes], ['REJECTED', ['REPORT_DATE_MISMATCH']]);
+const noDate = cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', text: text.replace('Report_Date_as_YYYY-MM-DD', 'Report_Date') });
+assert.deepEqual(noDate.reasonCodes, ['MISSING_COLUMN']);
+assert.match(noDate.detail, /Report_Date_as_YYYY-MM-DD ou As_of_Date_Form_YYYY-MM-DD/);
+// Inspection of a file before any declaration: what it offers, nothing converted.
+const seen = cot.inspectCftcCotFile(officialText);
+assert.deepEqual([seen.formatProblem, seen.layout, seen.columnCount, seen.missingColumns, seen.dateColumns, seen.datasetMarkerColumn,
+  seen.marketRows, seen.reportDates, seen.datasetMarkers],
+[null, null, 191, [], ['As_of_Date_Form_YYYY-MM-DD'], true, 1, ['2026-09-29'], ['FutOnly']]);
+assert.deepEqual(cot.inspectCftcCotFile(text).reportDates, ['2026-09-22', '2026-09-29']);
+assert.match(cot.inspectCftcCotFile('PK\u0003\u0004x').formatProblem, /ZIP/);
+assert.match(cot.inspectCftcCotFile(formats[7][1]).layout, /legacy/);
+console.log('PASS 1.3.0: the official 191-field layout converts (documented date column, verbatim FutOnly_or_Combined); date columns must agree; inspection');
 
 // --- Static: the adapter has no network, clock or file access.
 const source = readFileSync(new URL('../backend/positioning_engine/cftc_cot_offline_adapter.ts', import.meta.url), 'utf8');

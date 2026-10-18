@@ -223,7 +223,9 @@ const START_NOTES = {
 /** A source identifier the page may send: never a path, only what the catalog lists. */
 const SOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const COT_DECLARATION_KEYS = ['contractMarketCode', 'dataset', 'publishedAt', 'receivedAt', 'reportDate', 'schemaVersion'];
+// artifactId and sourceUrl (optional, additive): the bytes declared and where the operator says they came from.
+const COT_DECLARATION_KEYS = ['artifactId', 'contractMarketCode', 'dataset', 'publishedAt', 'receivedAt', 'reportDate', 'schemaVersion', 'sourceUrl'];
+const SOURCE_URL = /^https:\/\/[A-Za-z0-9.-]+(\/[A-Za-z0-9._~%\/-]*)?$/;
 
 /**
  * The CFTC files of a positioning directory, each with its declaration
@@ -264,7 +266,10 @@ export async function readPositioningDir(dir) {
       const raw = JSON.parse(readFileSync(declarationFile, 'utf8'));
       const keys = raw && typeof raw === 'object' && !Array.isArray(raw) ? Object.keys(raw) : null;
       if (keys === null || raw.schemaVersion !== 'xau.cftc-cot-declaration.v1'
-          || keys.some((key) => !COT_DECLARATION_KEYS.includes(key))) problem = 'DECLARATION_INVALID';
+          || keys.some((key) => !COT_DECLARATION_KEYS.includes(key))
+          || (raw.sourceUrl !== undefined && (typeof raw.sourceUrl !== 'string' || !SOURCE_URL.test(raw.sourceUrl)))) problem = 'DECLARATION_INVALID';
+      // A declaration bound to other bytes says nothing about this file (changed after it was declared).
+      else if (raw.artifactId !== undefined && raw.artifactId !== artifactId) problem = 'DECLARATION_DIGEST_MISMATCH';
       else declaration = raw;
     } catch (error) {
       problem = error.code === 'ENOENT' ? 'DECLARATION_MISSING' : 'DECLARATION_INVALID';
@@ -274,7 +279,8 @@ export async function readPositioningDir(dir) {
       reportDate: declaration.reportDate ?? null, dataset: declaration.dataset,
       ...(declaration.contractMarketCode !== undefined ? { contractMarketCode: declaration.contractMarketCode } : {}),
     });
-    entries.push({ name, artifactId, declaration, problem, formatProblem, conversion });
+    entries.push({ name, artifactId, declaration, problem, formatProblem, conversion,
+      inspection: adapter.inspectCftcCotFile(bytes.toString('utf8')) });
   }
   return { entries, problem: null };
 }
@@ -363,7 +369,7 @@ export async function buildLocalView({
     if (entry.name === null) { ignoredFiles.push(entry.ignored); continue; }
     positioning.set(`cot:${entry.name}`, { id: `cot:${entry.name}`, kind: 'CFTC_FILE', label: entry.name, conversion: entry.conversion,
       declaredBy: 'DECLARATION_FILE', declaration: entry.declaration, problem: entry.problem ?? null, formatProblem: entry.formatProblem ?? null,
-      artifactId: entry.artifactId ?? null });
+      artifactId: entry.artifactId ?? null, inspection: entry.inspection ?? null });
   }
   const defaultPositioning = cot !== null ? 'cli-cot' : 'input';
   const positioningFileOf = (source) => (source.kind !== 'CFTC_FILE' ? null : {
@@ -491,7 +497,8 @@ export async function buildLocalView({
   }
   const positioningEntries = [...positioning.values()].map((source) => (source.kind === 'INPUT_DOCUMENT'
     ? { id: source.id, kind: source.kind, label: source.label, status: 'DOCUMENT', sourceApproval: null, dataset: null, reportDate: null,
-      publishedAt: null, receivedAt: null, metrics: null, artifactId: null, reasonCodes: [], detail: null, declaredBy: null }
+      publishedAt: null, receivedAt: null, metrics: null, artifactId: null, reasonCodes: [], detail: null, declaredBy: null,
+      dateColumn: null, fileDatasetMarker: null, sourceUrl: null, boundToBytes: null }
     : {
       id: source.id, kind: source.kind, label: source.label,
       status: source.conversion?.status ?? 'REJECTED',
@@ -504,9 +511,16 @@ export async function buildLocalView({
       artifactId: source.conversion?.artifactId ?? source.artifactId ?? null,
       reasonCodes: source.conversion ? [...source.conversion.reasonCodes] : [source.problem ?? 'NOT_CONVERTED'],
       detail: source.conversion ? source.conversion.detail
-        : `${source.problem === 'DECLARATION_MISSING' ? 'déclaration absente' : 'déclaration invalide'} : ${source.label.replace(/\.[^.]*$/, '')}.declaration.json requis`
+        : source.problem === 'DECLARATION_DIGEST_MISMATCH'
+          ? `le fichier a changé depuis sa déclaration (empreinte différente) : la déclarer à nouveau après vérification`
+          : `${source.problem === 'DECLARATION_MISSING' ? 'déclaration absente' : 'déclaration invalide'} : ${source.label.replace(/\.[^.]*$/, '')}.declaration.json requis`
           + `${source.formatProblem ? ` ; ${source.formatProblem}` : ''}`,
       declaredBy: source.declaredBy,
+      // 1.3.0 facts of the file itself, verbatim; the declaration is shown beside, never overridden.
+      dateColumn: source.conversion?.dateColumn ?? null,
+      fileDatasetMarker: source.conversion?.fileDatasetMarker ?? (source.inspection?.datasetMarkers?.length === 1 ? source.inspection.datasetMarkers[0] : null),
+      sourceUrl: source.declaration?.sourceUrl ?? null,
+      boundToBytes: source.declaration ? typeof source.declaration.artifactId === 'string' : null,
     }));
   render.catalog = () => ({
     schemaVersion: 'xau.terminal-data-catalog.v1',

@@ -371,8 +371,9 @@ none selected by default (the server's input stays the default view):
   then fails closed (pick the logs one by one);
 - `DIR/positioning/<file>` with `<file without extension>.declaration.json`
   (`xau.cftc-cot-declaration.v1`: `dataset`, `publishedAt`, `receivedAt`,
-  optional `reportDate`, `contractMarketCode`; any other key is
-  `DECLARATION_INVALID`): CFTC COT files (`cot:<file>`). Without a valid
+  optional `reportDate`, `contractMarketCode`, `artifactId`, `sourceUrl`
+  (https only); any other key is `DECLARATION_INVALID`; an `artifactId` that
+  is not the file's sha256 is `DECLARATION_DIGEST_MISMATCH`): CFTC COT files (`cot:<file>`). Without a valid
   declaration a file is never converted (`DECLARATION_MISSING` /
   `DECLARATION_INVALID`, its format problem named when visible); unknown
   formats and other CFTC reports are named by the adapter
@@ -404,6 +405,12 @@ choice is kept in `#chaine/donnees/<market>/<positioning>[/rejeu/<instant>]`
 and restored only when every id exists. Every view stays HOLD / FORBIDDEN; a
 CFTC file is at most `LOCAL_INPUT_UNVERIFIED`, a rejected one supplies
 nothing; no positioning method is approved.
+
+Inspecting a file first: `node scripts/cot_declare.mjs FILE --inspect` (writes
+nothing). The declaration written by the script records the file's sha256
+and, with `--source-url`, where the operator says it came from (shown, not
+verified); the positioning card shows them with the file's own date column
+and `FutOnly_or_Combined` value.
 
 Declaring a CFTC file: `node scripts/cot_declare.mjs FILE --dataset
 futures-only|futures-and-options --published-at ISO --received-at ISO
