@@ -10,7 +10,7 @@ import http from 'node:http';
 import { JSDOM } from 'jsdom';
 import {
   ARCHIVE_CUTOFFS_PATH, SCENARIOS_PATH, SYNTHETIC_ARCHIVE, VIEW_PATH,
-  archiveCutoffs, buildLocalView, createTerminalServer, listenOnLoopback, localIndexHtml,
+  archiveCutoffs, archiveCutoffsOf, buildLocalView, createTerminalServer, listenOnLoopback, localIndexHtml,
 } from '../scripts/serve_terminal_local.mjs';
 
 const archive = JSON.parse(readFileSync(SYNTHETIC_ARCHIVE, 'utf8'));
@@ -24,6 +24,10 @@ assert.deepEqual(list.cutoffs, expected);
 assert.equal(list.defaultCutoff, '2026-10-01T14:15:00.000Z');
 assert.equal(list.truncated, false);
 assert.deepEqual(archiveCutoffs('/nonexistent/archive.json', null).cutoffs, []);
+// Only explicit UTC reception instants become cutoffs: an offset, a space or a date alone is never normalised into one.
+const odd = (at) => archiveCutoffsOf({ records: [{ ...archive.records[0], ingestedAt: at }] }, null).cutoffs;
+for (const at of ['2026-10-01T16:14:03+02:00', '2026-10-01 14:14:03Z', '2026-10-01', '2026-10-01T14:14:03.000Z\n']) assert.deepEqual(odd(at), [], at);
+assert.deepEqual(odd('2026-10-01T14:14:03Z'), ['2026-10-01T14:14:03.000Z']);
 // Availability per field: counts, sources and ranges straight from the records, every field listed.
 assert.deepEqual(list.fields.map((f) => f.field), ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti']);
 for (const f of list.fields) {
