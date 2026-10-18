@@ -10,7 +10,7 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.6.0`.
+- `terminal-local-view-4.7.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
@@ -84,6 +84,25 @@ cutoff; P-0 rejects it, the row is shown flagged). Nothing is derived: no
 net, ratio, rank or direction (no positioning method is approved). The page
 groups the rows by report under PREUVES DE POSITIONNEMENT — VALEURS BRUTES
 and refuses a view whose untruncated rows do not match `evidenceCount`.
+
+Algorithm 4.7.0 adds a macro events source. The catalog lists `events`:
+`input` (the input document's Event Impact / Gold Transmission summaries,
+the default), `official:repository` (the seven official release documents
+committed under `tests/fixtures/`, parsed from BLS, BEA and DOL artifacts) and,
+with `--data-root DIR`, `official:local` (`DIR/official/*.json`, documents of
+the same shape). `?events=<id>` (or the page's **Événements macro** selector)
+runs each document through its Event Facts adapter, makes an event version
+known at the adapter's official `publishedAt` (B3), plans Event Impact and Gold
+Transmission with the existing processors, and aggregates them with EIA-0 v2
+**at the chain's own cutoff** (the replay instant for an archive): a release
+published after it is excluded, the summaries carry the chain cutoff, so a
+replay no longer reports `UPSTREAM_CUTOFF_MISMATCH`. Both inputs are then
+`LOCAL_INPUT_UNVERIFIED`; the view's `officialEvents` lists the releases known
+at the cutoff, those not yet published and those rejected (with the
+adapter's reason); the page shows them under ÉVÉNEMENTS MACRO OFFICIELS AU
+CUTOFF. The processors still give `INSUFFICIENT_EVIDENCE` (no consensus, no
+approved method): nothing is interpreted, HOLD / FORBIDDEN unchanged.
+Identifiers are derived from the documents' bytes (no runtime, no database).
 
 ## What the view contains
 

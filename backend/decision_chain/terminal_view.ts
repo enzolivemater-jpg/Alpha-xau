@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.6.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.7.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -530,6 +530,8 @@ export interface TerminalView {
     readonly currentWindowSeconds: number;
   };
   readonly holdRationale: TerminalHoldRationale;
+  /** 4.7.0, see TerminalOfficialEvents; absent from older producers. */
+  readonly officialEvents?: TerminalOfficialEvents | null;
   /** 4.5.0, see TerminalCutoffAlignment. */
   readonly cutoffAlignment: TerminalCutoffAlignment | null;
   readonly summary: TerminalDecisionSummary;
@@ -800,6 +802,27 @@ export interface TerminalPositioningFile {
   readonly dataset?: 'FUTURES_ONLY' | 'FUTURES_AND_OPTIONS_COMBINED' | null;
 }
 
+/**
+ * 4.7.0: the Event Impact and Gold Transmission summaries computed by the
+ * caller from official release documents (EIA-0 v2 at the chain cutoff)
+ * instead of the input document. Local files, so at most LOCAL_INPUT_UNVERIFIED.
+ */
+export interface TerminalOfficialEvents {
+  readonly label: string;
+  readonly known: readonly { readonly name: string; readonly family: string | null; readonly period: string | null; readonly publishedAt: string | null }[];
+  readonly notYetPublished: readonly { readonly name: string; readonly family: string | null; readonly period: string | null; readonly publishedAt: string | null }[];
+  readonly rejected: readonly { readonly name: string; readonly reason: string | null }[];
+  readonly impactStatus: string;
+  readonly transmissionStatus: string;
+  readonly reasonCodes: readonly string[];
+}
+
+function officialEventsSource(events: TerminalOfficialEvents, rejectedChain: boolean): InputDocumentSource {
+  if (rejectedChain) return { source: 'UNAVAILABLE', detail: 'entrée rejetée : rien n\'a été évalué' };
+  return { source: 'LOCAL_INPUT_UNVERIFIED', detail: `publications officielles locales (${events.label}) : ${events.known.length} connue(s) au cutoff, `
+    + `${events.notYetPublished.length} pas encore publiée(s), agrégées par EIA-0 v2 au cutoff de la chaîne ; documents non vérifiés à l'exécution` };
+}
+
 function positioningFileSource(file: TerminalPositioningFile, rejectedChain: boolean): InputDocumentSource {
   if (rejectedChain) return { source: 'UNAVAILABLE', detail: 'entrée rejetée : rien n\'a été évalué' };
   if (file.status === 'EXTRACTED' && typeof file.reportDate === 'string') {
@@ -839,6 +862,7 @@ function inputProvenanceOf(
   replay: MarketEvidenceReplay | null,
   inputDocument: unknown,
   positioningFile: TerminalPositioningFile | null = null,
+  officialEvents: TerminalOfficialEvents | null = null,
 ): TerminalInputProvenance[] {
   const document = inputDocument === undefined
     ? (origin.kind === 'LOCAL_MARKET_ARCHIVE' ? inputDocumentSource(null) : inputDocumentSource(origin))
@@ -876,8 +900,8 @@ function inputProvenanceOf(
     MARKET: market,
     POSITIONING: positioningFile !== null ? positioningFileSource(positioningFile, rejected)
       : fromDocument((stages?.positioning.evidence.length ?? 0) === 0, 'aucune preuve de positionnement fournie'),
-    EVENT_IMPACT: fromDocument(false, ''),
-    GOLD_TRANSMISSION: fromDocument(false, ''),
+    EVENT_IMPACT: officialEvents !== null ? officialEventsSource(officialEvents, rejected) : fromDocument(false, ''),
+    GOLD_TRANSMISSION: officialEvents !== null ? officialEventsSource(officialEvents, rejected) : fromDocument(false, ''),
     EVIDENCE_GRAPH: fromDocument(stages?.prePm.reasonCodes.includes('EVIDENCE_GRAPH_UNAVAILABLE') ?? true,
       'graphe de preuves non fourni'),
     AUTHORIZATIONS: fromDocument(false, ''),
@@ -915,6 +939,8 @@ export function buildTerminalView(
   positioningFile: TerminalPositioningFile | null = null,
   /** 4.5.0: the knowledge cutoffs of the input's Event Impact and Gold Transmission summaries. */
   inputCutoffs: { readonly eventImpact: unknown; readonly goldTransmission: unknown } | null = null,
+  /** 4.7.0: the official releases behind the Event Impact / Gold Transmission summaries, if any. */
+  officialEvents: TerminalOfficialEvents | null = null,
 ): TerminalView {
   const base = {
     schemaVersion: TERMINAL_VIEW_SCHEMA_VERSION,
@@ -922,7 +948,9 @@ export function buildTerminalView(
     generatedAt,
     origin: { kind: origin.kind, label: origin.label },
     simulated: true as const,
-    inputProvenance: inputProvenanceOf(outcome, origin, marketEvidenceReplay, inputDocument, positioningFile),
+    inputProvenance: inputProvenanceOf(outcome, origin, marketEvidenceReplay, inputDocument, positioningFile, officialEvents),
+    // 4.7.0: which official releases the macro summaries rest on (null: the input document's summaries).
+    officialEvents: officialEvents === null ? null : structuredClone(officialEvents),
     marketEvidence: marketEvidenceOf(marketEvidenceReplay),
   };
   if (outcome.kind === 'REJECTED') {

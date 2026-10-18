@@ -35,12 +35,17 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
+import { aggregateOfficialReleasesAt, officialReleaseFiles, readOfficialReleases } from './lib/official_events.mjs';
 import { TERMINAL_SCENARIOS, findTerminalScenario } from './lib/terminal_scenarios.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FRONTEND = path.join(ROOT, 'frontend');
 export const GOLDEN_FIXTURE = path.join(ROOT, 'tests', 'fixtures', 'decision_chain_dry_run_baseline.json');
 export const SYNTHETIC_ARCHIVE = path.join(ROOT, 'tests', 'fixtures', 'market_evidence_archive_synthetic.json');
+/** The official release documents committed with the repository (parsed from BLS, BEA and DOL artifacts). */
+export const REPOSITORY_OFFICIAL_RELEASES = ['bea_pce_2026_07.json', 'bea_pce_2026_08.json', 'bls_cpi_table1_2026_07.json',
+  'bls_cpi_table1_2026_08.json', 'bls_employment_situation_2026_07.json', 'bls_employment_situation_2026_08.json',
+  'dol_ui_weekly_claims_2026_10_01.json'].map((name) => path.join(ROOT, 'tests', 'fixtures', name));
 export const DEFAULT_PORT = 4173;
 export const DEFAULT_PORT_RANGE = 10;
 export const MAX_PORT_RANGE = 50;
@@ -382,6 +387,31 @@ export async function buildLocalView({
       artifactId: entry.artifactId ?? null, inspection: entry.inspection ?? null });
   }
   const defaultPositioning = cot !== null ? 'cli-cot' : 'input';
+
+  // ---- Macro event sources: the document's own summaries, or official release documents aggregated at the cutoff.
+  const events = new Map();
+  events.set('input', { id: 'input', kind: 'INPUT_DOCUMENT', label: `document d'entrée (${inputDocument.label})`, entries: null });
+  events.set('official:repository', { id: 'official:repository', kind: 'OFFICIAL_RELEASES',
+    label: 'publications officielles du dépôt (BLS CPI, NFP ; BEA PCE ; DOL claims)', entries: await readOfficialReleases(REPOSITORY_OFFICIAL_RELEASES) });
+  if (dataRoot !== null) {
+    const officialFiles = officialReleaseFiles(path.join(dataRoot, 'official'));
+    if (officialFiles.length) {
+      events.set('official:local', { id: 'official:local', kind: 'OFFICIAL_RELEASES', label: 'publications officielles locales (official/)',
+        entries: await readOfficialReleases(officialFiles) });
+    }
+  }
+  const defaultEvents = 'input';
+  /** The chain input with the chosen macro summaries recomputed at `cutoff`, and the facts behind them. */
+  const withEventsAt = async (source, input, cutoff) => {
+    if (source.entries === null || typeof input !== 'object' || input === null || Array.isArray(input)) return { input, officialEvents: null };
+    const agg = await aggregateOfficialReleasesAt(source.entries, cutoff);
+    return {
+      input: { ...input, eventImpact: agg.impact.summary, goldTransmission: agg.transmission.summary },
+      officialEvents: { label: source.label, known: agg.known, notYetPublished: agg.notYetPublished, rejected: agg.rejected,
+        impactStatus: agg.impact.summary.status, transmissionStatus: agg.transmission.summary.status,
+        reasonCodes: [...new Set([...agg.impact.reasonCodes, ...agg.transmission.reasonCodes])] },
+    };
+  };
   const positioningFileOf = (source) => (source.kind !== 'CFTC_FILE' ? null : {
     label: source.label,
     status: source.conversion?.status ?? 'REJECTED',
@@ -399,18 +429,21 @@ export async function buildLocalView({
   /** 4.5.0: cutoffs of the input's precomputed summaries, for the view's alignment line. */
   const inputCutoffsOf = (input) => view.terminalInputCutoffs(input);
   /** Replays an archive, then runs CHAIN-0 on its snapshot. */
-  const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned, document = undefined, positioningFile = null) => {
+  const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned, document = undefined, positioningFile = null, eventsSource = null) => {
     const replay = await evidence.replayMarketEvidence(archive, knowledgeCutoff,
       // A pin that was asked for is always applied: an empty or malformed one must fail the
       // replay (digest mismatch), never silently turn the pin off.
       { parsers, ...(pinned !== undefined ? { pinnedArchiveDigest: pinned } : {}) });
+    // The macro summaries, when computed from official releases, are computed at the replay's own cutoff.
+    const withEvents = eventsSource === null ? { input: baseInput, officialEvents: null } : await withEventsAt(eventsSource, baseInput, replay.knowledgeCutoff);
+    baseInput = withEvents.input;
     const outcome = bridge.evaluateDecisionChainOnMarketEvidence(baseInput, replay);
     const receipt = outcome.kind === 'COMPLETED'
       ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
     const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
       ? receipt.fingerprint : null;
     return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), replay, document, positioningFile,
-      inputCutoffsOf(baseInput));
+      inputCutoffsOf(baseInput), withEvents.officialEvents);
   };
   /**
    * Without a scenario, the server's input with the selected market and
@@ -418,12 +451,14 @@ export async function buildLocalView({
    * one, that simulation and nothing else. A request cutoff replays an archive
    * source at that instant. null for anything not in the catalog or not allowed.
    */
-  const render = async (scenarioId = null, { cutoff: requestCutoff = null, market: marketId = null, positioning: positioningId = null } = {}) => {
-    if (scenarioId !== null && (requestCutoff !== null || marketId !== null || positioningId !== null)) return null;
+  const render = async (scenarioId = null, { cutoff: requestCutoff = null, market: marketId = null, positioning: positioningId = null,
+    events: eventsId = null } = {}) => {
+    if (scenarioId !== null && (requestCutoff !== null || marketId !== null || positioningId !== null || eventsId !== null)) return null;
     if (scenarioId === null) {
       const marketSource = market.get(marketId ?? defaultMarket);
       const positioningSource = positioning.get(positioningId ?? defaultPositioning);
-      if (!marketSource || !positioningSource) return null;
+      const eventsSource = events.get(eventsId ?? defaultEvents);
+      if (!marketSource || !positioningSource || !eventsSource) return null;
       if (requestCutoff !== null && (marketSource.load === null || !REQUEST_CUTOFF.test(requestCutoff))) return null;
       const document = readChainDocument(inputFile);
       const withPositioning = withPositioningOf(positioningSource);
@@ -431,16 +466,19 @@ export async function buildLocalView({
       if (marketSource.load !== null) {
         const knowledgeCutoff = requestCutoff ?? defaultCutoffOf(marketSource, document);
         return fromArchive(marketSource.load(), knowledgeCutoff, document.ok ? withPositioning(document.input) : undefined,
-          { kind: 'LOCAL_MARKET_ARCHIVE', label: marketSource.label }, marketSource.pinned, inputDocument, positioningFile);
+          { kind: 'LOCAL_MARKET_ARCHIVE', label: marketSource.label }, marketSource.pinned, inputDocument, positioningFile,
+          eventsSource.entries === null ? null : eventsSource);
       }
+      const withEvents = document.ok ? await withEventsAt(eventsSource, withPositioning(document.input), document.knowledgeCutoff)
+        : { input: undefined, officialEvents: null };
       // An unreadable document still yields a HOLD view, through CHAIN-0's own rejection.
       const outcome = document.ok
-        ? chain.evaluateDecisionChain(withPositioning(document.input), document.knowledgeCutoff)
+        ? chain.evaluateDecisionChain(withEvents.input, document.knowledgeCutoff)
         : chain.evaluateDecisionChain(undefined, undefined);
       const receipt = outcome.kind === 'COMPLETED' ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
       const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED' ? receipt.fingerprint : null;
       return view.buildTerminalView(outcome, digest, inputDocument, now().toISOString(), null, undefined, positioningFile,
-        document.ok ? inputCutoffsOf(document.input) : null);
+        document.ok ? inputCutoffsOf(withEvents.input) : null, withEvents.officialEvents);
     }
     const scenario = findTerminalScenario(scenarioId);
     if (!scenario) return null;
@@ -536,9 +574,15 @@ export async function buildLocalView({
         ? { count: source.inspection.reportDates.length, first: source.inspection.reportDates[0], last: source.inspection.reportDates.at(-1) } : null,
       boundToBytes: source.declaration ? typeof source.declaration.artifactId === 'string' : null,
     }));
+  const eventsEntries = [...events.values()].map((source) => ({
+    id: source.id, kind: source.kind, label: source.label,
+    releases: source.entries === null ? [] : source.entries.map((e) => ({ name: e.name, status: e.status, family: e.family,
+      period: e.period, publishedAt: e.publishedAt, reason: e.reason, artifactId: e.artifactId ?? null })),
+  }));
   render.catalog = () => ({
     schemaVersion: 'xau.terminal-data-catalog.v1',
-    defaults: { market: defaultMarket, positioning: defaultPositioning },
+    defaults: { market: defaultMarket, positioning: defaultPositioning, events: defaultEvents },
+    events: structuredClone(eventsEntries),
     market: structuredClone(catalogEntries),
     positioning: structuredClone(positioningEntries),
     notes: [...dataNotes, ...(dirRead?.problem ? [dirRead.problem] : []), ...ignoredFiles],
@@ -636,6 +680,7 @@ export async function createTerminalServer(options = {}) {
     let requestCutoff;
     let marketId;
     let positioningId;
+    let eventsId;
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       pathname = decodeURIComponent(url.pathname);
@@ -643,6 +688,7 @@ export async function createTerminalServer(options = {}) {
       requestCutoff = url.searchParams.get('cutoff') || null;
       marketId = url.searchParams.get('market') || null;
       positioningId = url.searchParams.get('positioning') || null;
+      eventsId = url.searchParams.get('events') || null;
     } catch {
       send(response, 400, 'text/plain; charset=utf-8', 'bad request', method);
       return;
@@ -674,11 +720,12 @@ export async function createTerminalServer(options = {}) {
       return;
     }
     if (pathname === VIEW_PATH) {
-      if ((marketId !== null && !SOURCE_ID.test(marketId)) || (positioningId !== null && !SOURCE_ID.test(positioningId))) {
+      if ((marketId !== null && !SOURCE_ID.test(marketId)) || (positioningId !== null && !SOURCE_ID.test(positioningId))
+          || (eventsId !== null && !SOURCE_ID.test(eventsId))) {
         send(response, 400, 'text/plain; charset=utf-8', 'market / positioning: catalog ids only', method);
         return;
       }
-      if (scenarioId !== null && (marketId !== null || positioningId !== null)) {
+      if (scenarioId !== null && (marketId !== null || positioningId !== null || eventsId !== null)) {
         send(response, 400, 'text/plain; charset=utf-8', 'a scenario takes no data source', method);
         return;
       }
@@ -687,7 +734,7 @@ export async function createTerminalServer(options = {}) {
         return;
       }
       try {
-        const body = await view(scenarioId, { cutoff: requestCutoff, market: marketId, positioning: positioningId });
+        const body = await view(scenarioId, { cutoff: requestCutoff, market: marketId, positioning: positioningId, events: eventsId });
         if (body === null) send(response, 404, 'text/plain; charset=utf-8', 'unknown scenario or data source', method);
         else send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(body), method);
       } catch (error) {

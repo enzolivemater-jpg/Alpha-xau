@@ -352,9 +352,12 @@
         <select id="v2-data-market" aria-describedby="v2-data-hint"></select>
         <label class="v2__data-label" for="v2-data-positioning">Positionnement</label>
         <select id="v2-data-positioning" aria-describedby="v2-data-hint"></select>
+        <label class="v2__data-label" for="v2-data-events">Événements macro</label>
+        <select id="v2-data-events" aria-describedby="v2-data-hint"></select>
         <span class="v2__scenario-hint" id="v2-data-hint"></span>
         <dl class="v2__data-card" id="v2-data-card-market" aria-label="Source de marché choisie"></dl>
         <dl class="v2__data-card" id="v2-data-card-positioning" aria-label="Source de positionnement choisie"></dl>
+        <dl class="v2__data-card" id="v2-data-card-events" aria-label="Source des événements macro choisie"></dl>
       </div>
 
       <div class="v2__scenario" id="v2-replay-cutoff-wrap" hidden>
@@ -452,6 +455,12 @@
           <div><dt>POSITIONNEMENT OBSERVÉ JUSQU'À</dt><dd class="num" id="v2-positioning-through">—</dd></div>
           <div><dt>SOURCES POSITIONNEMENT</dt><dd id="v2-positioning-sources">—</dd></div>
         </dl>
+        <!-- 4.7.0 : publications officielles derrière les résumés Event Impact / Gold Transmission, au cutoff. -->
+        <section class="v2__pos-evidence" id="v2-official-events" aria-labelledby="v2-official-events-title" hidden>
+          <h3 class="v2__subtitle" id="v2-official-events-title">ÉVÉNEMENTS MACRO OFFICIELS AU CUTOFF</h3>
+          <p class="v2__pos-evidence-note" id="v2-official-events-note"></p>
+          <ul class="v2__avail-list" id="v2-official-events-list"></ul>
+        </section>
         <!-- 4.6.0 : preuves de positionnement brutes, telles que P-0 les garde ; aucune valeur dérivée. -->
         <section class="v2__pos-evidence" id="v2-positioning-evidence" aria-labelledby="v2-pos-evidence-title" hidden>
           <h3 class="v2__subtitle" id="v2-pos-evidence-title">PREUVES DE POSITIONNEMENT — VALEURS BRUTES</h3>

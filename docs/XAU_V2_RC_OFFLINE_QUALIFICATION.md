@@ -55,7 +55,7 @@ documents; it changes no backend, frontend, SQL or fixture.
   with P-0 v1; only the POSITIONING and REGIME trace entries differ).
 - OBS-0 receipt `STRUCTURALLY_VALID_HOLD_UNVERIFIED`; terminal fingerprint only from an accepted receipt.
 - Contract versions on the candidate: P-0 `xau.positioning-evidence.v2` / `positioning-evidence-normalizer-2.0.0`;
-  terminal `xau.terminal-local-view.v4` / `terminal-local-view-4.6.0`; EIA-0 v1
+  terminal `xau.terminal-local-view.v4` / `terminal-local-view-4.7.0`; EIA-0 v1
   `event-plan-aggregation-gate-1.0.0` and v2 `event-plan-aggregation-release-gate-2.0.0`;
   `official-release-instant-us-eastern-1.0.0`; CHAIN-0 `decision-chain-dry-run-1.0.0`. Registry test PASS.
 - Real DATA-3 captures (local, never committed): 115/115 read-only, source sha256 unchanged,

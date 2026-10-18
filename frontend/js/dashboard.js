@@ -179,6 +179,11 @@
     v2DataWrap: $('v2-data-wrap'),
     v2DataMarket: $('v2-data-market'),
     v2DataPositioning: $('v2-data-positioning'),
+    v2DataEvents: $('v2-data-events'),
+    v2DataCardEvents: $('v2-data-card-events'),
+    v2OfficialEvents: $('v2-official-events'),
+    v2OfficialEventsNote: $('v2-official-events-note'),
+    v2OfficialEventsList: $('v2-official-events-list'),
     v2DataHint: $('v2-data-hint'),
     v2DataCardMarket: $('v2-data-card-market'),
     v2DataCardPositioning: $('v2-data-card-positioning'),
@@ -1327,6 +1332,13 @@ let pollTimer = null;
     if (fresh && fresh.status === 'AFTER_KNOWLEDGE_CUTOFF'
         && (fresh.publishedAgeSecondsAtCutoff !== null || !(isNum(pos.evidenceCount) && pos.evidenceCount > 0))) return 'fraîcheur du positionnement non conforme';
     if (fresh && isNum(fresh.publishedAgeSecondsAtCutoff) && fresh.publishedAgeSecondsAtCutoff < 0) return 'fraîcheur du positionnement non conforme';
+    // 4.7.0 : des publications officielles derrière les résumés macro ne s'affichent que si la provenance le dit.
+    const oe = view.officialEvents;
+    if (oe !== undefined && oe !== null) {
+      if (typeof oe !== 'object' || !isList(oe.known) || !isList(oe.notYetPublished) || !isText(oe.label)) return 'événements officiels non conformes';
+      const evProv = isList(view.inputProvenance) ? view.inputProvenance.find((e) => e && e.input === 'EVENT_IMPACT') : null;
+      if (evProv && evProv.source !== 'LOCAL_INPUT_UNVERIFIED' && evProv.source !== 'UNAVAILABLE') return 'provenance des événements contradictoire';
+    }
     // 4.6.0 : les valeurs brutes, quand elles sont données, sont exactement celles que P-0 a gardées.
     if (pos && pos.evidence !== undefined) {
       if (!isList(pos.evidence) || pos.evidence.some((r) => !r || !isText(r.metricCode) || !isNum(r.value) || typeof r.afterCutoff !== 'boolean')
@@ -1646,6 +1658,7 @@ let pollTimer = null;
     setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length
       ? pos.sourceAuthorities.join(' · ') : 'N/A');
     renderPositioningEvidence(pos);
+    renderOfficialEvents(view.officialEvents);
 
     renderReadiness(view);
     renderMarketEvidence(view.marketEvidence);
@@ -1802,24 +1815,27 @@ let pollTimer = null;
    */
   const V2_HASH = /^#chaine\/(scenario|rejeu)\/([A-Za-z0-9:.-]{1,64})$/;
   // Données locales choisies : #chaine/donnees/<marché>/<positionnement>[/rejeu/<instant>] (identifiants du catalogue).
-  const V2_DATA_HASH = /^#chaine\/donnees\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:\/rejeu\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z))?$/;
+  const V2_DATA_HASH = /^#chaine\/donnees\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})(?:\/evenements\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127}))?(?:\/rejeu\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z))?$/;
   const requestedChoice = (() => {
     const d = V2_DATA_HASH.exec(window.location.hash);
-    if (d) return { kind: 'donnees', market: d[1], positioning: d[2], value: d[3] ?? null };
+    if (d) return { kind: 'donnees', market: d[1], positioning: d[2], events: d[3] ?? null, value: d[4] ?? null };
     const m = V2_HASH.exec(window.location.hash);
     return m ? { kind: m[1], value: decodeURIComponent(m[2]) } : null;
   })();
   /* Sources de données choisies (identifiants du catalogue) ; null = celles du serveur. */
   let v2Market = null;
   let v2Positioning = null;
+  let v2Events = null;
   let v2Catalog = null;
   const dataChosen = () => v2Catalog !== null && ((v2Market !== null && v2Market !== v2Catalog.defaults.market)
-    || (v2Positioning !== null && v2Positioning !== v2Catalog.defaults.positioning));
+    || (v2Positioning !== null && v2Positioning !== v2Catalog.defaults.positioning)
+    || (v2Events !== null && v2Events !== v2Catalog.defaults.events));
   function writeChoiceToHash() {
     const market = v2Market ?? v2Catalog?.defaults.market;
     const positioning = v2Positioning ?? v2Catalog?.defaults.positioning;
     const hash = v2Scenario ? `#chaine/scenario/${v2Scenario}`
-      : dataChosen() ? `#chaine/donnees/${market}/${positioning}${v2ReplayCutoff ? `/rejeu/${v2ReplayCutoff}` : ''}`
+      : dataChosen() ? `#chaine/donnees/${market}/${positioning}${v2Events !== null && v2Events !== v2Catalog.defaults.events ? `/evenements/${v2Events}` : ''}`
+        + `${v2ReplayCutoff ? `/rejeu/${v2ReplayCutoff}` : ''}`
         : v2ReplayCutoff ? `#chaine/rejeu/${v2ReplayCutoff}` : '#chaine';
     if (window.location.hash !== hash) {
       try { window.history.replaceState(null, '', hash); } catch { /* ancre non modifiable : choix gardé en mémoire */ }
@@ -1851,6 +1867,7 @@ let pollTimer = null;
         el.v2ReplayCutoff.disabled = v2Scenario !== null;
         el.v2DataMarket.disabled = v2Scenario !== null;
         el.v2DataPositioning.disabled = v2Scenario !== null;
+        el.v2DataEvents.disabled = v2Scenario !== null;
         writeChoiceToHash();
         refreshV2();
       });
@@ -1861,6 +1878,7 @@ let pollTimer = null;
         el.v2ReplayCutoff.disabled = true;
         el.v2DataMarket.disabled = true;
         el.v2DataPositioning.disabled = true;
+        el.v2DataEvents.disabled = true;
         refreshV2();
       }
     } catch { /* sans liste, l'entrée du serveur reste affichée */ }
@@ -1868,7 +1886,7 @@ let pollTimer = null;
 
   const V2_DATA_KINDS = {
     INPUT_DOCUMENT: 'document d\'entrée', ARCHIVE_FILE: 'archive locale', CAPTURES_MERGED: 'captures fusionnées',
-    CAPTURE_LOG: 'journal de capture', CFTC_FILE: 'fichier CFTC COT',
+    CAPTURE_LOG: 'journal de capture', CFTC_FILE: 'fichier CFTC COT', OFFICIAL_RELEASES: 'publications officielles',
   };
   const V2_CLASS_LABELS = { CAPTURED: 'CAPTURÉE (déclarée par l\'opérateur)', SYNTHETIC_FIXTURE: 'SYNTHÉTIQUE' };
   const V2_COT_STATUS = { EXTRACTED: 'LU — 14 mesures brutes, aucune méthode approuvée', REJECTED: 'REJETÉ', DOCUMENT: 'celui du document' };
@@ -1902,6 +1920,18 @@ let pollTimer = null;
           ['Validation', v ? `${V2_EVIDENCE_STATUS[v.status] || label(v.status)}${v.nature ? ` · ${V2_EVIDENCE_NATURE[v.nature] || label(v.nature)}` : ''}${v.at ? ` (rejeu au ${instant(v.at)})` : ''}` : '—'],
           ['Raisons', v && isList(v.reasonCodes) && v.reasonCodes.length ? v.reasonCodes.map(label).join(' · ') : 'aucune'],
           ...(isList(m.problems) && m.problems.length ? [['Problèmes', m.problems.map(String).join(' · ')]] : []),
+        ]);
+    }
+    const ev = (v2Catalog.events || []).find((x) => x.id === (v2Events ?? v2Catalog.defaults.events));
+    if (ev) {
+      const releases = isList(ev.releases) ? ev.releases : [];
+      dataCard(el.v2DataCardEvents, `ÉVÉNEMENTS MACRO — ${ev.label}`, ev.kind === 'INPUT_DOCUMENT'
+        ? [['Type', V2_DATA_KINDS[ev.kind]], ['Contenu', 'résumés Event Impact / Gold Transmission du document (synthétiques pour la fixture)']]
+        : [
+          ['Type', `${V2_DATA_KINDS[ev.kind]} · documents non vérifiés à l'exécution`],
+          ['Lues', releases.filter((r) => r.status === 'RESOLVED').map((r) => `${r.family} ${r.period} (publiée ${instant(r.publishedAt)})`).join(' · ') || 'aucune'],
+          ['Rejetées', releases.filter((r) => r.status !== 'RESOLVED').map((r) => `${r.name} : ${label(r.reason)}`).join(' · ') || 'aucune'],
+          ['Usage', 'agrégées par EIA-0 v2 au cutoff de la chaîne : une publication postérieure au cutoff est exclue'],
         ]);
     }
     const p = v2Catalog.positioning.find((x) => x.id === (v2Positioning ?? v2Catalog.defaults.positioning));
@@ -1939,18 +1969,22 @@ let pollTimer = null;
       if (!c || c.schemaVersion !== 'xau.terminal-data-catalog.v1' || !isList(c.market) || !isList(c.positioning) || !c.defaults) return false;
       const market = c.market.filter((x) => x && isId(x.id) && isText(x.label) && has(V2_DATA_KINDS, x.kind));
       const positioning = c.positioning.filter((x) => x && isId(x.id) && isText(x.label) && has(V2_DATA_KINDS, x.kind));
+      const events = (isList(c.events) ? c.events : []).filter((x) => x && isId(x.id) && isText(x.label) && has(V2_DATA_KINDS, x.kind));
+      const eventsDefault = isText(c.defaults.events) && events.some((x) => x.id === c.defaults.events) ? c.defaults.events : null;
       if (!market.some((x) => x.id === c.defaults.market) || !positioning.some((x) => x.id === c.defaults.positioning)) return false;
-      v2Catalog = { defaults: { market: c.defaults.market, positioning: c.defaults.positioning }, market, positioning };
+      v2Catalog = { defaults: { market: c.defaults.market, positioning: c.defaults.positioning, events: eventsDefault }, market, positioning, events };
       const optionOf = (x, extra) => node('option', '', `${x.label} — ${V2_DATA_KINDS[x.kind]}${extra(x)}`, { value: x.id });
       el.v2DataMarket.replaceChildren(...market.map((x) => optionOf(x, (m) => (m.validation ? ` · ${V2_EVIDENCE_STATUS[m.validation.status] || label(m.validation.status)}` : ''))));
       el.v2DataPositioning.replaceChildren(...positioning.map((x) => optionOf(x, (p) => (p.kind === 'CFTC_FILE' ? ` · ${p.status === 'EXTRACTED' ? 'LU' : 'REJETÉ'}` : ''))));
       el.v2DataMarket.value = c.defaults.market;
       el.v2DataPositioning.value = c.defaults.positioning;
-      const choices = market.length + positioning.length;
+      el.v2DataEvents.replaceChildren(...events.map((x) => optionOf(x, (e) => (e.kind === 'OFFICIAL_RELEASES'
+        ? ` · ${e.releases.filter((r) => r.status === 'RESOLVED').length} lue(s)` : ''))));
+      if (eventsDefault) el.v2DataEvents.value = eventsDefault;
       const notes = Array.isArray(c.notes) ? c.notes.filter((n) => typeof n === 'string').slice(0, 8) : [];
       // Rien à choisir mais des remarques (dossier absent…) : le panneau les dit, sans sélecteur inutile.
-      el.v2DataWrap.hidden = choices <= 2 && notes.length === 0;
-      setText(el.v2DataHint, `${market.length} source(s) de marché, ${positioning.length} de positionnement, lues au démarrage du serveur. `
+      el.v2DataWrap.hidden = market.length < 2 && positioning.length < 2 && events.length < 2 && notes.length === 0;
+      setText(el.v2DataHint, `${market.length} source(s) de marché, ${positioning.length} de positionnement, ${events.length} d'événements macro, lues au démarrage du serveur. `
         + 'Chaque source garde sa provenance ; aucune n\'est vérifiée de façon indépendante, aucune méthode de positionnement n\'est approuvée. HOLD, exécution interdite.');
       const V2_DATA_NOTES = {
         EVIDENCE_DIR_ABSENT: 'aucun dossier evidence/ : les journaux de capture se déposent dans ~/.local/share/xau-v2/evidence/<journal>/archive.json',
@@ -1962,8 +1996,9 @@ let pollTimer = null;
       }
       el.v2DataMarket.hidden = market.length < 2;
       el.v2DataPositioning.hidden = positioning.length < 2;
+      el.v2DataEvents.hidden = events.length < 2;
       for (const lab of el.v2DataWrap.querySelectorAll('.v2__data-label')) {
-        lab.hidden = (lab.htmlFor === 'v2-data-market' ? market.length : positioning.length) < 2;
+        lab.hidden = (lab.htmlFor === 'v2-data-market' ? market.length : lab.htmlFor === 'v2-data-events' ? events.length : positioning.length) < 2;
       }
       el.v2DataMarket.addEventListener('change', () => {
         v2Market = el.v2DataMarket.value || null;
@@ -1971,6 +2006,12 @@ let pollTimer = null;
         renderDataCards();
         writeChoiceToHash();
         loadArchiveCutoffs(v2Market);
+        refreshV2();
+      });
+      el.v2DataEvents.addEventListener('change', () => {
+        v2Events = el.v2DataEvents.value || null;
+        renderDataCards();
+        writeChoiceToHash();
         refreshV2();
       });
       el.v2DataPositioning.addEventListener('change', () => {
@@ -1985,9 +2026,14 @@ let pollTimer = null;
         v2Positioning = requestedChoice.positioning;
         el.v2DataMarket.value = v2Market;
         el.v2DataPositioning.value = v2Positioning;
+        if (requestedChoice.events && events.some((x) => x.id === requestedChoice.events)) {
+          v2Events = requestedChoice.events;
+          el.v2DataEvents.value = v2Events;
+        }
       }
       el.v2DataMarket.disabled = v2Scenario !== null;
       el.v2DataPositioning.disabled = v2Scenario !== null;
+      el.v2DataEvents.disabled = v2Scenario !== null;
       renderDataCards();
       return true;
     } catch {
@@ -1998,6 +2044,32 @@ let pollTimer = null;
   /* Cutoff de rejeu choisi pour l'archive du serveur ; null = celui du serveur. */
   let v2ReplayCutoff = null;
   const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+  /** 4.7.0 : les publications officielles derrière les résumés macro, connues ou non au cutoff. */
+  function renderOfficialEvents(ev) {
+    const ok = ev && typeof ev === 'object' && isList(ev.known) && isList(ev.notYetPublished);
+    el.v2OfficialEvents.hidden = !ok;
+    if (!ok) {
+      el.v2OfficialEventsList.replaceChildren();
+      return;
+    }
+    setText(el.v2OfficialEventsNote, `${ev.label} — Event Impact ${ev.impactStatus} · Gold Transmission ${ev.transmissionStatus}`
+      + `${isList(ev.reasonCodes) && ev.reasonCodes.length ? ` · ${ev.reasonCodes.map(label).join(' · ')}` : ''}. `
+      + 'Résumés recalculés au cutoff de la chaîne (EIA-0 v2) ; aucune interprétation : consensus inconnu, méthodes non approuvées.');
+    const line = (e, state) => {
+      const li = node('li', '', undefined, { 'data-state': state });
+      li.appendChild(node('span', 'v2__avail-field', `${isText(e.family) ? e.family : '?'} ${isText(e.period) ? e.period : ''}`.trim()));
+      li.appendChild(document.createTextNode(` · publiée ${instant(e.publishedAt)} · ${state === 'known' ? 'connue au cutoff' : 'PAS ENCORE PUBLIÉE au cutoff : exclue'}`));
+      return li;
+    };
+    const rejected = isList(ev.rejected) ? ev.rejected.filter((r) => r && isText(r.name)).map((r) => {
+      const li = node('li', '', undefined, { 'data-state': 'rejected' });
+      li.appendChild(node('span', 'v2__avail-field', r.name));
+      li.appendChild(document.createTextNode(` · rejetée : ${isText(r.reason) ? label(r.reason) : '?'}`));
+      return li;
+    }) : [];
+    el.v2OfficialEventsList.replaceChildren(...ev.known.map((e) => line(e, 'known')), ...ev.notYetPublished.map((e) => line(e, 'pending')), ...rejected);
+  }
 
   /** Entier lisible (espaces fines entre milliers), indépendant de la locale du navigateur. */
   const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f');
@@ -2152,6 +2224,7 @@ let pollTimer = null;
       if (v2Catalog !== null && v2Positioning !== null && v2Positioning !== v2Catalog.defaults.positioning) {
         query.push(`positioning=${encodeURIComponent(v2Positioning)}`);
       }
+      if (v2Catalog !== null && v2Events !== null && v2Events !== v2Catalog.defaults.events) query.push(`events=${encodeURIComponent(v2Events)}`);
       if (v2ReplayCutoff) query.push(`cutoff=${encodeURIComponent(v2ReplayCutoff)}`);
     }
     const url = query.length ? `${CONFIG.V2_VIEW_URL}?${query.join('&')}` : CONFIG.V2_VIEW_URL;

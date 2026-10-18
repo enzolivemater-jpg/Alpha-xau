@@ -70,7 +70,7 @@ copyFileSync(COT, path.join(ROOT, 'positioning', 'odd name.csv'));
 const view = await buildLocalView({ dataRoot: ROOT });
 const catalog = view.catalog();
 assert.equal(catalog.schemaVersion, 'xau.terminal-data-catalog.v1');
-assert.deepEqual(catalog.defaults, { market: 'input', positioning: 'input' });
+assert.deepEqual(catalog.defaults, { market: 'input', positioning: 'input', events: 'input' });
 assert.deepEqual(catalog.market.map((m) => m.id), ['input', 'merged:evidence', 'log:evidence:broken-log', 'log:evidence:fred-log', 'log:evidence:spot-log']);
 const m = Object.fromEntries(catalog.market.map((x) => [x.id, x]));
 assert.equal(m.input.replayable, false);
@@ -134,7 +134,7 @@ assert.equal(view.archiveCutoffs('input'), null);
 const withOptions = await buildLocalView({ dataRoot: ROOT, capturesDir: path.join(ROOT, 'evidence'),
   positioningCot: { file: path.join(ROOT, 'positioning', 'gold.csv'), publishedAt: '2026-09-25T19:30:00.000Z', receivedAt: '2026-09-25T19:45:00.000Z',
     reportDate: '2026-09-22', dataset: 'FUTURES_ONLY' } });
-assert.deepEqual(withOptions.catalog().defaults, { market: 'merged:evidence', positioning: 'cli-cot' });
+assert.deepEqual(withOptions.catalog().defaults, { market: 'merged:evidence', positioning: 'cli-cot', events: 'input' });
 assert.equal(withOptions.catalog().market.filter((x) => x.kind === 'CAPTURES_MERGED').length, 1, 'the same directory is listed once');
 console.log('PASS the chosen sources drive the view (HOLD / FORBIDDEN); unknown ids, paths, or a scenario with data are refused');
 
@@ -260,7 +260,7 @@ assert.equal(d.getElementById('v2-data-market').value, 'input');
 assert.ok(asked.filter((u) => u.startsWith(VIEW_PATH)).every((u) => u === VIEW_PATH), asked.join());
 dom.window.close();
 // Nothing to choose (input only): no panel.
-({ dom, d } = await render('#chaine', { ...catalog, market: [catalog.market[0]], positioning: [catalog.positioning[0]], notes: [] }));
+({ dom, d } = await render('#chaine', { ...catalog, market: [catalog.market[0]], positioning: [catalog.positioning[0]], events: [catalog.events[0]], notes: [] }));
 assert.equal(d.getElementById('v2-data-wrap').hidden, true);
 dom.window.close();
 // An empty data root: nothing to choose, but the panel says where the data goes (no useless selector).
