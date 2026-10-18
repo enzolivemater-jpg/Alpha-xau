@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "xau.recon-auto-plan.v1",
+  "canonical": {
+    "name": "pr-153",
+    "ref": "refs/remotes/origin/ci/quality-gate-terminal-offline",
+    "sha": "44b08b933052cfd89c4370569835c3853f12b608"
+  },
+  "candidates": [
+    {
+      "name": "pr-155",
+      "ref": "refs/remotes/origin/recon/rc-b5-plus-154",
+      "sha": "58d63e454224acd449cb43c0a72c68a5ed675b1c",
+      "base": "44b08b933052cfd89c4370569835c3853f12b608",
+      "origin": "LOCAL"
+    }
+  ],
+  "integrationBranch": "refs/heads/recon/rc-offline-tracking"
+}

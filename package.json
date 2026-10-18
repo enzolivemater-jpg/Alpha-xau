@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node scripts/run_ci_tests.mjs",
     "typecheck": "tsc --noEmit",
+    "terminal": "node scripts/terminal_launch.mjs",
     "terminal:local": "node scripts/serve_terminal_local.mjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",

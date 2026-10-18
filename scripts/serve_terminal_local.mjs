@@ -43,6 +43,8 @@ export const MAX_PORT_RANGE = 50;
 export const LOOPBACK_ADDRESS = '127.0.0.1';
 export const VIEW_PATH = '/local/v2/terminal.json';
 export const SCENARIOS_PATH = '/local/v2/scenarios.json';
+/** Identifies this server and its checkout, so the launcher never starts a second instance. */
+export const HEALTH_PATH = '/local/v2/health.json';
 const VIEW_URL_PLACEHOLDER = "V2_VIEW_URL: '',";
 const SCENARIOS_URL_PLACEHOLDER = "V2_SCENARIOS_URL: '',";
 
@@ -94,9 +96,13 @@ export async function buildLocalView({
     : inputFile === GOLDEN_FIXTURE
       ? { kind: 'GOLDEN_FIXTURE', label: path.relative(ROOT, GOLDEN_FIXTURE) }
       : { kind: 'LOCAL_INPUT_FILE', label: path.basename(inputFile) };
+  // B4: in --archive mode only the market comes from the archive; every other input from this document.
+  const inputDocument = inputFile === GOLDEN_FIXTURE
+    ? { kind: 'GOLDEN_FIXTURE', label: path.relative(ROOT, GOLDEN_FIXTURE) }
+    : { kind: 'LOCAL_INPUT_FILE', label: path.basename(inputFile) };
   const golden = JSON.parse(readFileSync(GOLDEN_FIXTURE, 'utf8'));
   /** Replays an archive, then runs CHAIN-0 on its snapshot. */
-  const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned) => {
+  const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned, document = undefined) => {
     const replay = await evidence.replayMarketEvidence(archive, knowledgeCutoff,
       // A pin that was asked for is always applied: an empty or malformed one must fail the
       // replay (digest mismatch), never silently turn the pin off.
@@ -106,7 +112,7 @@ export async function buildLocalView({
       ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
     const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
       ? receipt.fingerprint : null;
-    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), replay);
+    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), replay, document);
   };
   /** Without a scenario, the server's input; with one, that simulation. */
   return async (scenarioId = null) => {
@@ -122,7 +128,7 @@ export async function buildLocalView({
           archive = null; // replayed as ARCHIVE_SHAPE_INVALID, never thrown
         }
         const knowledgeCutoff = cutoff ?? (document.ok ? document.knowledgeCutoff : null);
-        return fromArchive(archive, knowledgeCutoff, document.ok ? document.input : undefined, origin, archiveDigest);
+        return fromArchive(archive, knowledgeCutoff, document.ok ? document.input : undefined, origin, archiveDigest, inputDocument);
       }
     } else {
       const scenario = findTerminalScenario(scenarioId);
@@ -239,6 +245,11 @@ export async function createTerminalServer(options = {}) {
       scenarioId = url.searchParams.get('scenario') || null;
     } catch {
       send(response, 400, 'text/plain; charset=utf-8', 'bad request', method);
+      return;
+    }
+    if (pathname === HEALTH_PATH) {
+      const health = { app: 'xau-v2-terminal-local', schemaVersion: 'xau.terminal-local-health.v1', root: ROOT, pid: process.pid };
+      send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(health), method);
       return;
     }
     if (pathname === SCENARIOS_PATH) {

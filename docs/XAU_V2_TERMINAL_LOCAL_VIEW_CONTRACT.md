@@ -10,12 +10,43 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.0.0`.
+- `terminal-local-view-4.2.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
 on every root cause. Version 4 (DATA-1) adds `marketEvidence` and the origin
 `LOCAL_MARKET_ARCHIVE`. The terminal accepts only v4.
+
+Algorithm 4.1.0 (B4) adds `inputProvenance` to the v4 view, additively: one
+entry per chain input, in this order, `MARKET`, `POSITIONING`,
+`EVENT_IMPACT`, `GOLD_TRANSMISSION`, `EVIDENCE_GRAPH`, `AUTHORIZATIONS`, each
+with a `source` and a plain-French `detail`:
+
+| Source | Meaning |
+| --- | --- |
+| `CAPTURED_ARCHIVE` | Market only: a replayed archive of class `CAPTURED` whose nature is not a simulation. The class is declared by the operator, not independently attested. |
+| `SYNTHETIC_FIXTURE` | The golden fixture, a scenario built from it, or a synthetic archive. |
+| `LOCAL_INPUT_UNVERIFIED` | A local `--input` file of unknown provenance. |
+| `UNAVAILABLE` | Nothing supplied or evaluated: rejected input or archive, no positioning evidence, no evidence graph. |
+| `UNKNOWN` | Missing or contradictory claims: an archive origin without a manifest or without the input document's origin, a manifest on a non-archive origin, a class that contradicts the nature. |
+
+The `origin` names only the market's carrier: in `--archive` mode the market
+comes from the archive and every other input from the input document (the
+golden fixture by default), which `buildLocalView` passes as `inputDocument`.
+The terminal draws a PROVENANCE DES ENTRÉES panel, adds `AUTRES ENTRÉES : …`
+to the header of an archive view, and refuses the whole view when a non-market
+input claims an archive, when the market's claim contradicts the manifest, or
+when the list is malformed. A view without `inputProvenance` (an older 4.0.0
+producer) is still drawn, with "PROVENANCE PAR ENTRÉE NON FOURNIE".
+
+Algorithm 4.2.0 (B5) adds `positioning.freshness`, additively:
+`status` `NOT_EVALUATED` (evidence kept, reason
+`FRESHNESS_POLICY_NOT_APPROVED`, plain "fraîcheur non évaluée — aucun seuil
+approuvé") or `NO_EVIDENCE`, the latest publication instant and its age in
+seconds at the cutoff. The age is a fact, not a freshness judgement: no
+threshold is approved. The terminal draws it under FRAÎCHEUR POSITIONNEMENT
+and refuses a view whose positioning is `EVIDENCE_READY`, or whose evidence
+lacks a `NOT_EVALUATED` freshness.
 
 ## What the view contains
 
@@ -146,6 +177,40 @@ node scripts/serve_terminal_local.mjs --port 4180 --input path/to/chain-input.js
 ```
 
 The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`.
+
+### Launcher (Windows and WSL)
+
+- **Windows:** double-click `scripts/terminal/xau-terminal.cmd` (open it from
+  `\\wsl.localhost\<distribution>\…\scripts\terminal\` or copy it to the
+  desktop). From the repository it derives the WSL distribution and the
+  checkout from its own location; a copy uses the two values at its top. It
+  runs `wsl.exe -d <distribution> --cd <checkout> -- sh scripts/terminal/xau-terminal.sh`.
+  It changes no system setting and installs nothing.
+- **WSL / Linux:** `npm run terminal` (or `sh scripts/terminal/xau-terminal.sh`).
+- `xau-terminal.sh` finds Node.js on `PATH`, else the newest version installed
+  by nvm (`$NVM_DIR` or `~/.nvm`), without a pinned version path, and runs
+  `scripts/terminal_launch.mjs`.
+- `terminal_launch.mjs` checks the checkout (dependencies, Node ≥ 22), reuses a
+  server already started from the same checkout (`GET /local/v2/health.json`
+  on the port range: app, root, pid) instead of starting a second one, starts
+  `serve_terminal_local.mjs`, waits until the view answers over HTTP with a
+  HOLD / FORBIDDEN chain, and only then opens `http://localhost:<port>/#chaine`
+  (Windows default browser from WSL, `xdg-open` elsewhere, or
+  `XAU_TERMINAL_BROWSER`); otherwise it prints the URL. It follows the
+  server's port fallback, stops the server on Ctrl+C / SIGTERM / SIGHUP,
+  `--stop` stops this checkout's server, `--status` reports it, `--no-browser`
+  skips the browser, and other options (`--port`, `--port-range`, `--input`,
+  `--archive`, `--archive-digest`, `--cutoff`) pass through. Exit: 0 ok, 1
+  server failure, 3 environment, 64 usage.
+- Test: `tests/test_terminal_offline_finalisation.mjs`. The `.cmd` itself is
+  only checked statically: no Windows host in CI.
+
+Data labels on screen: MARCHÉ tab = **DÉMO — VALEURS SYNTHÉTIQUES** (random
+demo values; no gold impact is ever read from them); CHAÎNE V2 = **SIMULATION —
+FIXTURE / SCÉNARIO / FICHIER LOCAL**, **ARCHIVE SYNTHÉTIQUE**, or with
+`--archive` on a captured archive **HISTORIQUE NON VÉRIFIÉ** and, per input,
+**ARCHIVE CAPTURÉE — NON CERTIFIÉE**; **HISTORIQUE VÉRIFIÉ** only for a fully
+re-read, complete replay. Nothing is ever labelled live.
 
 `GET /local/v2/scenarios.json` lists local simulation scenarios derived from the
 golden fixture (`scripts/lib/terminal_scenarios.mjs`). `GET

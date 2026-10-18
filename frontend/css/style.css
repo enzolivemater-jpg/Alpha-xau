@@ -544,6 +544,8 @@ body {
 .matrix td[data-field='impact'][data-impact='bullish'] { color: var(--up); }
 .matrix td[data-field='impact'][data-impact='bearish'] { color: var(--down); }
 .matrix td[data-field='impact'][data-impact='neutral'] { color: var(--flat); }
+/* Démo : « N/A — DÉMO » passe à la ligne plutôt que d'élargir le tableau à 320 px. */
+.matrix td[data-field='impact'][data-impact='unavailable'] { color: var(--flat); white-space: normal; }
 
 .matrix__note {
   margin: var(--sp-3) 0 0;
@@ -1324,6 +1326,23 @@ tr[data-status='UNAVAILABLE'] .v2__state-cell { color: var(--down); }
 .mev__facts { margin: var(--sp-1) 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: 2px var(--sp-3); }
 .mev__facts dt { font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.08em; color: var(--text-faint); }
 .mev__facts dd { margin: 0; font-family: var(--mono); font-size: var(--fs-micro); color: var(--text-dim); overflow-wrap: anywhere; }
+
+/* B4 : provenance de chaque entrée de la chaîne ; seul le marché peut venir d'une archive. */
+.prov { margin: var(--sp-3) 0 var(--sp-4); }
+.prov[hidden] { display: none; }
+.prov__status { margin: 0 0 var(--sp-2); font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: 0.06em; color: var(--major); overflow-wrap: anywhere; }
+.prov__list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--sp-2) var(--sp-4); }
+.prov__item { border-left: 3px solid var(--rule-strong); padding: var(--sp-1) var(--sp-3); min-width: 0; }
+.prov__item[data-source='CAPTURED_ARCHIVE'] { border-left-color: var(--info); }
+.prov__item[data-source='SYNTHETIC_FIXTURE'], .prov__item[data-source='LOCAL_INPUT_UNVERIFIED'] { border-left-color: var(--major); }
+.prov__item[data-source='UNKNOWN'] { border-left-color: var(--down); }
+.prov__head { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); align-items: baseline; }
+.prov__input { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; color: var(--text); }
+.prov__source { margin-left: auto; font-family: var(--mono); font-size: var(--fs-micro); letter-spacing: 0.08em; color: var(--major); }
+.prov__item[data-source='CAPTURED_ARCHIVE'] .prov__source { color: var(--info); }
+.prov__item[data-source='UNAVAILABLE'] .prov__source { color: var(--text-faint); }
+.prov__item[data-source='UNKNOWN'] .prov__source { color: var(--down); }
+.prov__detail { margin: 2px 0 0; color: var(--text-dim); font-size: var(--fs-xs); overflow-wrap: anywhere; }
 
 .caps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--sp-2) var(--sp-4); }
 .cap { border-left: 3px solid var(--rule-strong); padding: var(--sp-1) var(--sp-3); }

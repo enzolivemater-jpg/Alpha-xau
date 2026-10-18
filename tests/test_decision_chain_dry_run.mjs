@@ -46,12 +46,14 @@ assert.deepEqual(result.trace.map((item) => item.stage), STAGES);
 assert.deepEqual(mod.DECISION_CHAIN_STAGES.map((item) => item.stage), STAGES);
 for (const item of result.trace) assert.equal(item.knowledgeCutoff, cutoff, item.stage);
 assert.deepEqual(result.trace.map((item) => item.state), [
-  'DEGRADED', 'EVIDENCE_READY', 'DEGRADED', 'ABSTAIN', 'ABSTAIN', 'ABSTAIN',
+  // B5: positioning abstains (no freshness policy approved), so Regime abstains on it.
+  'DEGRADED', 'ABSTAIN', 'ABSTAIN', 'ABSTAIN', 'ABSTAIN', 'ABSTAIN',
   'ABSTAIN', 'ABSTAIN', 'ABSTAIN', 'HOLD', 'SUPPRESSED', 'NOT_ACCEPTED',
 ]);
 const t = byStage(result);
 assert.deepEqual(t.REGIME.reasonCodes, [
-  'MARKET_PRICING_DEGRADED', 'POSITIONING_SIGNAL_UNAVAILABLE', 'REGIME_METHODOLOGY_NOT_APPROVED',
+  'MARKET_PRICING_DEGRADED', 'POSITIONING_EVIDENCE_ABSTAINED', 'POSITIONING_SIGNAL_UNAVAILABLE',
+  'REGIME_METHODOLOGY_NOT_APPROVED',
 ]);
 assert.deepEqual(t.HORIZON_SYNTHESIS.reasonCodes, [
   'EVENT_IMPACT_INSUFFICIENT', 'GOLD_TRANSMISSION_INSUFFICIENT', 'MARKET_PRICING_NOT_AVAILABLE',

@@ -125,7 +125,7 @@
     }
   },
   "expected": {
-    "digest": "sha256:b39bad106bee8ccd0cc4269ee0fcd29ee1d5dd4f6f99637718c4dea22ec7a6f7",
+    "digest": "sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c",
     "trace": [
       {
         "stage": "MARKET_PRICING",
@@ -140,10 +140,11 @@
       },
       {
         "stage": "POSITIONING",
-        "schemaVersion": "xau.positioning-evidence.v1",
-        "algorithmVersion": "positioning-evidence-normalizer-1.0.0",
-        "state": "EVIDENCE_READY",
+        "schemaVersion": "xau.positioning-evidence.v2",
+        "algorithmVersion": "positioning-evidence-normalizer-2.0.0",
+        "state": "ABSTAIN",
         "reasonCodes": [
+          "FRESHNESS_POLICY_NOT_APPROVED",
           "METHODOLOGY_NOT_APPROVED"
         ],
         "knowledgeCutoff": "2026-10-01T14:15:00.000Z"
@@ -152,9 +153,10 @@
         "stage": "REGIME",
         "schemaVersion": "xau.regime-assessment.v1",
         "algorithmVersion": "regime-dependency-gate-1.0.0",
-        "state": "DEGRADED",
+        "state": "ABSTAIN",
         "reasonCodes": [
           "MARKET_PRICING_DEGRADED",
+          "POSITIONING_EVIDENCE_ABSTAINED",
           "POSITIONING_SIGNAL_UNAVAILABLE",
           "REGIME_METHODOLOGY_NOT_APPROVED"
         ],

@@ -147,7 +147,7 @@ assert.equal(view.temporal.classification, 'HISTORICAL', 'the golden fixture is 
 assert.equal(view.chain.chainState, 'HOLD');
 assert.equal(view.chain.execution, 'FORBIDDEN');
 assert.equal(view.chain.integrity, 'CONSISTENT');
-assert.equal(view.chain.digest, 'sha256:b39bad106bee8ccd0cc4269ee0fcd29ee1d5dd4f6f99637718c4dea22ec7a6f7', 'golden digest');
+assert.equal(view.chain.digest, 'sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c', 'golden digest');
 const serverSource = readFileSync(new URL('../scripts/serve_terminal_local.mjs', import.meta.url), 'utf8');
 assert.doesNotMatch(serverSource, /computeDecisionChainDigest/, 'terminal may not compute an unchecked chain digest');
 assert.match(serverSource, /obs\.buildOfflineAuditReceipt\(outcome\.result\)/, 'terminal must use OBS-0 receipt');
@@ -343,7 +343,7 @@ assert.match(d.querySelector('#v2-summary-deps [data-category="AUTHORIZATION"]')
   /Aucune exécution n'est autorisée\.EXECUTION_NOT_AUTHORIZED · ACTION/);
 // Why HOLD: a plain summary first, technical codes one click away, nothing dropped.
 assert.equal(d.getElementById('v2-why').hidden, false);
-assert.match(text(d, 'v2-why-lead'), /^La chaîne s'arrête à HORIZON SYNTHESIS, premier étage bloqué ; .*\(\d+ motif\(s\) hérité\(s\) de l'amont\)\.$/);
+assert.match(text(d, 'v2-why-lead'), /^La chaîne s'arrête à POSITIONING, premier étage bloqué ; .*\(\d+ motif\(s\) hérité\(s\) de l'amont\)\.$/);
 assert.match(text(d, 'v2-why-lift'), /^Pour lever le HOLD, il faudrait : fournir ou corriger 2 donnée\(s\) ; approuver \d+ méthode\(s\) ou politique\(s\) ; accorder \d+ autorisation\(s\) ; mettre en place \d+ élément\(s\) d'environnement/);
 const why = [...d.querySelectorAll('#v2-why-list .why')];
 assert.deepEqual(why.map((w) => w.getAttribute('data-category')), view.holdRationale.rootCauses.map((c) => c.category));
@@ -414,7 +414,9 @@ assert.equal([...marketRows[4].cells][3].textContent, '14 h');
 assert.ok(marketRows.every((r) => r.cells[2].textContent !== 'LIVE'), 'no bare LIVE in a simulation');
 assert.equal(text(d, 'v2-market-state'), 'MP-0 DEGRADED');
 assert.equal(text(d, 'v2-replay'), 'LATEST_ONLY — non reproductible (INGESTION_CUTOFF_NOT_AVAILABLE)');
-assert.equal(text(d, 'v2-positioning'), 'EVIDENCE_READY · 1 preuve(s) · signal UNAVAILABLE');
+// B5: never presented as ready; freshness is not evaluated without an approved threshold.
+assert.equal(text(d, 'v2-positioning'), 'ABSTAIN · 1 preuve(s) · signal UNAVAILABLE');
+assert.match(text(d, 'v2-positioning-freshness'), /^fraîcheur non évaluée — aucun seuil approuvé · publiée \d+ (s|min|h|j) avant le cutoff$/);
 assert.equal(text(d, 'v2-positioning-through'), '2026-09-30T19:31:00.000Z');
 assert.equal(text(d, 'v2-positioning-sources'), 'authority_test');
 // Capability list.
@@ -535,6 +537,8 @@ dom.window.close();
 const historical = structuredClone(archiveView);
 Object.assign(historical.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED' });
 for (const o of historical.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
+// B4: a coherent captured view also names the archive as the market's source.
+Object.assign(historical.inputProvenance[0], { source: 'CAPTURED_ARCHIVE', detail: 'archive capturée localement (test)' });
 dom = boot(LOCAL, serveView(historical));
 await settle();
 d = dom.window.document;
@@ -846,7 +850,9 @@ await settle(400);
 assert.equal(d.getElementById('v2-sec-summary').getAttribute('data-status'), 'INPUT_REJECTED');
 assert.deepEqual(listText('v2-summary-missing'), ['Entrée invalide : unexpectedKey: UNKNOWN_KEY.']);
 assert.equal(text(d, 'v2-summary-deps'), "Aucune dépendance : la chaîne n'a pas été évaluée.");
-assert.equal(d.getElementById('v2-why').hidden, true);
+// The POURQUOI HOLD heading is never left empty: a rejected input says why nothing was evaluated.
+assert.equal(d.getElementById('v2-why').hidden, false);
+assert.match(text(d, 'v2-why-lead'), /^Entrée rejetée avant la chaîne : aucun étage n'a été évalué\./);
 dom.window.close();
 await close(live.server);
 console.log('PASS terminal against the real local server: golden HOLD chain, degraded and rejected scenarios summarized');
