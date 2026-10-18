@@ -805,7 +805,10 @@ assert.deepEqual(options, ['', ...TERMINAL_SCENARIO_IDS]);
   const wrap = d.getElementById('v2-scenario-wrap');
   const body = d.querySelector('.panel--chain .panel__body');
   assert.equal(body.firstElementChild, wrap, 'the selector opens the panel body, above the status');
-  assert.equal(wrap.nextElementSibling.id, 'v2-status');
+  // Only the archive replay selector may sit in between, and it is hidden without --archive.
+  assert.equal(wrap.nextElementSibling.id, 'v2-replay-cutoff-wrap');
+  assert.equal(wrap.nextElementSibling.hidden, true);
+  assert.equal(wrap.nextElementSibling.nextElementSibling.id, 'v2-status');
   const label = wrap.querySelector('label[for="v2-scenario"]');
   assert.ok(label, 'the select has a visible label bound to it');
   assert.match(label.textContent, /SCÉNARIO DE SIMULATION/);

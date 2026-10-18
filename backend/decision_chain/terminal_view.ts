@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.3.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.4.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -697,6 +697,29 @@ function marketEvidenceOf(replay: MarketEvidenceReplay | null): TerminalMarketEv
 
 type InputDocumentSource = { readonly source: TerminalInputSource; readonly detail: string };
 
+/**
+ * 4.4.0: positioning evidence read from a local CFTC Commitments of Traders
+ * file (`--positioning-cot`) instead of the input document. Its publication and
+ * reception instants are declared by the operator and CFTC is not an approved
+ * source, so the evidence is at most LOCAL_INPUT_UNVERIFIED; a rejected file
+ * supplies nothing (UNAVAILABLE).
+ */
+export interface TerminalPositioningFile {
+  readonly label: string;
+  readonly status: 'EXTRACTED' | 'REJECTED';
+  readonly reportDate: string | null;
+  readonly reason: string | null;
+}
+
+function positioningFileSource(file: TerminalPositioningFile, rejectedChain: boolean): InputDocumentSource {
+  if (rejectedChain) return { source: 'UNAVAILABLE', detail: 'entrée rejetée : rien n\'a été évalué' };
+  if (file.status === 'EXTRACTED' && typeof file.reportDate === 'string') {
+    return { source: 'LOCAL_INPUT_UNVERIFIED', detail: `fichier CFTC COT local (${file.label}), rapport du ${file.reportDate} ; `
+      + 'publication et réception déclarées par l\'opérateur ; source non approuvée' };
+  }
+  return { source: 'UNAVAILABLE', detail: `fichier CFTC COT rejeté (${file.label}${file.reason ? ` : ${file.reason}` : ''}) : aucune preuve retenue` };
+}
+
 /** The document every non-market input comes from, from its declared origin; UNKNOWN unless exact. */
 function inputDocumentSource(origin: unknown): InputDocumentSource {
   const unknown = { source: 'UNKNOWN' as const, detail: 'origine du document d\'entrée inconnue ou contradictoire' };
@@ -724,6 +747,7 @@ function inputProvenanceOf(
   origin: { readonly kind: TerminalDataOrigin; readonly label: string },
   replay: MarketEvidenceReplay | null,
   inputDocument: unknown,
+  positioningFile: TerminalPositioningFile | null = null,
 ): TerminalInputProvenance[] {
   const document = inputDocument === undefined
     ? (origin.kind === 'LOCAL_MARKET_ARCHIVE' ? inputDocumentSource(null) : inputDocumentSource(origin))
@@ -759,7 +783,8 @@ function inputProvenanceOf(
   const stages = outcome.kind === 'COMPLETED' ? outcome.result.stages : null;
   const entries: Record<TerminalInputName, InputDocumentSource> = {
     MARKET: market,
-    POSITIONING: fromDocument((stages?.positioning.evidence.length ?? 0) === 0, 'aucune preuve de positionnement fournie'),
+    POSITIONING: positioningFile !== null ? positioningFileSource(positioningFile, rejected)
+      : fromDocument((stages?.positioning.evidence.length ?? 0) === 0, 'aucune preuve de positionnement fournie'),
     EVENT_IMPACT: fromDocument(false, ''),
     GOLD_TRANSMISSION: fromDocument(false, ''),
     EVIDENCE_GRAPH: fromDocument(stages?.prePm.reasonCodes.includes('EVIDENCE_GRAPH_UNAVAILABLE') ?? true,
@@ -795,6 +820,8 @@ export function buildTerminalView(
    * non-market inputs are UNKNOWN; other origins are their own document.
    */
   inputDocument?: { readonly kind: TerminalDataOrigin; readonly label: string },
+  /** 4.4.0: the local CFTC file the server's positioning evidence came from, if any. */
+  positioningFile: TerminalPositioningFile | null = null,
 ): TerminalView {
   const base = {
     schemaVersion: TERMINAL_VIEW_SCHEMA_VERSION,
@@ -802,7 +829,7 @@ export function buildTerminalView(
     generatedAt,
     origin: { kind: origin.kind, label: origin.label },
     simulated: true as const,
-    inputProvenance: inputProvenanceOf(outcome, origin, marketEvidenceReplay, inputDocument),
+    inputProvenance: inputProvenanceOf(outcome, origin, marketEvidenceReplay, inputDocument, positioningFile),
     marketEvidence: marketEvidenceOf(marketEvidenceReplay),
   };
   if (outcome.kind === 'REJECTED') {

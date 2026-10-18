@@ -45,8 +45,15 @@ export const VIEW_PATH = '/local/v2/terminal.json';
 export const SCENARIOS_PATH = '/local/v2/scenarios.json';
 /** Identifies this server and its checkout, so the launcher never starts a second instance. */
 export const HEALTH_PATH = '/local/v2/health.json';
+/** In --archive mode, the instants at which the archive received records: the cutoffs worth replaying. */
+export const ARCHIVE_CUTOFFS_PATH = '/local/v2/archive-cutoffs.json';
+/** Size bound of that list (a page bound, not a market rule): the latest instants are kept. */
+export const MAX_ARCHIVE_CUTOFFS = 500;
 const VIEW_URL_PLACEHOLDER = "V2_VIEW_URL: '',";
 const SCENARIOS_URL_PLACEHOLDER = "V2_SCENARIOS_URL: '',";
+const CUTOFFS_URL_PLACEHOLDER = "V2_ARCHIVE_CUTOFFS_URL: '',";
+/** A replay cutoff asked by the page: an explicit UTC instant, nothing else. */
+const REQUEST_CUTOFF = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -61,13 +68,43 @@ const CONTENT_TYPES = {
 /** index.html with the local URLs; refuses to start if a hook moved. */
 export function localIndexHtml() {
   const html = readFileSync(path.join(FRONTEND, 'index.html'), 'utf8');
-  for (const placeholder of [VIEW_URL_PLACEHOLDER, SCENARIOS_URL_PLACEHOLDER]) {
+  for (const placeholder of [VIEW_URL_PLACEHOLDER, SCENARIOS_URL_PLACEHOLDER, CUTOFFS_URL_PLACEHOLDER]) {
     if (html.split(placeholder).length !== 2) {
       throw new Error(`frontend/index.html must contain exactly one "${placeholder}"`);
     }
   }
   return html.replace(VIEW_URL_PLACEHOLDER, `V2_VIEW_URL: '${VIEW_PATH}',`)
-    .replace(SCENARIOS_URL_PLACEHOLDER, `V2_SCENARIOS_URL: '${SCENARIOS_PATH}',`);
+    .replace(SCENARIOS_URL_PLACEHOLDER, `V2_SCENARIOS_URL: '${SCENARIOS_PATH}',`)
+    .replace(CUTOFFS_URL_PLACEHOLDER, `V2_ARCHIVE_CUTOFFS_URL: '${ARCHIVE_CUTOFFS_PATH}',`);
+}
+
+/**
+ * The replay cutoffs of an --archive: every distinct reception instant
+ * (`ingestedAt`) of its records, in time order, at most MAX_ARCHIVE_CUTOFFS
+ * (the latest). At such an instant the record just received is known. The
+ * archive is only read; a malformed one gives no instant (its replay is
+ * rejected by DATA-1 anyway). `defaultCutoff` is the cutoff used without one.
+ */
+export function archiveCutoffs(archiveFile, defaultCutoff) {
+  let records = [];
+  try {
+    const archive = JSON.parse(readFileSync(archiveFile, 'utf8'));
+    if (archive && Array.isArray(archive.records)) records = archive.records;
+  } catch { /* no instant */ }
+  const instants = new Map();
+  for (const record of records) {
+    const at = record && record.ingestedAt;
+    if (typeof at !== 'string' || !REQUEST_CUTOFF.test(at)) continue;
+    const ms = Date.parse(at);
+    if (Number.isFinite(ms)) instants.set(ms, new Date(ms).toISOString());
+  }
+  const cutoffs = [...instants.entries()].sort(([a], [b]) => a - b).map(([, at]) => at);
+  return {
+    schemaVersion: 'xau.terminal-archive-cutoffs.v1',
+    defaultCutoff: typeof defaultCutoff === 'string' ? defaultCutoff : null,
+    truncated: cutoffs.length > MAX_ARCHIVE_CUTOFFS,
+    cutoffs: cutoffs.slice(-MAX_ARCHIVE_CUTOFFS),
+  };
 }
 
 /** Reads a chain input document; errors are reported, never thrown. */
@@ -81,8 +118,27 @@ export function readChainDocument(file) {
   }
 }
 
+/**
+ * P2: a local CFTC Commitments of Traders file converted to positioning
+ * evidence (one report of COMEX gold). Bytes are hashed here; the adapter is
+ * pure. Instants are the operator's declarations, never the file's dates.
+ */
+export async function readPositioningCot({ file, publishedAt, receivedAt, reportDate = null }) {
+  const adapter = await loadBackendModule('positioning_engine/cftc_cot_offline_adapter.ts');
+  let bytes;
+  try {
+    bytes = readFileSync(file);
+  } catch (error) {
+    return { label: path.basename(file), conversion: { status: 'REJECTED', reasonCodes: ['INVALID_REQUEST'], detail: `illisible : ${error.code ?? error.message}`, reportDate: null, evidence: [] } };
+  }
+  const artifactId = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  const conversion = adapter.convertCftcCotReport({ text: bytes.toString('utf8'), artifactId, publishedAt, receivedAt, reportDate });
+  return { label: path.basename(file), conversion };
+}
+
 export async function buildLocalView({
   inputFile = GOLDEN_FIXTURE, archiveFile = null, archiveDigest = undefined, cutoff = null, now = () => new Date(),
+  positioningCot = null,
 } = {}) {
   const chain = await loadBackendModule('decision_chain/dry_run.ts');
   const obs = await loadBackendModule('observability/offline_receipt.ts');
@@ -101,8 +157,16 @@ export async function buildLocalView({
     ? { kind: 'GOLDEN_FIXTURE', label: path.relative(ROOT, GOLDEN_FIXTURE) }
     : { kind: 'LOCAL_INPUT_FILE', label: path.basename(inputFile) };
   const golden = JSON.parse(readFileSync(GOLDEN_FIXTURE, 'utf8'));
+  // P2: with --positioning-cot the server's own input takes its positioning evidence from that file.
+  const cot = positioningCot === null ? null : await readPositioningCot(positioningCot);
+  const positioningFile = cot === null ? null : {
+    label: cot.label, status: cot.conversion.status, reportDate: cot.conversion.reportDate,
+    reason: cot.conversion.status === 'EXTRACTED' ? null : `${cot.conversion.reasonCodes.join(', ')} — ${cot.conversion.detail}`,
+  };
+  const withPositioning = (input) => (cot === null || typeof input !== 'object' || input === null || Array.isArray(input)
+    ? input : { ...input, positioningEvidence: cot.conversion.evidence });
   /** Replays an archive, then runs CHAIN-0 on its snapshot. */
-  const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned, document = undefined) => {
+  const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned, document = undefined, positioning = null) => {
     const replay = await evidence.replayMarketEvidence(archive, knowledgeCutoff,
       // A pin that was asked for is always applied: an empty or malformed one must fail the
       // replay (digest mismatch), never silently turn the pin off.
@@ -112,10 +176,15 @@ export async function buildLocalView({
       ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
     const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
       ? receipt.fingerprint : null;
-    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), replay, document);
+    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), replay, document, positioning);
   };
-  /** Without a scenario, the server's input; with one, that simulation. */
-  return async (scenarioId = null) => {
+  /**
+   * Without a scenario, the server's input; with one, that simulation. A
+   * request cutoff replays the --archive at that instant; it exists only in
+   * archive mode and without a scenario (null is returned otherwise).
+   */
+  const render = async (scenarioId = null, { cutoff: requestCutoff = null } = {}) => {
+    if (requestCutoff !== null && (archiveFile === null || scenarioId !== null || !REQUEST_CUTOFF.test(requestCutoff))) return null;
     let document;
     let viewOrigin = origin;
     if (scenarioId === null) {
@@ -127,8 +196,9 @@ export async function buildLocalView({
         } catch {
           archive = null; // replayed as ARCHIVE_SHAPE_INVALID, never thrown
         }
-        const knowledgeCutoff = cutoff ?? (document.ok ? document.knowledgeCutoff : null);
-        return fromArchive(archive, knowledgeCutoff, document.ok ? document.input : undefined, origin, archiveDigest, inputDocument);
+        const knowledgeCutoff = requestCutoff ?? cutoff ?? (document.ok ? document.knowledgeCutoff : null);
+        return fromArchive(archive, knowledgeCutoff, document.ok ? withPositioning(document.input) : undefined, origin, archiveDigest,
+          inputDocument, positioningFile);
       }
     } else {
       const scenario = findTerminalScenario(scenarioId);
@@ -142,15 +212,23 @@ export async function buildLocalView({
       viewOrigin = { kind: 'LOCAL_SCENARIO', label: scenario.id };
     }
     // An unreadable document still yields a HOLD view, through CHAIN-0's own rejection.
+    const own = scenarioId === null;
     const outcome = document.ok
-      ? chain.evaluateDecisionChain(document.input, document.knowledgeCutoff)
+      ? chain.evaluateDecisionChain(own ? withPositioning(document.input) : document.input, document.knowledgeCutoff)
       : chain.evaluateDecisionChain(undefined, undefined);
     const receipt = outcome.kind === 'COMPLETED'
       ? await obs.buildOfflineAuditReceipt(outcome.result) : null;
     const digest = receipt?.verification === 'STRUCTURALLY_VALID_HOLD_UNVERIFIED'
       ? receipt.fingerprint : null;
-    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString());
+    return view.buildTerminalView(outcome, digest, viewOrigin, now().toISOString(), null, undefined, own ? positioningFile : null);
   };
+  render.positioning = cot === null ? null : { label: cot.label, ...cot.conversion, evidence: undefined, evidenceCount: cot.conversion.evidence.length };
+  render.archiveCutoffs = () => {
+    if (archiveFile === null) return null;
+    const document = readChainDocument(inputFile);
+    return archiveCutoffs(archiveFile, cutoff ?? (document.ok ? document.knowledgeCutoff : null));
+  };
+  return render;
 }
 
 /**
@@ -239,10 +317,12 @@ export async function createTerminalServer(options = {}) {
     }
     let pathname;
     let scenarioId;
+    let requestCutoff;
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       pathname = decodeURIComponent(url.pathname);
       scenarioId = url.searchParams.get('scenario') || null;
+      requestCutoff = url.searchParams.get('cutoff') || null;
     } catch {
       send(response, 400, 'text/plain; charset=utf-8', 'bad request', method);
       return;
@@ -257,9 +337,19 @@ export async function createTerminalServer(options = {}) {
       send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(list), method);
       return;
     }
+    if (pathname === ARCHIVE_CUTOFFS_PATH) {
+      const list = view.archiveCutoffs();
+      if (list === null) send(response, 404, 'text/plain; charset=utf-8', 'no archive', method);
+      else send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(list), method);
+      return;
+    }
     if (pathname === VIEW_PATH) {
+      if (requestCutoff !== null && (scenarioId !== null || !options.archiveFile || !REQUEST_CUTOFF.test(requestCutoff))) {
+        send(response, 400, 'text/plain; charset=utf-8', 'cutoff: archive mode only, no scenario, UTC instant', method);
+        return;
+      }
       try {
-        const body = await view(scenarioId);
+        const body = await view(scenarioId, { cutoff: requestCutoff });
         if (body === null) send(response, 404, 'text/plain; charset=utf-8', 'unknown scenario', method);
         else send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(body), method);
       } catch (error) {
@@ -290,7 +380,8 @@ export async function createTerminalServer(options = {}) {
 }
 
 export function parseArgs(argv) {
-  const options = { port: null, portRange: null, inputFile: GOLDEN_FIXTURE, archiveFile: null, archiveDigest: undefined, cutoff: null };
+  const options = { port: null, portRange: null, inputFile: GOLDEN_FIXTURE, archiveFile: null, archiveDigest: undefined, cutoff: null, positioningCot: null };
+  const cot = {};
   for (let i = 0; i < argv.length; i += 2) {
     const [flag, value] = [argv[i], argv[i + 1]];
     if (flag === '--port' && /^\d{1,5}$/.test(value ?? '') && Number(value) > 0 && Number(value) < 65536) {
@@ -305,9 +396,22 @@ export function parseArgs(argv) {
       options.archiveDigest = value;
     } else if (flag === '--cutoff' && value) {
       options.cutoff = value;
+    } else if (flag === '--positioning-cot' && value) {
+      cot.file = path.resolve(value);
+    } else if (flag === '--cot-published-at' && value) {
+      cot.publishedAt = value;
+    } else if (flag === '--cot-received-at' && value) {
+      cot.receivedAt = value;
+    } else if (flag === '--cot-report-date' && value) {
+      cot.reportDate = value;
     } else {
       return null;
     }
+  }
+  // A CFTC file needs both declared instants; the instants mean nothing without a file.
+  if (Object.keys(cot).length > 0) {
+    if (!cot.file || !cot.publishedAt || !cot.receivedAt) return null;
+    options.positioningCot = { reportDate: null, ...cot };
   }
   // --port-range only widens an explicit --port; without --port the default range applies.
   if (options.port === null) {
@@ -324,7 +428,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const options = parseArgs(process.argv.slice(2));
   if (!options) {
     process.stderr.write('usage: node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]'
-      + ' [--archive archive.json [--archive-digest sha256:...] [--cutoff ISO]]\n');
+      + ' [--archive archive.json [--archive-digest sha256:...] [--cutoff ISO]]'
+      + ' [--positioning-cot cot.csv --cot-published-at ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]]\n');
     process.exitCode = 1;
   } else {
     const { port: requested, portRange, ...serverOptions } = options;
@@ -338,6 +443,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         process.stdout.write(`terminal local : le port ${requested} est occupé ; le port libre ${port} est utilisé (loopback uniquement)\n`);
       }
       process.stdout.write(`terminal local : http://127.0.0.1:${port}/ (CHAIN-0 DRY RUN, HOLD, exécution interdite) — Ctrl+C pour arrêter\n`);
+      if (serverOptions.positioningCot) {
+        const cot = await readPositioningCot(serverOptions.positioningCot);
+        process.stdout.write(cot.conversion.status === 'EXTRACTED'
+          ? `terminal local : positionnement lu dans ${cot.label} (CFTC COT, rapport du ${cot.conversion.reportDate}, ${cot.conversion.evidence.length} mesures) ; source non approuvée, HOLD\n`
+          : `terminal local : fichier CFTC COT rejeté (${cot.conversion.reasonCodes.join(', ')} — ${cot.conversion.detail}) ; aucune preuve de positionnement retenue\n`);
+      }
       process.stdout.write(`terminal local : scénarios de simulation dans l'onglet CHAÎNE V2 (http://127.0.0.1:${port}/#chaine), sélecteur « SCÉNARIO DE SIMULATION » en haut du panneau\n`);
     } catch (error) {
       const busy = portRange > 1

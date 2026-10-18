@@ -10,7 +10,7 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.3.0`.
+- `terminal-local-view-4.4.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
@@ -55,6 +55,15 @@ published or observed after the cutoff. P-0 already rejects such evidence but
 keeps it in its envelope; 4.2.0 showed it with a negative age ("publiée -7 h
 avant le cutoff"). The terminal marks the observation date "(après le cutoff)"
 and refuses a view that gives that evidence an age, or a negative age to any.
+
+Algorithm 4.4.0 adds a positioning file: with `--positioning-cot`, the
+server's own input takes its positioning evidence from a local CFTC
+Commitments of Traders file (see the positioning contract). Its
+`inputProvenance` entry is `LOCAL_INPUT_UNVERIFIED` ("fichier CFTC COT local
+(…), rapport du … ; publication et réception déclarées par l'opérateur ;
+source non approuvée"), or `UNAVAILABLE` with the rejection reason when the
+file is rejected. Scenarios never use the file. The server prints one line
+saying whether the file was read or rejected.
 
 ## What the view contains
 
@@ -275,12 +284,30 @@ The server:
 It makes no database, provider, broker or network call. The Supabase settings
 stay empty, so the V1 panels run in labelled demo mode.
 
+### Archive replay cutoffs (`--archive`)
+
+With `--archive`, the server also answers `/local/v2/archive-cutoffs.json`
+(`xau.terminal-archive-cutoffs.v1`): the distinct reception instants
+(`ingestedAt`) of the archive records in time order (at most 500, the latest;
+`truncated` says so), and `defaultCutoff`, the cutoff used without a choice
+(`--cutoff`, else the input document's). `/local/v2/terminal.json?cutoff=ISO`
+replays the archive at that instant: an explicit UTC instant only, in archive
+mode only and never with `?scenario=` (HTTP 400 otherwise); without
+`--archive` the list is 404. The page shows a **CUTOFF DE REJEU (ARCHIVE)**
+selector only when the list has instants, and disables it while a scenario
+is selected. A replay knows only what the archive had received at that
+instant; the other inputs stay those of the input document, so a cutoff that
+differs from theirs is reported by CHAIN-0 as `UPSTREAM_CUTOFF_MISMATCH`.
+Every replay is HOLD, execution forbidden. Both routes sit behind the Host
+guard.
+
 ## Layout check in a browser
 
 CI has no browser. `scripts/check_terminal_layout.mjs` checks the terminal in
 headless Chromium at 320, 390, 1024, 1280 and 1440 px, in both workspaces,
-with every section unfolded and on the `market-unavailable` and
-`invalid-input` scenarios. It reports clipped content, content overflowing
+with every section unfolded, on the `market-unavailable` and
+`invalid-input` scenarios, and in `--archive` mode on an earlier replay
+cutoff. It reports clipped content, content overflowing
 the viewport, text below WCAG AA and, below 900 px, any nested vertical
 scroller. It needs `XAU_PLAYWRIGHT` (path to `playwright-core`) and `XAU_CHROMIUM`,
 neither of which is a project dependency. `tests/test_terminal_contrast.mjs`

@@ -45,6 +45,7 @@
     STALE_THRESHOLD_S: 60,       // au-delà, la donnée est marquée STALE
     V2_VIEW_URL: '',             // vue CHAIN-0 du serveur local ; vide = sections V2 indisponibles
     V2_SCENARIOS_URL: '',        // scénarios de simulation du serveur local ; vide = aucun
+    V2_ARCHIVE_CUTOFFS_URL: '',  // instants de rejeu d'une archive (--archive) ; vide = aucun
   };
 </script>
 
@@ -342,6 +343,12 @@
         <label class="v2__scenario-key" for="v2-scenario">SCÉNARIO DE SIMULATION</label>
         <select id="v2-scenario" aria-describedby="v2-scenario-hint"></select>
         <span class="v2__scenario-hint" id="v2-scenario-hint"></span>
+      </div>
+
+      <div class="v2__scenario" id="v2-replay-cutoff-wrap" hidden>
+        <label class="v2__scenario-key" for="v2-replay-cutoff">CUTOFF DE REJEU (ARCHIVE)</label>
+        <select id="v2-replay-cutoff" aria-describedby="v2-replay-cutoff-hint"></select>
+        <span class="v2__scenario-hint" id="v2-replay-cutoff-hint"></span>
       </div>
 
       <div class="v2__status" id="v2-status" data-state="unavailable" role="status">

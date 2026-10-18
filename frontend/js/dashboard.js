@@ -36,6 +36,7 @@
     STALE_THRESHOLD_S: 60,
     V2_VIEW_URL: '',
     V2_SCENARIOS_URL: '',
+    V2_ARCHIVE_CUTOFFS_URL: '',
   }, window.ALPHA_XAU_CONFIG || {});
 
   const RUNTIME = {
@@ -173,6 +174,9 @@
     v2ScenarioWrap: $('v2-scenario-wrap'),
     v2Scenario: $('v2-scenario'),
     v2ScenarioHint: $('v2-scenario-hint'),
+    v2ReplayCutoffWrap: $('v2-replay-cutoff-wrap'),
+    v2ReplayCutoff: $('v2-replay-cutoff'),
+    v2ReplayCutoffHint: $('v2-replay-cutoff-hint'),
     v2Status: $('v2-status'),
     v2State: $('v2-state'),
     v2Detail: $('v2-detail'),
@@ -1784,9 +1788,43 @@ let pollTimer = null;
       el.v2ScenarioWrap.hidden = options.length < 2;
       el.v2Scenario.addEventListener('change', () => {
         v2Scenario = el.v2Scenario.value || null;
+        // Le cutoff de rejeu ne s'applique qu'à l'archive du serveur, jamais à un scénario.
+        el.v2ReplayCutoff.disabled = v2Scenario !== null;
         refreshV2();
       });
     } catch { /* sans liste, l'entrée du serveur reste affichée */ }
+  }
+
+  /* Cutoff de rejeu choisi pour l'archive du serveur ; null = celui du serveur. */
+  let v2ReplayCutoff = null;
+  const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+  /** Instants de réception de l'archive (--archive) ; sans archive, le sélecteur reste caché. */
+  async function loadArchiveCutoffs() {
+    if (!CONFIG.V2_ARCHIVE_CUTOFFS_URL) return;
+    try {
+      const response = await fetch(CONFIG.V2_ARCHIVE_CUTOFFS_URL, { headers: { accept: 'application/json' } });
+      if (!response.ok) return;
+      const list = await response.json();
+      if (!list || list.schemaVersion !== 'xau.terminal-archive-cutoffs.v1' || !isList(list.cutoffs)) return;
+      const instants = list.cutoffs.filter((at) => typeof at === 'string' && UTC_INSTANT.test(at));
+      if (instants.length === 0) return;
+      const defaultLabel = isText(list.defaultCutoff) ? `Cutoff du serveur (${list.defaultCutoff})` : 'Cutoff du serveur';
+      const options = [node('option', '', defaultLabel, { value: '' })];
+      instants.forEach((at, i) => {
+        options.push(node('option', '', `${at.replace('T', ' ')} — réception ${i + 1}/${instants.length}`, { value: at }));
+      });
+      el.v2ReplayCutoff.replaceChildren(...options);
+      setText(el.v2ReplayCutoffHint, `${instants.length} instant${instants.length > 1 ? 's' : ''} de réception de l'archive${list.truncated === true ? ' (les plus récents)' : ''} : `
+        + 'chaque rejeu ne connaît que les données reçues à cet instant. Les autres entrées restent celles du document : '
+        + 'un cutoff différent du leur est signalé comme incohérence. HOLD, exécution interdite.');
+      el.v2ReplayCutoffWrap.hidden = false;
+      el.v2ReplayCutoff.disabled = v2Scenario !== null;
+      el.v2ReplayCutoff.addEventListener('change', () => {
+        v2ReplayCutoff = el.v2ReplayCutoff.value || null;
+        refreshV2();
+      });
+    } catch { /* sans liste, le cutoff du serveur reste appliqué */ }
   }
 
   async function refreshV2() {
@@ -1796,7 +1834,8 @@ let pollTimer = null;
       return;
     }
     const request = ++v2Request;
-    const url = v2Scenario ? `${CONFIG.V2_VIEW_URL}?scenario=${encodeURIComponent(v2Scenario)}` : CONFIG.V2_VIEW_URL;
+    const url = v2Scenario ? `${CONFIG.V2_VIEW_URL}?scenario=${encodeURIComponent(v2Scenario)}`
+      : v2ReplayCutoff ? `${CONFIG.V2_VIEW_URL}?cutoff=${encodeURIComponent(v2ReplayCutoff)}` : CONFIG.V2_VIEW_URL;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), RUNTIME.FETCH_TIMEOUT_MS);
     try {
@@ -1908,6 +1947,7 @@ let pollTimer = null;
 
     /* La vue V2 est indépendante du flux V1 : elle est lue dans les deux modes. */
     loadScenarios();
+    loadArchiveCutoffs();
     refreshV2();
     if (CONFIG.V2_VIEW_URL) setInterval(refreshV2, CONFIG.ANALYSIS_INTERVAL_MS);
 

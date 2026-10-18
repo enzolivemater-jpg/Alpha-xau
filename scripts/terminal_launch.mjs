@@ -33,7 +33,8 @@ const DEFAULT_RANGE = 10;
 const HEALTH = '/local/v2/health.json';
 const VIEW = '/local/v2/terminal.json';
 const READY_TIMEOUT_MS = 90_000;
-const PASSTHROUGH = new Set(['--port', '--port-range', '--input', '--archive', '--archive-digest', '--cutoff']);
+const PASSTHROUGH = new Set(['--port', '--port-range', '--input', '--archive', '--archive-digest', '--cutoff',
+  '--positioning-cot', '--cot-published-at', '--cot-received-at', '--cot-report-date']);
 
 const say = (line) => process.stdout.write(`terminal XAU V2 : ${line}\n`);
 const fail = (line) => process.stderr.write(`terminal XAU V2 : ${line}\n`);
