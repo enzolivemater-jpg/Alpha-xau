@@ -1,6 +1,6 @@
 # XAU V2 — DATA-REAL: first authentic sources (preparation)
 
-Status: `PREPARED OFFLINE — NO REAL CFTC FILE READ — NO PROVIDER CONTACTED`
+Status: `CFTC REAL FILE QUALIFIED LOCALLY (2026-10-18) — NO PROVIDER CONTACTED — AUTHENTIC DATA OFF THE REPOSITORY`
 
 ## 1. CFTC Disaggregated Futures Only (COMEX gold, `088691`)
 
@@ -21,9 +21,42 @@ Adapter 1.3.0 against that list:
 | `FutOnly_or_Combined` (field 191) | present | read and shown verbatim (`fileDatasetMarker`), never interpreted: the declaration stays the operator's |
 | 191-field row | — | converts (test on a file laid out exactly as the list, synthetic values) |
 
-**Not verified:** the header of a real `f_year.txt`, the values of
-`FutOnly_or_Combined`, the padding and quoting of real cells. No real file
-has been read.
+### Real file, 2026-10-18 (DATA-REAL-3)
+
+`fut_disagg_txt_2026.zip` downloaded once from cftc.gov (HTTP 200, 1,981,329
+bytes, sha256 `be28cebb914e0b4ef9325df0a66d1594a478f19f906ec23a289339977cbd13b0`,
+received 2026-10-18T21:44:42.077Z, `Last-Modified: Fri, 16 Oct 2026 19:28:01 GMT`).
+ZIP checked before extraction: one entry `f_year.txt`, 18,047,430 bytes,
+deflate, CRC valid, no link, no unsafe path, no encryption. `f_year.txt` sha256
+`bbafea92b984a09bee7846352fa4ce7bcb9594a4de6ce27e5c5190e7472687db`. Kept
+outside the repository with a local provenance record; never committed.
+
+Facts of the real header and rows:
+
+- 191 columns, identical to the CFTC variable list **except field 3**: the
+  real file says `Report_Date_as_YYYY-MM-DD` (the list says
+  `As_of_Date_Form_YYYY-MM-DD`). Adapter 1.3.0 reads either: no parser change.
+- Header names quoted; numbers right-aligned with leading spaces (trimmed).
+- `FutOnly_or_Combined` = `FutOnly` on every row.
+- COMEX gold `088691` "GOLD - COMMODITY EXCHANGE INC.", contract units
+  "(CONTRACTS OF 100 TROY OUNCES)": 41 weekly reports, 2026-01-06 to
+  2026-10-13, YYMMDD twin consistent.
+- Report 2026-10-13 converted: 14 metrics identical to an independent CSV
+  parse; open interest 396,345 equals the sum of every long and spread
+  category (internal identity of the report).
+- Publication instant declared for that report only: 2026-10-16T19:30:00Z,
+  from the CFTC Release Schedule (3:30 p.m. Eastern; October 16 in the 2026
+  table; data of the previous Tuesday), corroborated by the server's
+  Last-Modified. The 40 earlier reports carry no declared instant.
+- Terminal: catalog entry EXTRACTED, bound to the bytes, NOT_APPROVED; with
+  the real captures replayed at their last reception (2026-10-15T19:58Z) the
+  evidence is after the cutoff (`EVIDENCE_AFTER_KNOWLEDGE_CUTOFF`); with a
+  cutoff after reception it is kept, freshness NOT_EVALUATED, methodology not
+  approved; positioning UNAVAILABLE; HOLD / FORBIDDEN on every view.
+
+Still open: the files' terms of use (not found on the download page); a
+publication instant per earlier report (from the schedule, holiday shifts
+checked one by one) if they are to be declared.
 
 ### Procedure for the first real file (after authorization to download)
 
