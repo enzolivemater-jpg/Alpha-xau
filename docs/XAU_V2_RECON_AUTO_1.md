@@ -81,7 +81,10 @@ with `--plan`.
      aborted and reported with its files (`TEXT_CONFLICT`), never resolved.
 4. `--verify inventory,typecheck,full` runs those fixed commands (no command
    comes from the plan) in the worktree; a failure is `BLOCKED`
-   (`VERIFY_FAILED_*`).
+   (`VERIFY_FAILED_*`). 1.1.0: each step's whole output is kept as
+   `verify-<step>.log` next to the report, and `failedTests` lists the test
+   files the runner reported as `FAILED: <file> (exit N)` (also in
+   `report.md`), so a failure is read without re-running it.
 5. The worktree is removed in every case, the canonical ref is re-read
    (`canonical.unchanged`), the lock is released, and `report.json` and
    `report.md` are written atomically. `resultDigest` covers everything but

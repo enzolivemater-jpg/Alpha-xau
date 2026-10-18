@@ -261,6 +261,34 @@ try {
   }
   console.log('PASS --init-plan proposes a valid plan from named refs (current SHAs, stacked bases), create-only');
 
+  // --- 7c. 1.1.0 --verify: failing test files named in the report, whole output kept beside it.
+  {
+    const v = repo();
+    v.branch('canon', v.base);
+    mkdirSync(path.join(v.dir, 'node_modules'), { recursive: true }); // the tool links the repository's node_modules
+    v.commit('runner fails', { 'scripts/run_ci_tests.mjs': "console.log('=== tests/test_a.mjs ===');\n"
+      + "console.error('FAILED: tests/test_a.mjs (exit 1)');\nconsole.error('FAILED: tests/sub/test_b.mjs (exit 2)');\n"
+      + "console.log('1/3 test files passed.');\nprocess.exit(1);\n" });
+    v.branch('bad', 'HEAD');
+    const out = path.join(ROOT, 'verify-out');
+    const failed = await recon.reconcile({ repo: v.dir, plan: plan(ref(v, 'canon'), [cand(v, 'bad', v.base)]), outDir: out,
+      workRoot: path.join(ROOT, 'work'), env: ENV, verify: ['full'] });
+    assert.equal(failed.classification, 'BLOCKED');
+    assert.deepEqual(failed.reasons, ['VERIFY_FAILED_FULL']);
+    assert.deepEqual(failed.result.verification[0].failedTests, [{ file: 'tests/test_a.mjs', exit: 1 }, { file: 'tests/sub/test_b.mjs', exit: 2 }]);
+    assert.equal(failed.result.verification[0].log, 'verify-full.log');
+    assert.match(readFileSync(path.join(out, 'verify-full.log'), 'utf8'), /=== tests\/test_a\.mjs ===[\s\S]*--- stderr ---[\s\S]*FAILED: tests\/sub\/test_b\.mjs/);
+    assert.match(readFileSync(path.join(out, 'report.md'), 'utf8'), /  - failed: `tests\/test_a\.mjs` \(exit 1\)\n  - failed: `tests\/sub\/test_b\.mjs` \(exit 2\)/);
+    // The base runner passes: PASS, nothing failed.
+    v.git('checkout', '-q', '-b', 'fine', v.base);
+    v.commit('harmless', { 'ok.txt': 'ok\n' });
+    const passed = await run(v, plan(ref(v, 'canon'), [cand(v, 'fine', v.base)]), { verify: ['full'] });
+    assert.equal(passed.classification, 'PASS', JSON.stringify(passed.reasons));
+    assert.equal(passed.result.verification[0].exitCode, 0);
+    assert.deepEqual(passed.result.verification[0].failedTests, []);
+  }
+  console.log('PASS --verify names the failing test files and keeps the whole output beside the report');
+
   // --- 8. Malicious or malformed plans are refused before any git command.
   const okPlan = plan(ref(r, 'canon'), [good]);
   for (const [label, mutate] of [

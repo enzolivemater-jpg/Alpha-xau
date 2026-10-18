@@ -303,7 +303,11 @@ export function renderMarkdown(report) {
     '',
     'Verification:',
     ...(report.result.verification.length
-      ? report.result.verification.map((v) => `- ${v.name}: exit ${v.exitCode} (\`${v.command.join(' ')}\`)${v.stdoutTail.length ? ` — ${v.stdoutTail.at(-1)}` : ''}`)
+      ? report.result.verification.flatMap((v) => [
+        `- ${v.name}: exit ${v.exitCode} (\`${v.command.join(' ')}\`)${v.stdoutTail.length ? ` — ${v.stdoutTail.at(-1)}` : ''}`
+          + `${v.log ? ` — log \`${v.log}\`` : ''}`,
+        ...(v.failedTests ?? []).map((f) => `  - failed: \`${f.file}\` (exit ${f.exit})`),
+      ])
       : ['- none requested']),
     '',
     `Apply: ${report.apply.outcome}${report.apply.ref ? ` \`${report.apply.ref}\`` : ''}.`,
@@ -548,9 +552,18 @@ export async function reconcile({
       const command = [process.execPath, ...VERIFY_STEPS[name]];
       const run = spawnSync(command[0], command.slice(1), { cwd: wt, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: ctx.env });
       const tail = (text) => (text ?? '').trim().split('\n').filter(Boolean).slice(-6);
+      // 1.1.0: the failing test files by name (the runner prints "FAILED: <file> (exit N)"), and the
+      // whole output beside the report, so a failure is read without re-running anything.
+      const failedTests = [...`${run.stdout ?? ''}\n${run.stderr ?? ''}`.matchAll(/^FAILED: (tests\/[A-Za-z0-9_./-]+) \(exit (-?\d+|null)\)$/gm)]
+        .slice(0, 50).map(([, file, code]) => ({ file, exit: code === 'null' ? null : Number(code) }));
+      if (outDir !== null) {
+        mkdirSync(outDir, { recursive: true });
+        writeAtomic(path.join(outDir, `verify-${name}.log`), `${run.stdout ?? ''}\n--- stderr ---\n${run.stderr ?? ''}`);
+      }
       report.result.verification.push({
         name, command: ['node', ...VERIFY_STEPS[name]], exitCode: run.status ?? 128,
-        stdoutTail: tail(run.stdout), stderrTail: tail(run.stderr),
+        stdoutTail: tail(run.stdout), stderrTail: tail(run.stderr), failedTests,
+        log: outDir === null ? null : `verify-${name}.log`,
       });
       if (run.status !== 0) {
         report.reasons.push(`VERIFY_FAILED_${name.toUpperCase()}`);
