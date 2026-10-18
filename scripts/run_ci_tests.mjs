@@ -158,6 +158,7 @@ const TEST_FILES = [
   'tests/test_recovery_manifest_compare.mjs',
   'tests/test_recovery_rehearsal_contract.mjs',
   'tests/test_rc0_cross_system_contract.mjs',
+  'tests/test_recon_auto.mjs',
   'tests/test_regime_contract.mjs',
   'tests/test_security_baseline_hardening_contract.mjs',
   'tests/test_sql_ts_enum_parity.mjs',
