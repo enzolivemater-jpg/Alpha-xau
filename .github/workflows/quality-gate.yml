@@ -10,6 +10,7 @@
 name: Quality Gate
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main, verify/terminal-demo-offline]
   push:
