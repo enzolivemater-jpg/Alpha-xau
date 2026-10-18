@@ -24,6 +24,18 @@ assert.deepEqual(list.cutoffs, expected);
 assert.equal(list.defaultCutoff, '2026-10-01T14:15:00.000Z');
 assert.equal(list.truncated, false);
 assert.deepEqual(archiveCutoffs('/nonexistent/archive.json', null).cutoffs, []);
+// Availability per field: counts, sources and ranges straight from the records, every field listed.
+assert.deepEqual(list.fields.map((f) => f.field), ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti']);
+for (const f of list.fields) {
+  const recs = archive.records.filter((r) => r.field === f.field);
+  assert.equal(f.records, recs.length, f.field);
+  assert.deepEqual(f.sources, [...new Set(recs.map((r) => r.source))].sort(), f.field);
+  const iso = (ms) => new Date(ms).toISOString();
+  const span = (key) => (recs.length ? [iso(Math.min(...recs.map((r) => Date.parse(r[key])))), iso(Math.max(...recs.map((r) => Date.parse(r[key]))))] : [null, null]);
+  assert.deepEqual([f.firstObservedAt, f.lastObservedAt], span('observedAt'), f.field);
+  assert.deepEqual([f.firstIngestedAt, f.lastIngestedAt], span('ingestedAt'), f.field);
+}
+assert.ok(list.fields.some((f) => f.records === 0), 'the synthetic archive has a field without records (dxy)');
 console.log(`PASS the archive gives ${expected.length} replay cutoffs (its distinct reception instants, in order)`);
 
 // --- Replays: the chain runs at the asked instant and knows only what was received by then.
@@ -119,6 +131,12 @@ assert.equal(d.getElementById('v2-replay-cutoff-wrap').hidden, false);
 assert.equal(select.options.length, expected.length + 1);
 assert.match(select.options[0].textContent, /Cutoff du serveur \(2026-10-01T14:15:00.000Z\)/);
 assert.match(d.getElementById('v2-replay-cutoff-hint').textContent, /HOLD, exécution interdite/);
+const avail = d.getElementById('v2-archive-avail');
+assert.equal(avail.hidden, false);
+const availItems = [...d.querySelectorAll('#v2-archive-avail-list li')];
+assert.equal(availItems.length, 8);
+assert.match(availItems[0].textContent, /^SPOT · \d+ enr\. · twelve_data · observé 2026-/);
+assert.equal(d.querySelector('#v2-archive-avail-list li[data-records="0"]').textContent, 'DXY · aucun enregistrement');
 select.value = expected[1];
 select.dispatchEvent(new dom.window.Event('change'));
 await new Promise((resolve) => setTimeout(resolve, 300));

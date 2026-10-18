@@ -1075,6 +1075,13 @@ body {
   padding: var(--sp-1) var(--sp-2);
 }
 .v2__scenario select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.v2__avail { flex: 1 1 100%; min-width: 0; font-size: var(--fs-xs); }
+.v2__avail[hidden] { display: none; }
+.v2__avail summary { cursor: pointer; font-family: var(--mono); letter-spacing: 0.06em; color: var(--accent); }
+.v2__avail-list { margin: var(--sp-2) 0 0; padding: 0; list-style: none; display: grid; gap: var(--sp-1); }
+.v2__avail-list li { font-family: var(--mono); color: var(--text-dim); overflow-wrap: anywhere; }
+.v2__avail-list li[data-records='0'] { color: var(--flat); }
+.v2__avail-field { color: var(--text); font-weight: 600; }
 
 .v2 { font-size: var(--fs-sm); }
 

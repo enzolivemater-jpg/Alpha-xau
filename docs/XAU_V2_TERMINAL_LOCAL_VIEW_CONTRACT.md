@@ -299,7 +299,11 @@ is selected. A replay knows only what the archive had received at that
 instant; the other inputs stay those of the input document, so a cutoff that
 differs from theirs is reported by CHAIN-0 as `UPSTREAM_CUTOFF_MISMATCH`.
 Every replay is HOLD, execution forbidden. Both routes sit behind the Host
-guard.
+guard. The list also carries `fields`: for each of the eight market fields,
+the number of records, their sources and the first/last observation and
+reception instants, whatever the cutoff (counts and ranges, no judgement); the
+page shows them under **DISPONIBILITÉ DE L'ARCHIVE PAR CHAMP**, a field
+without records reading "aucun enregistrement".
 
 ## Layout check in a browser
 

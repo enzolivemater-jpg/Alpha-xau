@@ -177,6 +177,8 @@
     v2ReplayCutoffWrap: $('v2-replay-cutoff-wrap'),
     v2ReplayCutoff: $('v2-replay-cutoff'),
     v2ReplayCutoffHint: $('v2-replay-cutoff-hint'),
+    v2ArchiveAvail: $('v2-archive-avail'),
+    v2ArchiveAvailList: $('v2-archive-avail-list'),
     v2Status: $('v2-status'),
     v2State: $('v2-state'),
     v2Detail: $('v2-detail'),
@@ -1799,6 +1801,25 @@ let pollTimer = null;
   let v2ReplayCutoff = null;
   const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
+  /** Ce que l'archive contient par champ, quel que soit le cutoff : comptes et bornes, aucun jugement. */
+  function renderArchiveAvailability(fields) {
+    if (!isList(fields) || fields.length === 0) return;
+    const day = (at) => (isText(at) && UTC_INSTANT.test(at) ? at.replace('T', ' ').replace(/:\d{2}\.\d{3}Z$/, 'Z') : null);
+    const items = [];
+    for (const f of fields) {
+      if (!f || !/^[A-Za-z0-9]{1,16}$/.test(String(f.field)) || !isNum(f.records) || f.records < 0) continue;
+      const li = node('li', '', undefined, { 'data-records': String(f.records) });
+      li.appendChild(node('span', 'v2__avail-field', String(f.field).toUpperCase()));
+      const sources = isList(f.sources) ? f.sources.filter((x) => typeof x === 'string' && /^[a-z0-9_]{1,32}$/.test(x)) : [];
+      li.appendChild(document.createTextNode(f.records === 0 ? ' · aucun enregistrement'
+        : ` · ${f.records} enr. · ${sources.join(', ') || 'source ?'} · observé ${day(f.firstObservedAt) ?? '?'} → ${day(f.lastObservedAt) ?? '?'}`
+          + ` · reçu ${day(f.firstIngestedAt) ?? '?'} → ${day(f.lastIngestedAt) ?? '?'}`));
+      items.push(li);
+    }
+    el.v2ArchiveAvailList.replaceChildren(...items);
+    el.v2ArchiveAvail.hidden = items.length === 0;
+  }
+
   /** Instants de réception de l'archive (--archive) ; sans archive, le sélecteur reste caché. */
   async function loadArchiveCutoffs() {
     if (!CONFIG.V2_ARCHIVE_CUTOFFS_URL) return;
@@ -1819,6 +1840,7 @@ let pollTimer = null;
         + 'chaque rejeu ne connaît que les données reçues à cet instant. Les autres entrées restent celles du document : '
         + 'un cutoff différent du leur est signalé comme incohérence. HOLD, exécution interdite.');
       el.v2ReplayCutoffWrap.hidden = false;
+      renderArchiveAvailability(list.fields);
       el.v2ReplayCutoff.disabled = v2Scenario !== null;
       el.v2ReplayCutoff.addEventListener('change', () => {
         v2ReplayCutoff = el.v2ReplayCutoff.value || null;

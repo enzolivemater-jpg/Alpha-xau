@@ -49,6 +49,8 @@ export const HEALTH_PATH = '/local/v2/health.json';
 export const ARCHIVE_CUTOFFS_PATH = '/local/v2/archive-cutoffs.json';
 /** Size bound of that list (a page bound, not a market rule): the latest instants are kept. */
 export const MAX_ARCHIVE_CUTOFFS = 500;
+/** Market fields of a DATA-1 archive, in MP-0 order. */
+const ARCHIVE_FIELDS = ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti'];
 const VIEW_URL_PLACEHOLDER = "V2_VIEW_URL: '',";
 const SCENARIOS_URL_PLACEHOLDER = "V2_SCENARIOS_URL: '',";
 const CUTOFFS_URL_PLACEHOLDER = "V2_ARCHIVE_CUTOFFS_URL: '',";
@@ -92,7 +94,17 @@ export function archiveCutoffs(archiveFile, defaultCutoff) {
     if (archive && Array.isArray(archive.records)) records = archive.records;
   } catch { /* no instant */ }
   const instants = new Map();
+  const fields = new Map(ARCHIVE_FIELDS.map((field) => [field, { field, records: 0, sources: new Set(), observed: [], ingested: [] }]));
   for (const record of records) {
+    const entry = record && fields.get(record.field);
+    if (entry) {
+      entry.records += 1;
+      if (typeof record.source === 'string' && /^[a-z0-9_]{1,32}$/.test(record.source)) entry.sources.add(record.source);
+      for (const [key, list] of [['observedAt', entry.observed], ['ingestedAt', entry.ingested]]) {
+        const at = record[key];
+        if (typeof at === 'string' && REQUEST_CUTOFF.test(at) && Number.isFinite(Date.parse(at))) list.push(Date.parse(at));
+      }
+    }
     const at = record && record.ingestedAt;
     if (typeof at !== 'string' || !REQUEST_CUTOFF.test(at)) continue;
     const ms = Date.parse(at);
@@ -104,6 +116,15 @@ export function archiveCutoffs(archiveFile, defaultCutoff) {
     defaultCutoff: typeof defaultCutoff === 'string' ? defaultCutoff : null,
     truncated: cutoffs.length > MAX_ARCHIVE_CUTOFFS,
     cutoffs: cutoffs.slice(-MAX_ARCHIVE_CUTOFFS),
+    // What the archive holds per field, whatever the cutoff: counts and ranges, no judgement.
+    fields: [...fields.values()].map(({ field, records: count, sources, observed, ingested }) => {
+      const iso = (list, pickLast) => (list.length ? new Date(pickLast ? Math.max(...list) : Math.min(...list)).toISOString() : null);
+      return {
+        field, records: count, sources: [...sources].sort(),
+        firstObservedAt: iso(observed, false), lastObservedAt: iso(observed, true),
+        firstIngestedAt: iso(ingested, false), lastIngestedAt: iso(ingested, true),
+      };
+    }),
   };
 }
 
