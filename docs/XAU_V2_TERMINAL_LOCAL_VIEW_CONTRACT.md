@@ -178,6 +178,40 @@ node scripts/serve_terminal_local.mjs --port 4180 --input path/to/chain-input.js
 
 The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`.
 
+### Launcher (Windows and WSL)
+
+- **Windows:** double-click `scripts/terminal/xau-terminal.cmd` (open it from
+  `\\wsl.localhost\<distribution>\…\scripts\terminal\` or copy it to the
+  desktop). From the repository it derives the WSL distribution and the
+  checkout from its own location; a copy uses the two values at its top. It
+  runs `wsl.exe -d <distribution> --cd <checkout> -- sh scripts/terminal/xau-terminal.sh`.
+  It changes no system setting and installs nothing.
+- **WSL / Linux:** `npm run terminal` (or `sh scripts/terminal/xau-terminal.sh`).
+- `xau-terminal.sh` finds Node.js on `PATH`, else the newest version installed
+  by nvm (`$NVM_DIR` or `~/.nvm`), without a pinned version path, and runs
+  `scripts/terminal_launch.mjs`.
+- `terminal_launch.mjs` checks the checkout (dependencies, Node ≥ 22), reuses a
+  server already started from the same checkout (`GET /local/v2/health.json`
+  on the port range: app, root, pid) instead of starting a second one, starts
+  `serve_terminal_local.mjs`, waits until the view answers over HTTP with a
+  HOLD / FORBIDDEN chain, and only then opens `http://localhost:<port>/#chaine`
+  (Windows default browser from WSL, `xdg-open` elsewhere, or
+  `XAU_TERMINAL_BROWSER`); otherwise it prints the URL. It follows the
+  server's port fallback, stops the server on Ctrl+C / SIGTERM / SIGHUP,
+  `--stop` stops this checkout's server, `--status` reports it, `--no-browser`
+  skips the browser, and other options (`--port`, `--port-range`, `--input`,
+  `--archive`, `--archive-digest`, `--cutoff`) pass through. Exit: 0 ok, 1
+  server failure, 3 environment, 64 usage.
+- Test: `tests/test_terminal_offline_finalisation.mjs`. The `.cmd` itself is
+  only checked statically: no Windows host in CI.
+
+Data labels on screen: MARCHÉ tab = **DÉMO — VALEURS SYNTHÉTIQUES** (random
+demo values; no gold impact is ever read from them); CHAÎNE V2 = **SIMULATION —
+FIXTURE / SCÉNARIO / FICHIER LOCAL**, **ARCHIVE SYNTHÉTIQUE**, or with
+`--archive` on a captured archive **HISTORIQUE NON VÉRIFIÉ** and, per input,
+**ARCHIVE CAPTURÉE — NON CERTIFIÉE**; **HISTORIQUE VÉRIFIÉ** only for a fully
+re-read, complete replay. Nothing is ever labelled live.
+
 `GET /local/v2/scenarios.json` lists local simulation scenarios derived from the
 golden fixture (`scripts/lib/terminal_scenarios.mjs`). `GET
 /local/v2/terminal.json?scenario=<id>` serves one of them, with origin

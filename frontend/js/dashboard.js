@@ -196,6 +196,7 @@
     v2Generated: $('v2-generated'),
     v2Stages: $('v2-stages'),
     v2Market: $('v2-market'),
+    v2MarketLegend: $('v2-market-legend'),
     v2MarketState: $('v2-market-state'),
     v2Replay: $('v2-replay'),
     v2Positioning: $('v2-positioning'),
@@ -429,7 +430,11 @@
       const impactCell = row.querySelector('[data-field="impact"]');
       const rule = MACRO_IMPACT[key];
       const movement = dirOf(change);
-      if (change === null || movement === 'flat' || !rule) {
+      if (DEMO_MODE) {
+        // Synthetic values move at random: reading a gold impact into them would be a fake signal.
+        setText(impactCell, 'N/A — DÉMO');
+        setAttr(impactCell, 'data-impact', 'unavailable');
+      } else if (change === null || movement === 'flat' || !rule) {
         setText(impactCell, isNum(value) ? 'Stable' : 'N/A');
         setAttr(impactCell, 'data-impact', 'neutral');
       } else {
@@ -1388,6 +1393,7 @@ let pollTimer = null;
     setAttr(el.v2Digest, 'title', null);
     el.v2Stages.replaceChildren(node('li', 'v2__empty', '—'));
     el.v2Market.replaceChildren(v2EmptyRow(6, '—'));
+    el.v2MarketLegend.hidden = true;
     el.v2Capabilities.replaceChildren(node('li', 'v2__empty', 'Matrice indisponible sans vue V2.'));
     el.v2Horizons.replaceChildren(node('li', 'v2__empty', '—'));
     el.v2Evidence.replaceChildren(node('li', 'v2__empty', '—'));
@@ -1438,7 +1444,11 @@ let pollTimer = null;
   function renderWhy(view) {
     const why = view.holdRationale;
     if (view.chain.outcome !== 'COMPLETED') {
-      el.v2Why.hidden = true;
+      el.v2Why.hidden = false;
+      setText(el.v2WhyLead, 'Entrée rejetée avant la chaîne : aucun étage n\'a été évalué. '
+        + 'Corriger l\'entrée signalée dans DONNÉES MANQUANTES ; aucune décision n\'est possible.');
+      setText(el.v2WhyLift, '');
+      el.v2WhyList.replaceChildren();
       return;
     }
     el.v2Why.hidden = false;
@@ -1567,6 +1577,7 @@ let pollTimer = null;
     renderStages(view);
 
     setText(el.v2MarketState, view.market.state ? `MP-0 ${view.market.state}` : '—');
+    el.v2MarketLegend.hidden = view.market.fields.length === 0; // nothing to qualify as fresh
     el.v2Market.replaceChildren(view.market.fields.length === 0
       ? v2EmptyRow(6, 'Aucun champ de marché.')
       : fragmentOf(view.market.fields, (f) => {

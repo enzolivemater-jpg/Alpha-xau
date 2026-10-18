@@ -544,6 +544,8 @@ body {
 .matrix td[data-field='impact'][data-impact='bullish'] { color: var(--up); }
 .matrix td[data-field='impact'][data-impact='bearish'] { color: var(--down); }
 .matrix td[data-field='impact'][data-impact='neutral'] { color: var(--flat); }
+/* Démo : « N/A — DÉMO » passe à la ligne plutôt que d'élargir le tableau à 320 px. */
+.matrix td[data-field='impact'][data-impact='unavailable'] { color: var(--flat); white-space: normal; }
 
 .matrix__note {
   margin: var(--sp-3) 0 0;

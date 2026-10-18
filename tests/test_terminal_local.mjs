@@ -850,7 +850,9 @@ await settle(400);
 assert.equal(d.getElementById('v2-sec-summary').getAttribute('data-status'), 'INPUT_REJECTED');
 assert.deepEqual(listText('v2-summary-missing'), ['Entrée invalide : unexpectedKey: UNKNOWN_KEY.']);
 assert.equal(text(d, 'v2-summary-deps'), "Aucune dépendance : la chaîne n'a pas été évaluée.");
-assert.equal(d.getElementById('v2-why').hidden, true);
+// The POURQUOI HOLD heading is never left empty: a rejected input says why nothing was evaluated.
+assert.equal(d.getElementById('v2-why').hidden, false);
+assert.match(text(d, 'v2-why-lead'), /^Entrée rejetée avant la chaîne : aucun étage n'a été évalué\./);
 dom.window.close();
 await close(live.server);
 console.log('PASS terminal against the real local server: golden HOLD chain, degraded and rejected scenarios summarized');

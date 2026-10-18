@@ -43,6 +43,8 @@ export const MAX_PORT_RANGE = 50;
 export const LOOPBACK_ADDRESS = '127.0.0.1';
 export const VIEW_PATH = '/local/v2/terminal.json';
 export const SCENARIOS_PATH = '/local/v2/scenarios.json';
+/** Identifies this server and its checkout, so the launcher never starts a second instance. */
+export const HEALTH_PATH = '/local/v2/health.json';
 const VIEW_URL_PLACEHOLDER = "V2_VIEW_URL: '',";
 const SCENARIOS_URL_PLACEHOLDER = "V2_SCENARIOS_URL: '',";
 
@@ -243,6 +245,11 @@ export async function createTerminalServer(options = {}) {
       scenarioId = url.searchParams.get('scenario') || null;
     } catch {
       send(response, 400, 'text/plain; charset=utf-8', 'bad request', method);
+      return;
+    }
+    if (pathname === HEALTH_PATH) {
+      const health = { app: 'xau-v2-terminal-local', schemaVersion: 'xau.terminal-local-health.v1', root: ROOT, pid: process.pid };
+      send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(health), method);
       return;
     }
     if (pathname === SCENARIOS_PATH) {

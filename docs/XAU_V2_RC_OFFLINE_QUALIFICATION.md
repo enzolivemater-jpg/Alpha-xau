@@ -64,6 +64,24 @@ documents; it changes no backend, frontend, SQL or fixture.
   `58d63e4…` and `resultDigest` three times; the RC tracking plan
   (`docs/recon/plan-rc-offline.json`) passes with no drift.
 
+## Terminal OFFLINE (local, branch `recon/terminal-offline-final`)
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Starts from the candidate checkout, one command | PASS (WSL) | `npm run terminal` / `sh scripts/terminal/xau-terminal.sh`; `test_terminal_offline_finalisation` |
+| Windows double-click launcher | NOT_TESTED on Windows (no Windows host here); static checks PASS | `scripts/terminal/xau-terminal.cmd` |
+| Node found without a pinned version path | PASS | PATH, else newest nvm version; test with isolated PATH |
+| No second instance from the same checkout | PASS | health endpoint + launcher reuse |
+| Browser opened only after the view answers over HTTP | PASS | test records that the view answered when the browser was called |
+| Busy port, clean stop, readable failures | PASS | fallback port followed; Ctrl+C / `--stop` release the port; EADDRINUSE / missing dependencies / bad option diagnosed |
+| 12 simulation scenarios selectable, HOLD / FORBIDDEN, no positive output | PASS (Chromium 129) | real-browser walk 23/23, no console or HTTP error |
+| Demo never shows a gold impact | PASS (fixed) | MARCHÉ matrix showed « Pression », « Soutien »… from random demo moves; now « N/A — DÉMO » |
+| Empty or redundant displays | PASS (fixed) | rejected input explains POURQUOI HOLD; no freshness legend without fields; macro note is a general principle |
+| Layout 320–1440 px | PASS (Chromium 129) | `check_terminal_layout.mjs` 30/30 |
+| Firefox | NOT_TESTED | not installed here |
+| Safari | NOT_TESTED (impossible) | no Safari for Windows or Linux |
+| Windows browser actually opening `localhost:4173` through WSL | NOT_TESTED here | the user reports Brave on `localhost:4173` works from WSL |
+
 ## Human gates (not engineering items; none is closed)
 
 REC-1 recovery; FRED / Twelve Data licence, quota and retention; DXY, bid/ask and
