@@ -214,6 +214,12 @@ export async function readCaptures(capturesDir) {
     : { archive: null, sources: files.length, problems: merge.problems.length ? merge.problems : ['MERGE_REJECTED'] };
 }
 
+/** Catalog notes in plain words for the start line (the page has its own wording). */
+const START_NOTES = {
+  EVIDENCE_DIR_ABSENT: 'pas de dossier evidence/ (journaux de capture)',
+  POSITIONING_DIR_ABSENT: 'pas de dossier positioning/ (fichiers CFTC : déposer le fichier puis node scripts/cot_declare.mjs)',
+};
+
 /** A source identifier the page may send: never a path, only what the catalog lists. */
 const SOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -777,7 +783,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         const read = catalog.positioning.filter((p) => p.kind === 'CFTC_FILE');
         lines.push(`données locales de ${serverOptions.dataRoot} : ${catalog.market.length - 1} source(s) de marché, `
           + `${read.length} fichier(s) CFTC (${read.filter((p) => p.status === 'EXTRACTED').length} lu(s)), à choisir dans « DONNÉES LOCALES »`
-          + `${catalog.notes.length ? ` ; ${catalog.notes.join(' ; ')}` : ''}`);
+          + `${catalog.notes.length ? ` ; ${catalog.notes.map((note) => START_NOTES[note] ?? note).join(' ; ')}` : ''}`);
       }
       lines.push(`scénarios de simulation dans l'onglet CHAÎNE V2 (http://127.0.0.1:${port}/#chaine), sélecteur « SCÉNARIO DE SIMULATION » en haut du panneau`);
       process.stdout.write(lines.map((line) => `terminal local : ${line}\n`).join(''));
