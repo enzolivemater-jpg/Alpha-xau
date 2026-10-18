@@ -224,7 +224,16 @@ const START_NOTES = {
 const SOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 // artifactId and sourceUrl (optional, additive): the bytes declared and where the operator says they came from.
-const COT_DECLARATION_KEYS = ['artifactId', 'contractMarketCode', 'dataset', 'publishedAt', 'receivedAt', 'reportDate', 'schemaVersion', 'sourceUrl'];
+const COT_DECLARATION_KEYS = ['artifactId', 'contractMarketCode', 'dataset', 'publicationBasis', 'publishedAt', 'receivedAt', 'reportDate', 'schemaVersion', 'sourceUrl'];
+/**
+ * DATA-REAL-4 (optional, additive): what the declared publication instant rests on. EXPLICIT_OFFICIAL_MAPPING:
+ * an official document pairs this report with its publication date; OFFICIAL_SCHEDULE_INFERRED: deduced from
+ * the CFTC's tentative release schedule and its "usually the previous Tuesday" rule (not proved per report).
+ */
+const PUBLICATION_BASIS_KINDS = ['EXPLICIT_OFFICIAL_MAPPING', 'OFFICIAL_SCHEDULE_INFERRED'];
+const validPublicationBasis = (b) => b && typeof b === 'object' && !Array.isArray(b)
+  && Object.keys(b).sort().join() === 'kind,reference' && PUBLICATION_BASIS_KINDS.includes(b.kind)
+  && typeof b.reference === 'string' && /^https:\/\/(www\.)?cftc\.gov\/[A-Za-z0-9._~%\/-]*$/.test(b.reference);
 const SOURCE_URL = /^https:\/\/[A-Za-z0-9.-]+(\/[A-Za-z0-9._~%\/-]*)?$/;
 
 /**
@@ -267,7 +276,8 @@ export async function readPositioningDir(dir) {
       const keys = raw && typeof raw === 'object' && !Array.isArray(raw) ? Object.keys(raw) : null;
       if (keys === null || raw.schemaVersion !== 'xau.cftc-cot-declaration.v1'
           || keys.some((key) => !COT_DECLARATION_KEYS.includes(key))
-          || (raw.sourceUrl !== undefined && (typeof raw.sourceUrl !== 'string' || !SOURCE_URL.test(raw.sourceUrl)))) problem = 'DECLARATION_INVALID';
+          || (raw.sourceUrl !== undefined && (typeof raw.sourceUrl !== 'string' || !SOURCE_URL.test(raw.sourceUrl)))
+          || (raw.publicationBasis !== undefined && !validPublicationBasis(raw.publicationBasis))) problem = 'DECLARATION_INVALID';
       // A declaration bound to other bytes says nothing about this file (changed after it was declared).
       else if (raw.artifactId !== undefined && raw.artifactId !== artifactId) problem = 'DECLARATION_DIGEST_MISMATCH';
       else declaration = raw;
@@ -498,7 +508,7 @@ export async function buildLocalView({
   const positioningEntries = [...positioning.values()].map((source) => (source.kind === 'INPUT_DOCUMENT'
     ? { id: source.id, kind: source.kind, label: source.label, status: 'DOCUMENT', sourceApproval: null, dataset: null, reportDate: null,
       publishedAt: null, receivedAt: null, metrics: null, artifactId: null, reasonCodes: [], detail: null, declaredBy: null,
-      dateColumn: null, fileDatasetMarker: null, sourceUrl: null, boundToBytes: null }
+      dateColumn: null, fileDatasetMarker: null, sourceUrl: null, publicationBasis: null, boundToBytes: null }
     : {
       id: source.id, kind: source.kind, label: source.label,
       status: source.conversion?.status ?? 'REJECTED',
@@ -520,6 +530,7 @@ export async function buildLocalView({
       dateColumn: source.conversion?.dateColumn ?? null,
       fileDatasetMarker: source.conversion?.fileDatasetMarker ?? (source.inspection?.datasetMarkers?.length === 1 ? source.inspection.datasetMarkers[0] : null),
       sourceUrl: source.declaration?.sourceUrl ?? null,
+      publicationBasis: source.declaration?.publicationBasis ? { ...source.declaration.publicationBasis } : null,
       boundToBytes: source.declaration ? typeof source.declaration.artifactId === 'string' : null,
     }));
   render.catalog = () => ({

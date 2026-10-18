@@ -234,6 +234,7 @@ assert.equal(d.querySelector('#v2-prov [data-input="POSITIONING"]').getAttribute
 change(dom, d.getElementById('v2-data-positioning'), 'cot:gold.csv');
 await settle();
 assert.match(d.getElementById('v2-data-card-positioning').textContent, /LU — 14 mesures brutes, aucune méthode approuvée.*futures seuls.*2026-09-22/);
+assert.match(d.getElementById('v2-data-card-positioning').textContent, /Base de la date de publicationnon indiquée \(déclaration de l'opérateur seule\)/);
 assert.equal(dom.window.location.hash, '#chaine/donnees/log:evidence:fred-log/cot:gold.csv');
 assert.notEqual(d.getElementById('v2-status').getAttribute('data-state'), 'rejected');
 assert.doesNotMatch(d.getElementById('v2-status').closest('section').textContent, /\b(BUY|SELL|EVIDENCE_READY)\b/);

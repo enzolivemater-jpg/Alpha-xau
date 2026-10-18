@@ -372,7 +372,9 @@ none selected by default (the server's input stays the default view):
 - `DIR/positioning/<file>` with `<file without extension>.declaration.json`
   (`xau.cftc-cot-declaration.v1`: `dataset`, `publishedAt`, `receivedAt`,
   optional `reportDate`, `contractMarketCode`, `artifactId`, `sourceUrl`
-  (https only); any other key is `DECLARATION_INVALID`; an `artifactId` that
+  (https only), `publicationBasis` (`{kind: EXPLICIT_OFFICIAL_MAPPING |
+  OFFICIAL_SCHEDULE_INFERRED, reference: https://www.cftc.gov/…}`, shown in the
+  card; absent = "déclaration de l'opérateur seule"); any other key is `DECLARATION_INVALID`; an `artifactId` that
   is not the file's sha256 is `DECLARATION_DIGEST_MISMATCH`): CFTC COT files (`cot:<file>`). Without a valid
   declaration a file is never converted (`DECLARATION_MISSING` /
   `DECLARATION_INVALID`, its format problem named when visible); unknown

@@ -5,6 +5,7 @@
  *
  *   node scripts/cot_declare.mjs FILE --dataset futures-only|futures-and-options
  *        --published-at ISO --received-at ISO [--report-date YYYY-MM-DD] [--contract 088691] [--source-url https://…]
+ *        [--publication-basis explicit|schedule-inferred --publication-reference https://www.cftc.gov/…]
  *   node scripts/cot_declare.mjs FILE --inspect [--contract 088691]
  *
  * --inspect reads a file (a real CFTC download, say) and prints what its header
@@ -36,7 +37,7 @@ export function parseArgs(argv) {
   const [file, ...rest] = argv;
   if (!file || file.startsWith('--')) return null;
   const options = { file: path.resolve(file), dataset: null, publishedAt: null, receivedAt: null, reportDate: null, contract: null,
-    sourceUrl: null, inspect: false };
+    sourceUrl: null, inspect: false, publicationBasis: null, publicationReference: null };
   for (let i = 0; i < rest.length; i += 2) {
     const [flag, value] = [rest[i], rest[i + 1]];
     if (flag === '--inspect') { options.inspect = true; i -= 1; continue; }
@@ -47,9 +48,14 @@ export function parseArgs(argv) {
     else if (flag === '--report-date') options.reportDate = value;
     else if (flag === '--contract') options.contract = value;
     else if (flag === '--source-url' && /^https:\/\/[A-Za-z0-9.-]+(\/[A-Za-z0-9._~%\/-]*)?$/.test(value)) options.sourceUrl = value;
+    else if (flag === '--publication-basis' && (value === 'explicit' || value === 'schedule-inferred')) {
+      options.publicationBasis = value === 'explicit' ? 'EXPLICIT_OFFICIAL_MAPPING' : 'OFFICIAL_SCHEDULE_INFERRED';
+    } else if (flag === '--publication-reference' && /^https:\/\/(www\.)?cftc\.gov\/[A-Za-z0-9._~%\/-]*$/.test(value)) options.publicationReference = value;
     else return null;
   }
   if (options.inspect) return options.dataset || options.publishedAt || options.receivedAt ? null : options;
+  // A basis names its official reference; one without the other says nothing.
+  if ((options.publicationBasis === null) !== (options.publicationReference === null)) return null;
   return options.dataset && options.publishedAt && options.receivedAt ? options : null;
 }
 
@@ -78,6 +84,7 @@ export async function declare(options) {
     // The exact bytes declared: a later change of the file voids this declaration in the terminal.
     artifactId: conversion.artifactId,
     ...(options.sourceUrl ? { sourceUrl: options.sourceUrl } : {}),
+    ...(options.publicationBasis ? { publicationBasis: { kind: options.publicationBasis, reference: options.publicationReference } } : {}),
     dataset: options.dataset,
     publishedAt: options.publishedAt,
     receivedAt: options.receivedAt,
@@ -122,7 +129,8 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options === null) {
     process.stderr.write('usage: node scripts/cot_declare.mjs FILE --dataset futures-only|futures-and-options'
-      + ' --published-at ISO --received-at ISO [--report-date YYYY-MM-DD] [--contract 088691] [--source-url https://…]\n'
+      + ' --published-at ISO --received-at ISO [--report-date YYYY-MM-DD] [--contract 088691] [--source-url https://…]'
+      + ' [--publication-basis explicit|schedule-inferred --publication-reference https://www.cftc.gov/…]\n'
       + '       node scripts/cot_declare.mjs FILE --inspect [--contract 088691]\n');
     return 64;
   }

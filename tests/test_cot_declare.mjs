@@ -70,6 +70,32 @@ assert.equal(spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' }).status,
   assert.equal(parseArgs([other, ...args, '--source-url', 'http://insecure.example/x']), null, 'https only');
   assert.equal(parseArgs([other, ...args, '--source-url', 'javascript:alert(1)']), null);
 }
+// DATA-REAL-4: the declared publication instant may cite what it rests on (an official CFTC page), shown as such.
+{
+  const third = path.join(ROOT, 'positioning', 'gold3.csv');
+  copyFileSync(new URL('./fixtures/cftc_cot_disaggregated_synthetic.csv', import.meta.url), third);
+  const PR = 'https://www.cftc.gov/PressRoom/PressReleases/9138-25';
+  assert.equal(parseArgs([third, ...args, '--publication-basis', 'explicit']), null, 'a basis needs its reference');
+  assert.equal(parseArgs([third, ...args, '--publication-reference', PR]), null, 'a reference needs its basis');
+  assert.equal(parseArgs([third, ...args, '--publication-basis', 'explicit', '--publication-reference', 'https://example.com/x']), null, 'cftc.gov only');
+  assert.equal(parseArgs([third, ...args, '--publication-basis', 'guess', '--publication-reference', PR]), null);
+  const r = await declare({ ...parseArgs([third, ...args, '--report-date', '2026-09-22', '--publication-basis', 'schedule-inferred',
+    '--publication-reference', 'https://www.cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm']) });
+  assert.equal(r.ok, true, r.message);
+  const written = JSON.parse(readFileSync(declarationPathOf(third), 'utf8'));
+  assert.deepEqual(written.publicationBasis, { kind: 'OFFICIAL_SCHEDULE_INFERRED',
+    reference: 'https://www.cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm' });
+  const e = (await buildLocalView({ dataRoot: ROOT })).catalog().positioning.find((p) => p.id === 'cot:gold3.csv');
+  assert.deepEqual([e.status, e.publicationBasis.kind], ['EXTRACTED', 'OFFICIAL_SCHEDULE_INFERRED']);
+  // A hand-written basis of any other shape makes the declaration invalid; none at all stays valid (older declarations).
+  writeFileSync(declarationPathOf(third), JSON.stringify({ ...written, publicationBasis: { kind: 'OFFICIAL', reference: PR } }));
+  const bad = (await buildLocalView({ dataRoot: ROOT })).catalog().positioning.find((p) => p.id === 'cot:gold3.csv');
+  assert.deepEqual(bad.reasonCodes, ['DECLARATION_INVALID']);
+  const { publicationBasis, ...without } = written;
+  writeFileSync(declarationPathOf(third), JSON.stringify(without));
+  const old = (await buildLocalView({ dataRoot: ROOT })).catalog().positioning.find((p) => p.id === 'cot:gold3.csv');
+  assert.deepEqual([old.status, old.publicationBasis], ['EXTRACTED', null]);
+}
 // --inspect: what a file offers, written nowhere; the declaration flags are refused with it.
 {
   const seen = await inspect(parseArgs([file, '--inspect']));

@@ -99,3 +99,115 @@ a contract decision.
 | Consensus (Trading Economics, Bloomberg, Econoday…) | ends `CONSENSUS_FACTS_UNAVAILABLE` (contract C-0 ready) | paid, plan per redistribution | per-provider licence; single-user plans forbid sharing | timestamps and revisions must satisfy C-0 | budget, provider, methodology |
 
 HOLD / FORBIDDEN unchanged by every row. REC-1 frozen.
+
+## 4. Terms of reuse (verified 2026-10-19)
+
+CFTC Web Policy (https://www.cftc.gov/WebPolicy/index.htm): "Government
+information at the CFTC website is in the public domain"; it "may be freely
+distributed and copied, but it is requested that in any subsequent use the
+CFTC be given appropriate acknowledgement"; the CFTC "makes no claims,
+promises, or guarantees about the accuracy, completeness, or adequacy" of the
+site's contents. Repository policy unchanged: authentic files stay off Git
+(acknowledgement: "Source: U.S. Commodity Futures Trading Commission").
+
+## 5. Publication instants of the 41 gold reports of 2026 (evidence, not inference)
+
+Sources: the Release Schedule (https://www.cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm:
+"released at 3:30 p.m. Eastern time"; "a **tentative** schedule"; "The release
+**usually** includes data from the previous Tuesday"; "*Delayed release date
+due to a federal holiday") and press release 9138-25
+(https://www.cftc.gov/PressRoom/PressReleases/9138-25), which pairs each
+backlog report with its publication date. The tentative schedule is not proof
+for a given report: it lists a January 9 release, but 9138-25 published the
+January 6 report on January 16.
+
+- `EXPLICIT_OFFICIAL_MAPPING` (3 reports): an official document pairs the
+  report with its publication date (time: the schedule's 3:30 p.m. ET rule).
+- `OFFICIAL_SCHEDULE_INFERRED` (38 reports): paired with the next listed
+  release date by the "usually previous Tuesday" rule; **inferred, not
+  proved**. They must not be declared as official publication instants
+  without per-report evidence (or an explicit approval to accept this
+  basis), and a declaration that uses them must say so
+  (`--publication-basis schedule-inferred`).
+- The 2026-10-13 report already declared locally rests on this inferred basis,
+  corroborated by the server `Last-Modified` (2026-10-16 19:28:01 GMT); its
+  declaration names no basis, and the terminal shows "non indiquée
+  (déclaration de l'opérateur seule)".
+
+| Report (as of) | Release date | 3:30 p.m. ET in UTC | Basis | Reference |
+| --- | --- | --- | --- | --- |
+| 2026-01-06 | 2026-01-16 | 2026-01-16T20:30:00.000Z | EXPLICIT_OFFICIAL_MAPPING | PR 9138-25 |
+| 2026-01-13 | 2026-01-20 | 2026-01-20T20:30:00.000Z | EXPLICIT_OFFICIAL_MAPPING | PR 9138-25 |
+| 2026-01-20 | 2026-01-23 | 2026-01-23T20:30:00.000Z | EXPLICIT_OFFICIAL_MAPPING | PR 9138-25 |
+| 2026-01-27 | 2026-01-30 | 2026-01-30T20:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-02-03 | 2026-02-06 | 2026-02-06T20:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-02-10 | 2026-02-13 | 2026-02-13T20:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-02-17 | 2026-02-20 | 2026-02-20T20:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-02-24 | 2026-02-27 | 2026-02-27T20:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-03-03 | 2026-03-06 | 2026-03-06T20:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-03-10 | 2026-03-13 | 2026-03-13T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-03-17 | 2026-03-20 | 2026-03-20T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-03-24 | 2026-03-27 | 2026-03-27T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-03-31 | 2026-04-03 | 2026-04-03T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-04-07 | 2026-04-10 | 2026-04-10T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-04-14 | 2026-04-17 | 2026-04-17T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-04-21 | 2026-04-24 | 2026-04-24T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-04-28 | 2026-05-01 | 2026-05-01T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-05-05 | 2026-05-08 | 2026-05-08T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-05-12 | 2026-05-15 | 2026-05-15T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-05-19 | 2026-05-22 | 2026-05-22T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-05-26 | 2026-05-29 | 2026-05-29T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-06-02 | 2026-06-05 | 2026-06-05T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-06-09 | 2026-06-12 | 2026-06-12T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-06-16 | 2026-06-22 | 2026-06-22T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule (* holiday) |
+| 2026-06-23 | 2026-06-26 | 2026-06-26T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-06-30 | 2026-07-06 | 2026-07-06T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule (* holiday) |
+| 2026-07-07 | 2026-07-10 | 2026-07-10T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-07-14 | 2026-07-17 | 2026-07-17T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-07-21 | 2026-07-24 | 2026-07-24T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-07-28 | 2026-07-31 | 2026-07-31T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-08-04 | 2026-08-07 | 2026-08-07T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-08-11 | 2026-08-14 | 2026-08-14T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-08-18 | 2026-08-21 | 2026-08-21T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-08-25 | 2026-08-28 | 2026-08-28T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-09-01 | 2026-09-04 | 2026-09-04T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-09-08 | 2026-09-11 | 2026-09-11T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-09-15 | 2026-09-18 | 2026-09-18T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-09-22 | 2026-09-25 | 2026-09-25T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-09-29 | 2026-10-02 | 2026-10-02T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-10-06 | 2026-10-09 | 2026-10-09T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+| 2026-10-13 | 2026-10-16 | 2026-10-16T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
+
+## 6. Proposals — NOT ACTIVE, NOT APPROVED (versioned for review)
+
+### P-FRESH-CFTC-1 — freshness of CFTC COT weekly evidence (proposal)
+
+- Scope: `sourceAuthority=cftc`, datasets `cot_disaggregated_futures_only`
+  and `cot_disaggregated_futures_options_combined`.
+- Age reference: the declared `publishedAt` whose basis is
+  `EXPLICIT_OFFICIAL_MAPPING` (or an approved basis); evidence with no basis
+  or an inferred one stays `NOT_EVALUATED`.
+- Fresh until the next official release instant of the same dataset; with
+  no proved next release, at most 7 days (weekly cadence) + 2 days ("Federal
+  holidays may delay release by one or two days") = 9 days after
+  `publishedAt`. Beyond: `STALE` (blocking).
+- Encoding: a new P-0 version (`xau.positioning-evidence.v3`), a per-dataset
+  policy table with its approver, and the golden digest change it implies;
+  until approved, P-0 v2 (`FRESHNESS_POLICY_NOT_APPROVED`) stays.
+
+### P-METHOD-CFTC-1 — positioning methodology (proposal)
+
+- Input: managed money long and short (`M_Money_Positions_*_All`) and open
+  interest of COMEX gold, one report per week, only `EVIDENCE_READY` evidence.
+- Measures (descriptive, no direction): net = long − short; net / open
+  interest; rank of net within the trailing N approved weekly reports (N to
+  decide; missing weeks are gaps, never filled).
+- Output: a bounded descriptive state (e.g. extreme long / neutral / extreme
+  short at percentile cut-offs to decide), never a trade direction, size or
+  order; Regime R-1 and Horizon S-1 consume it only after their own approval.
+- Validation before activation: back-test on the 2009+ history with
+  publication instants proved per report; documented revisions; review by the
+  methodology owner.
+
+Both proposals need a named approver and their own version and tests; neither
+changes HOLD / FORBIDDEN.
