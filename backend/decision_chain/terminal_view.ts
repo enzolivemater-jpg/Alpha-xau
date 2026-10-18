@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.2.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.3.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -392,8 +392,8 @@ export interface TerminalHoldRationale {
 }
 
 export interface TerminalPositioningFreshness {
-  readonly status: 'NOT_EVALUATED' | 'NO_EVIDENCE';
-  readonly reason: 'FRESHNESS_POLICY_NOT_APPROVED' | null;
+  readonly status: 'NOT_EVALUATED' | 'NO_EVIDENCE' | 'AFTER_KNOWLEDGE_CUTOFF';
+  readonly reason: 'FRESHNESS_POLICY_NOT_APPROVED' | 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF' | null;
   readonly plain: string;
   readonly latestPublishedAt: string | null;
   readonly publishedAgeSecondsAtCutoff: number | null;
@@ -404,15 +404,31 @@ const NO_POSITIONING_EVIDENCE_FRESHNESS: TerminalPositioningFreshness = {
   latestPublishedAt: null, publishedAgeSecondsAtCutoff: null,
 };
 
-/** B5: the latest publication among the kept evidence, and its age at the cutoff. */
+/**
+ * B5: the latest publication among the kept evidence, and its age at the cutoff.
+ * 4.3.0: P-0 keeps evidence it rejects as later than the cutoff; such evidence
+ * was not known at the cutoff, so it gets no publication age (it used to show a
+ * negative one).
+ */
 function positioningFreshnessOf(
-  evidence: readonly { readonly publishedAt: string }[],
+  evidence: readonly { readonly publishedAt: string; readonly observedAt: string }[],
   knowledgeCutoff: string,
 ): TerminalPositioningFreshness {
   const published = evidence.map((item) => parseStrictTimestamp(item.publishedAt)).filter((ms): ms is number => ms !== null);
   if (published.length === 0) return NO_POSITIONING_EVIDENCE_FRESHNESS;
   const latest = Math.max(...published);
   const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
+  const afterCutoff = cutoffMs !== null && evidence.some((item) => [item.publishedAt, item.observedAt]
+    .some((at) => { const ms = parseStrictTimestamp(at); return ms !== null && ms > cutoffMs; }));
+  if (afterCutoff) {
+    return {
+      status: 'AFTER_KNOWLEDGE_CUTOFF',
+      reason: 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF',
+      plain: 'preuve postérieure au cutoff — écartée, fraîcheur non évaluée',
+      latestPublishedAt: new Date(latest).toISOString(),
+      publishedAgeSecondsAtCutoff: null,
+    };
+  }
   return {
     status: 'NOT_EVALUATED',
     reason: 'FRESHNESS_POLICY_NOT_APPROVED',

@@ -10,7 +10,7 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.2.0`.
+- `terminal-local-view-4.3.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
@@ -47,6 +47,14 @@ seconds at the cutoff. The age is a fact, not a freshness judgement: no
 threshold is approved. The terminal draws it under FRAÎCHEUR POSITIONNEMENT
 and refuses a view whose positioning is `EVIDENCE_READY`, or whose evidence
 lacks a `NOT_EVALUATED` freshness.
+
+Algorithm 4.3.0 adds the freshness `status` `AFTER_KNOWLEDGE_CUTOFF` (reason
+`EVIDENCE_AFTER_KNOWLEDGE_CUTOFF`, plain "preuve postérieure au cutoff —
+écartée, fraîcheur non évaluée", no publication age) when a kept evidence was
+published or observed after the cutoff. P-0 already rejects such evidence but
+keeps it in its envelope; 4.2.0 showed it with a negative age ("publiée -7 h
+avant le cutoff"). The terminal marks the observation date "(après le cutoff)"
+and refuses a view that gives that evidence an age, or a negative age to any.
 
 ## What the view contains
 

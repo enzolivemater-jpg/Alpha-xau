@@ -1300,8 +1300,12 @@ let pollTimer = null;
     if (pos && pos.evidenceState === 'EVIDENCE_READY') return 'positionnement déclaré prêt sans seuil de fraîcheur approuvé';
     const fresh = pos && pos.freshness;
     if (pos && isNum(pos.evidenceCount) && pos.evidenceCount > 0
-        && (!fresh || fresh.status !== 'NOT_EVALUATED' || !isText(fresh.plain))) return 'fraîcheur du positionnement non conforme';
-    if (fresh !== undefined && (!fresh || !['NOT_EVALUATED', 'NO_EVIDENCE'].includes(fresh.status))) return 'fraîcheur du positionnement non conforme';
+        && (!fresh || !['NOT_EVALUATED', 'AFTER_KNOWLEDGE_CUTOFF'].includes(fresh.status) || !isText(fresh.plain))) return 'fraîcheur du positionnement non conforme';
+    if (fresh !== undefined && (!fresh || !['NOT_EVALUATED', 'NO_EVIDENCE', 'AFTER_KNOWLEDGE_CUTOFF'].includes(fresh.status))) return 'fraîcheur du positionnement non conforme';
+    // Une preuve postérieure au cutoff n'était pas connue : elle n'a pas d'âge ; une preuve connue n'a pas d'âge négatif.
+    if (fresh && fresh.status === 'AFTER_KNOWLEDGE_CUTOFF'
+        && (fresh.publishedAgeSecondsAtCutoff !== null || !(isNum(pos.evidenceCount) && pos.evidenceCount > 0))) return 'fraîcheur du positionnement non conforme';
+    if (fresh && isNum(fresh.publishedAgeSecondsAtCutoff) && fresh.publishedAgeSecondsAtCutoff < 0) return 'fraîcheur du positionnement non conforme';
     for (const h of view.horizons) {
       // Une direction n'existe qu'avec une méthode approuvée ; il n'y en a aucune.
       if (!h || h.status !== 'ABSTAIN' || h.direction !== 'UNAVAILABLE') return 'horizon non abstenu';
@@ -1605,7 +1609,8 @@ let pollTimer = null;
     setText(el.v2PositioningFreshness, fresh && isText(fresh.plain)
       ? `${fresh.plain}${isNum(fresh.publishedAgeSecondsAtCutoff) ? ` · publiée ${fmtAge(fresh.publishedAgeSecondsAtCutoff)} avant le cutoff` : ''}`
       : 'N/A');
-    setText(el.v2PositioningThrough, isText(pos.observedThrough) ? pos.observedThrough : 'N/A');
+    setText(el.v2PositioningThrough, isText(pos.observedThrough)
+      ? `${pos.observedThrough}${fresh && fresh.status === 'AFTER_KNOWLEDGE_CUTOFF' ? ' (après le cutoff)' : ''}` : 'N/A');
     setText(el.v2PositioningSources, isList(pos.sourceAuthorities) && pos.sourceAuthorities.length
       ? pos.sourceAuthorities.join(' · ') : 'N/A');
 

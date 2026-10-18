@@ -67,7 +67,7 @@ assert.equal(outcome.kind, 'COMPLETED');
 const digest = await chain.computeDecisionChainDigest(outcome.result);
 const view = tv.buildTerminalView(outcome, digest, ORIGIN, AT);
 assert.equal(view.schemaVersion, 'xau.terminal-local-view.v4');
-assert.equal(view.algorithmVersion, 'terminal-local-view-4.2.0');
+assert.equal(view.algorithmVersion, 'terminal-local-view-4.3.0');
 assert.equal(view.simulated, true);
 assert.equal(view.generatedAt, AT);
 assert.deepEqual(view.origin, ORIGIN);

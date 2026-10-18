@@ -173,6 +173,7 @@ const TEST_FILES = [
   'tests/test_terminal_view.mjs',
   'tests/test_terminal_input_provenance.mjs',
   'tests/test_terminal_offline_finalisation.mjs',
+  'tests/test_terminal_lookahead_positioning.mjs',
   'tests/test_us_treasury_collector.mjs',
   'tests/test_us_treasury_raw_adapter.mjs',
   'tests/test_us_treasury_raw_integration.mjs',
