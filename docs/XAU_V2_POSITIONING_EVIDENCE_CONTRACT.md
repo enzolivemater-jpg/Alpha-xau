@@ -100,9 +100,14 @@ proved and does not change P-0's deliberate `UNAVAILABLE` positioning state.
 
 `backend/positioning_engine/cftc_cot_offline_adapter.ts`
 (`xau.positioning-cftc-cot-offline.v1` /
-`cftc-cot-disaggregated-futures-offline-adapter-1.0.0`) converts a CFTC
+`cftc-cot-disaggregated-offline-adapter-1.1.0`) converts a CFTC
 Commitments of Traders file **already on the operator's disk**
-(Disaggregated, Futures Only, comma-separated text) into P-0 tuples. It is
+(Disaggregated, comma-separated text) into P-0 tuples. The CFTC publishes it
+as Futures Only and as Futures-and-Options Combined with the same columns, so
+the file cannot say which it is: the operator **declares** `dataset`
+(`FUTURES_ONLY` → `cot_disaggregated_futures_only`,
+`FUTURES_AND_OPTIONS_COMBINED` → `cot_disaggregated_futures_options_combined`);
+none declared is `INVALID_REQUEST` (1.0.0 labelled every file futures-only). It is
 pure: no network, clock, process or file access; the caller hashes the bytes.
 
 - One report of one market per call (default COMEX gold, contract market
@@ -112,7 +117,7 @@ pure: no network, clock, process or file access; the caller hashes the bytes.
 - 14 raw metrics in `CONTRACTS` (open interest; producer/merchant, swap
   dealer, managed money, other reportable long/short/spread; non-reportable
   long/short). Nothing is derived: no net position, ratio or percentile.
-- Tuple: `sourceAuthority=cftc`, `datasetCode=cot_disaggregated_futures_only`,
+- Tuple: `sourceAuthority=cftc`, `datasetCode` from the declared dataset,
   `instrumentCode=CFTC:<code>`, `periodEnd` = report date, `publishedAt` and
   `observedAt` = the operator's declared publication and reception instants
   (never inferred from a schedule), `artifactId` = `sha256:` of the file,
@@ -126,8 +131,9 @@ pure: no network, clock, process or file access; the caller hashes the bytes.
   real CFTC file** in this repository (the test fixture is synthetic and says
   so in its market names), so an unexpected header is rejected, not guessed.
 
-The local terminal takes it with `--positioning-cot FILE --cot-published-at
-ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]`; see the terminal
+The local terminal takes it with `--positioning-cot FILE --cot-dataset
+futures-only|futures-and-options --cot-published-at ISO --cot-received-at ISO
+[--cot-report-date YYYY-MM-DD]`; see the terminal
 view contract. P-0 keeps the tuples and abstains
 (`FRESHNESS_POLICY_NOT_APPROVED`, `METHODOLOGY_NOT_APPROVED`); positioning
 stays `UNAVAILABLE`; CHAIN-0 stays HOLD / FORBIDDEN. This changes nothing in

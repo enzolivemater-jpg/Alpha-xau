@@ -60,8 +60,9 @@ Algorithm 4.4.0 adds a positioning file: with `--positioning-cot`, the
 server's own input takes its positioning evidence from a local CFTC
 Commitments of Traders file (see the positioning contract). Its
 `inputProvenance` entry is `LOCAL_INPUT_UNVERIFIED` ("fichier CFTC COT local
-(…), rapport du … ; publication et réception déclarées par l'opérateur ;
-source non approuvée"), or `UNAVAILABLE` with the rejection reason when the
+(…), rapport du …, futures seuls (déclaré) ; publication et réception
+déclarées par l'opérateur ; source non approuvée"; `--cot-dataset` is
+required), or `UNAVAILABLE` with the rejection reason when the
 file is rejected. Scenarios never use the file. The server prints one line
 saying whether the file was read or rejected.
 

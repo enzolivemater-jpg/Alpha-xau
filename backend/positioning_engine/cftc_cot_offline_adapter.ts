@@ -18,16 +18,28 @@
  * - one file may hold many weekly reports, each published at its own instant:
  *   exactly one report date is converted per call (the only one, or the one
  *   selected), so one declared publication instant never covers several reports;
- * - revisions are not identified in the file: `revision` is null.
+ * - revisions are not identified in the file: `revision` is null;
+ * - Futures Only and Futures-and-Options Combined files share their columns:
+ *   the operator declares which one it is (`dataset`), never guessed.
  */
 
 import type { PositioningEvidenceInput } from './evidence_contract.js';
 import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const CFTC_COT_ADAPTER_SCHEMA_VERSION = 'xau.positioning-cftc-cot-offline.v1' as const;
-export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-futures-offline-adapter-1.0.0' as const;
+export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.1.0' as const;
 export const CFTC_SOURCE_AUTHORITY = 'cftc' as const;
-export const CFTC_COT_DATASET = 'cot_disaggregated_futures_only' as const;
+/**
+ * 1.1.0: the CFTC publishes the disaggregated report as Futures Only and as
+ * Futures-and-Options Combined, with the same columns: the file cannot say
+ * which it is. The operator declares it; nothing is assumed (1.0.0 labelled
+ * every file futures-only).
+ */
+export const CFTC_COT_DATASETS = {
+  FUTURES_ONLY: 'cot_disaggregated_futures_only',
+  FUTURES_AND_OPTIONS_COMBINED: 'cot_disaggregated_futures_options_combined',
+} as const;
+export type CftcCotDataset = keyof typeof CFTC_COT_DATASETS;
 /** COMEX gold (100 troy ounces), CFTC contract market code. */
 export const CFTC_GOLD_CONTRACT_MARKET_CODE = '088691' as const;
 
@@ -81,6 +93,8 @@ export interface CftcCotRequest {
   readonly contractMarketCode?: string;
   /** Required when the file holds more than one report of that market. */
   readonly reportDate?: string | null;
+  /** Which CFTC publication the file is, as the operator downloaded it; required. */
+  readonly dataset: CftcCotDataset;
 }
 
 export interface CftcCotConversion {
@@ -92,6 +106,7 @@ export interface CftcCotConversion {
   readonly detail: string | null;
   readonly sourceApproval: 'NOT_APPROVED';
   readonly artifactId: string | null;
+  readonly dataset: CftcCotDataset | null;
   readonly marketName: string | null;
   readonly reportDate: string | null;
   /** Report dates of that market found in the file, in order. */
@@ -180,6 +195,7 @@ const reject = (
   detail,
   sourceApproval: 'NOT_APPROVED',
   artifactId: null,
+  dataset: null,
   marketName: null,
   reportDate: null,
   availableReportDates: [],
@@ -196,6 +212,10 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
   if (typeof text !== 'string' || text.length === 0 || text.length > MAX_TEXT_LENGTH) return reject(['INVALID_REQUEST'], 'texte du fichier absent ou trop grand');
   if (typeof artifactId !== 'string' || !ARTIFACT.test(artifactId)) return reject(['INVALID_REQUEST'], 'artifactId doit être sha256:<64 hex>');
   if (typeof contractCode !== 'string' || !CONTRACT_CODE.test(contractCode)) return reject(['INVALID_REQUEST'], 'code de marché CFTC invalide');
+  const dataset = request.dataset;
+  if (typeof dataset !== 'string' || !Object.hasOwn(CFTC_COT_DATASETS, dataset)) {
+    return reject(['INVALID_REQUEST'], 'jeu de données à déclarer : FUTURES_ONLY ou FUTURES_AND_OPTIONS_COMBINED');
+  }
   if (selected !== null && (typeof selected !== 'string' || !isCivilDate(selected))) return reject(['INVALID_REQUEST'], 'date de rapport demandée invalide');
   const publishedMs = typeof publishedAt === 'string' ? parseStrictTimestamp(publishedAt) : null;
   const receivedMs = typeof receivedAt === 'string' ? parseStrictTimestamp(receivedAt) : null;
@@ -255,7 +275,7 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
     if (!POSITION.test(raw)) return reject(['INVALID_POSITION_VALUE'], `${column} = « ${raw} » (entier de contrats attendu)`, { availableReportDates });
     evidence.push({
       sourceAuthority: CFTC_SOURCE_AUTHORITY,
-      datasetCode: CFTC_COT_DATASET,
+      datasetCode: CFTC_COT_DATASETS[dataset],
       instrumentCode: `CFTC:${contractCode}`,
       metricCode,
       value: Number(raw),
@@ -275,6 +295,7 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
     detail: null,
     sourceApproval: 'NOT_APPROVED',
     artifactId,
+    dataset,
     marketName: cell(row, IDENTITY_COLUMNS.market),
     reportDate,
     availableReportDates,

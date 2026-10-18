@@ -6,7 +6,8 @@
  *   node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]
  *     [--archive market-evidence-archive.json [--archive-digest sha256:...] [--cutoff ISO]]
  *     [--captures DIR]   (DATA-2 capture logs DIR/<capture>/archive.json, merged in memory)
- *     [--positioning-cot cot.csv --cot-published-at ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]]
+ *     [--positioning-cot cot.csv --cot-dataset futures-only|futures-and-options --cot-published-at ISO --cot-received-at ISO
+ *      [--cot-report-date YYYY-MM-DD]]
  *
  * Port: without --port the server takes 4173, or the next free port among the
  * next 9 when it is busy (loopback only, whatever the port). An explicit --port
@@ -159,7 +160,7 @@ export function readChainDocument(file) {
  * evidence (one report of COMEX gold). Bytes are hashed here; the adapter is
  * pure. Instants are the operator's declarations, never the file's dates.
  */
-export async function readPositioningCot({ file, publishedAt, receivedAt, reportDate = null }) {
+export async function readPositioningCot({ file, publishedAt, receivedAt, reportDate = null, dataset = null }) {
   const adapter = await loadBackendModule('positioning_engine/cftc_cot_offline_adapter.ts');
   let bytes;
   try {
@@ -168,7 +169,7 @@ export async function readPositioningCot({ file, publishedAt, receivedAt, report
     return { label: path.basename(file), conversion: { status: 'REJECTED', reasonCodes: ['INVALID_REQUEST'], detail: `illisible : ${error.code ?? error.message}`, reportDate: null, evidence: [] } };
   }
   const artifactId = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-  const conversion = adapter.convertCftcCotReport({ text: bytes.toString('utf8'), artifactId, publishedAt, receivedAt, reportDate });
+  const conversion = adapter.convertCftcCotReport({ text: bytes.toString('utf8'), artifactId, publishedAt, receivedAt, reportDate, dataset });
   return { label: path.basename(file), conversion };
 }
 
@@ -247,7 +248,7 @@ export async function buildLocalView({
   // P2: with --positioning-cot the server's own input takes its positioning evidence from that file.
   const cot = positioningCot === null ? null : await readPositioningCot(positioningCot);
   const positioningFile = cot === null ? null : {
-    label: cot.label, status: cot.conversion.status, reportDate: cot.conversion.reportDate,
+    label: cot.label, status: cot.conversion.status, reportDate: cot.conversion.reportDate, dataset: cot.conversion.dataset ?? null,
     reason: cot.conversion.status === 'EXTRACTED' ? null : `${cot.conversion.reasonCodes.join(', ')} — ${cot.conversion.detail}`,
   };
   const withPositioning = (input) => (cot === null || typeof input !== 'object' || input === null || Array.isArray(input)
@@ -501,6 +502,8 @@ export function parseArgs(argv) {
       cot.receivedAt = value;
     } else if (flag === '--cot-report-date' && value) {
       cot.reportDate = value;
+    } else if (flag === '--cot-dataset' && (value === 'futures-only' || value === 'futures-and-options')) {
+      cot.dataset = value === 'futures-only' ? 'FUTURES_ONLY' : 'FUTURES_AND_OPTIONS_COMBINED';
     } else {
       return null;
     }
@@ -509,7 +512,7 @@ export function parseArgs(argv) {
   if (options.archiveFile !== null && options.capturesDir !== null) return null;
   // A CFTC file needs both declared instants; the instants mean nothing without a file.
   if (Object.keys(cot).length > 0) {
-    if (!cot.file || !cot.publishedAt || !cot.receivedAt) return null;
+    if (!cot.file || !cot.publishedAt || !cot.receivedAt || !cot.dataset) return null;
     options.positioningCot = { reportDate: null, ...cot };
   }
   // --port-range only widens an explicit --port; without --port the default range applies.
@@ -528,7 +531,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   if (!options) {
     process.stderr.write('usage: node scripts/serve_terminal_local.mjs [--port 4173 [--port-range N]] [--input chain-input.json]'
       + ' [--archive archive.json [--archive-digest sha256:...] | --captures DIR] [--cutoff ISO]'
-      + ' [--positioning-cot cot.csv --cot-published-at ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]]\n');
+      + ' [--positioning-cot cot.csv --cot-dataset futures-only|futures-and-options --cot-published-at ISO --cot-received-at ISO'
+      + ' [--cot-report-date YYYY-MM-DD]]\n');
     process.exitCode = 1;
   } else {
     const { port: requested, portRange, ...serverOptions } = options;

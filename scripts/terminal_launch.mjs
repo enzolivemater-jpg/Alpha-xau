@@ -36,7 +36,7 @@ const HEALTH = '/local/v2/health.json';
 const VIEW = '/local/v2/terminal.json';
 const READY_TIMEOUT_MS = 90_000;
 const PASSTHROUGH = new Set(['--port', '--port-range', '--input', '--archive', '--archive-digest', '--cutoff',
-  '--positioning-cot', '--cot-published-at', '--cot-received-at', '--cot-report-date', '--captures']);
+  '--positioning-cot', '--cot-dataset', '--cot-published-at', '--cot-received-at', '--cot-report-date', '--captures']);
 
 export const LOCAL_CAPTURES = path.join(homedir(), '.local', 'share', 'xau-v2', 'evidence');
 
@@ -268,7 +268,8 @@ async function main() {
   if (options === null) {
     process.stderr.write('usage: node scripts/terminal_launch.mjs [--no-browser] [--port N [--port-range N]]'
       + ' [--input file] [--archive file [--archive-digest sha256:…] | --captures DIR | --captures-local] [--cutoff ISO]'
-      + ' [--positioning-cot file --cot-published-at ISO --cot-received-at ISO [--cot-report-date YYYY-MM-DD]]\n'
+      + ' [--positioning-cot file --cot-dataset futures-only|futures-and-options --cot-published-at ISO --cot-received-at ISO'
+      + ' [--cot-report-date YYYY-MM-DD]]\n'
       + '       node scripts/terminal_launch.mjs --status | --stop [--port N [--port-range N]]\n');
     return 64;
   }

@@ -11,7 +11,8 @@ import { SYNTHETIC_ARCHIVE, VIEW_PATH, buildLocalView, parseArgs } from '../scri
 import { parseArgs as launcherArgs } from '../scripts/terminal_launch.mjs';
 
 const FILE = new URL('./fixtures/cftc_cot_disaggregated_synthetic.csv', import.meta.url).pathname;
-const declared = { file: FILE, publishedAt: '2026-09-25T19:30:00.000Z', receivedAt: '2026-09-25T19:45:00.000Z', reportDate: '2026-09-22' };
+const declared = { file: FILE, publishedAt: '2026-09-25T19:30:00.000Z', receivedAt: '2026-09-25T19:45:00.000Z', reportDate: '2026-09-22',
+  dataset: 'FUTURES_ONLY' };
 const prov = (view, input) => view.inputProvenance.find((e) => e.input === input);
 
 const view = await buildLocalView({ positioningCot: declared });
@@ -24,7 +25,7 @@ assert.equal(own.positioning.positioningState, 'UNAVAILABLE');
 assert.equal(own.positioning.evidenceState, 'ABSTAIN');
 assert.equal(own.positioning.freshness.status, 'NOT_EVALUATED');
 assert.equal(prov(own, 'POSITIONING').source, 'LOCAL_INPUT_UNVERIFIED');
-assert.match(prov(own, 'POSITIONING').detail, /cftc_cot_disaggregated_synthetic\.csv.*2026-09-22.*déclarées par l'opérateur.*non approuvée/);
+assert.match(prov(own, 'POSITIONING').detail, /cftc_cot_disaggregated_synthetic\.csv.*2026-09-22, futures seuls \(déclaré\).*déclarées par l'opérateur.*non approuvée/);
 assert.equal(prov(own, 'EVENT_IMPACT').source, 'SYNTHETIC_FIXTURE');
 assert.equal(view.positioning.status, 'EXTRACTED');
 // A scenario is a simulation of its own: it never takes the file's evidence.
@@ -57,13 +58,18 @@ assert.equal(missing.chain.chainState, 'HOLD');
 console.log('PASS with --archive, after the cutoff, rejected or missing: always HOLD, never more than LOCAL_INPUT_UNVERIFIED');
 
 // --- Arguments: a file needs both declared instants; instants need a file; the launcher passes them through.
-const args = ['--positioning-cot', 'cot.csv', '--cot-published-at', declared.publishedAt, '--cot-received-at', declared.receivedAt];
+const args = ['--positioning-cot', 'cot.csv', '--cot-published-at', declared.publishedAt, '--cot-received-at', declared.receivedAt,
+  '--cot-dataset', 'futures-only'];
 assert.equal(parseArgs(args).positioningCot.reportDate, null);
+assert.equal(parseArgs(args).positioningCot.dataset, 'FUTURES_ONLY');
+assert.equal(parseArgs([...args.slice(0, 6), '--cot-dataset', 'futures-and-options']).positioningCot.dataset, 'FUTURES_AND_OPTIONS_COMBINED');
 assert.equal(parseArgs([...args, '--cot-report-date', '2026-09-22']).positioningCot.reportDate, '2026-09-22');
 assert.equal(parseArgs(args.slice(0, 4)), null);
 assert.equal(parseArgs(args.slice(2)), null);
+assert.equal(parseArgs(args.slice(0, 6)), null, 'the dataset must be declared');
+assert.equal(parseArgs([...args.slice(0, 6), '--cot-dataset', 'legacy']), null);
 assert.deepEqual(launcherArgs(args).server, args);
-console.log('PASS arguments: --positioning-cot requires --cot-published-at and --cot-received-at; the launcher passes them on');
+console.log('PASS arguments: --positioning-cot requires --cot-dataset, --cot-published-at and --cot-received-at; the launcher passes them on');
 
 // --- Page: the provenance panel names the file; the view is drawn, not refused.
 const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');

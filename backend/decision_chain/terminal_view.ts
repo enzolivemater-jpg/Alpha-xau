@@ -759,12 +759,16 @@ export interface TerminalPositioningFile {
   readonly status: 'EXTRACTED' | 'REJECTED';
   readonly reportDate: string | null;
   readonly reason: string | null;
+  /** The CFTC publication the operator declared (adapter 1.1.0); absent from older callers. */
+  readonly dataset?: 'FUTURES_ONLY' | 'FUTURES_AND_OPTIONS_COMBINED' | null;
 }
 
 function positioningFileSource(file: TerminalPositioningFile, rejectedChain: boolean): InputDocumentSource {
   if (rejectedChain) return { source: 'UNAVAILABLE', detail: 'entrée rejetée : rien n\'a été évalué' };
   if (file.status === 'EXTRACTED' && typeof file.reportDate === 'string') {
-    return { source: 'LOCAL_INPUT_UNVERIFIED', detail: `fichier CFTC COT local (${file.label}), rapport du ${file.reportDate} ; `
+    const dataset = file.dataset === 'FUTURES_ONLY' ? ', futures seuls (déclaré)'
+      : file.dataset === 'FUTURES_AND_OPTIONS_COMBINED' ? ', futures et options (déclaré)' : '';
+    return { source: 'LOCAL_INPUT_UNVERIFIED', detail: `fichier CFTC COT local (${file.label}), rapport du ${file.reportDate}${dataset} ; `
       + 'publication et réception déclarées par l\'opérateur ; source non approuvée' };
   }
   return { source: 'UNAVAILABLE', detail: `fichier CFTC COT rejeté (${file.label}${file.reason ? ` : ${file.reason}` : ''}) : aucune preuve retenue` };

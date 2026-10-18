@@ -16,10 +16,10 @@ const text = bytes.toString('utf8');
 const artifactId = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const PUBLISHED = '2026-10-02T19:30:00.000Z';
 const RECEIVED = '2026-10-02T19:45:00.000Z';
-const base = { text, artifactId, publishedAt: PUBLISHED, receivedAt: RECEIVED };
+const base = { text, artifactId, publishedAt: PUBLISHED, receivedAt: RECEIVED, dataset: 'FUTURES_ONLY' };
 
 assert.equal(cot.CFTC_COT_ADAPTER_SCHEMA_VERSION, 'xau.positioning-cftc-cot-offline.v1');
-assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-futures-offline-adapter-1.0.0');
+assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.1.0');
 
 // --- CSV reader: quotes, escaped quotes, CRLF; unterminated or stray quotes are refused.
 assert.deepEqual(cot.parseCsv('a,"b, c","d ""e"""\r\n1,2,3\n'), [['a', 'b, c', 'd "e"'], ['1', '2', '3']]);
@@ -53,6 +53,16 @@ assert.deepEqual(envelope.reasonCodes, ['FRESHNESS_POLICY_NOT_APPROVED', 'METHOD
 assert.equal(envelope.positioningState, 'UNAVAILABLE');
 const early = p0.buildPositioningEvidenceEnvelope(ok.evidence, '2026-10-02T19:40:00.000Z');
 assert.ok(early.reasonCodes.includes('EVIDENCE_AFTER_KNOWLEDGE_CUTOFF'), 'received after the cutoff is not known at it');
+// The dataset is the operator's declaration (both CFTC files share their columns); none declared is refused.
+const combined = cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', dataset: 'FUTURES_AND_OPTIONS_COMBINED' });
+assert.equal(combined.status, 'EXTRACTED');
+assert.equal(combined.dataset, 'FUTURES_AND_OPTIONS_COMBINED');
+assert.ok(combined.evidence.every((e) => e.datasetCode === 'cot_disaggregated_futures_options_combined'));
+assert.equal(ok.dataset, 'FUTURES_ONLY');
+for (const dataset of [undefined, null, '', 'futures-only', 'LEGACY']) {
+  const r = cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', dataset });
+  assert.deepEqual([r.status, r.reasonCodes], ['REJECTED', ['INVALID_REQUEST']], String(dataset));
+}
 // Other market and a single-report selection are independent.
 const silver = cot.convertCftcCotReport({ ...base, contractMarketCode: '084691' });
 assert.equal(silver.status, 'EXTRACTED');
