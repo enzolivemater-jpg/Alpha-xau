@@ -452,6 +452,16 @@ export interface TerminalCutoffAlignment {
   readonly plain: string;
 }
 
+/** The cutoffs of a chain input's precomputed summaries, as every view producer passes them. */
+export function terminalInputCutoffs(chainInput: unknown): { readonly eventImpact: unknown; readonly goldTransmission: unknown } | null {
+  if (typeof chainInput !== 'object' || chainInput === null || Array.isArray(chainInput)) return null;
+  const read = (key: 'eventImpact' | 'goldTransmission'): unknown => {
+    const summary = (chainInput as Record<string, unknown>)[key];
+    return typeof summary === 'object' && summary !== null ? (summary as Record<string, unknown>).knowledgeCutoff : undefined;
+  };
+  return { eventImpact: read('eventImpact'), goldTransmission: read('goldTransmission') };
+}
+
 function cutoffAlignmentOf(
   chainCutoff: string,
   supplied: { readonly eventImpact: unknown; readonly goldTransmission: unknown } | null,

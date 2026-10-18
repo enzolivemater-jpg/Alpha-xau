@@ -244,8 +244,7 @@ export async function buildLocalView({
   const withPositioning = (input) => (cot === null || typeof input !== 'object' || input === null || Array.isArray(input)
     ? input : { ...input, positioningEvidence: cot.conversion.evidence });
   /** 4.5.0: cutoffs of the input's precomputed summaries, for the view's alignment line. */
-  const inputCutoffsOf = (input) => (typeof input === 'object' && input !== null
-    ? { eventImpact: input.eventImpact?.knowledgeCutoff, goldTransmission: input.goldTransmission?.knowledgeCutoff } : null);
+  const inputCutoffsOf = (input) => view.terminalInputCutoffs(input);
   /** Replays an archive, then runs CHAIN-0 on its snapshot. */
   const fromArchive = async (archive, knowledgeCutoff, baseInput, viewOrigin, pinned, document = undefined, positioning = null) => {
     const replay = await evidence.replayMarketEvidence(archive, knowledgeCutoff,
