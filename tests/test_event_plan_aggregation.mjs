@@ -49,7 +49,7 @@ console.log('PASS all-insufficient plan sets aggregate to INSUFFICIENT_EVIDENCE,
 // --- The summary feeds CHAIN-0 exactly like the golden summary.
 const input = { ...structuredClone(golden.input), eventImpact: out.summary, goldTransmission: g.summary };
 const digest = await chain.computeDecisionChainDigest(chain.evaluateDecisionChain(input, CUTOFF).result);
-assert.equal(digest, 'sha256:b39bad106bee8ccd0cc4269ee0fcd29ee1d5dd4f6f99637718c4dea22ec7a6f7');
+assert.equal(digest, 'sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c');
 console.log('PASS aggregated summaries reproduce the golden CHAIN-0 digest');
 
 // --- Every other set is UNAVAILABLE, with the reason.
@@ -112,3 +112,120 @@ for (const plans of hostile) {
 const source = readFileSync(new URL('../backend/event_aggregation/contract.ts', import.meta.url), 'utf8');
 assert.doesNotMatch(source, /status: 'ASSESSED'|fetch\(|process\.env|Date\.now\(|new Date\(|Math\.random\(/);
 console.log(`PASS ${hostile.length * 2} hostile plan sets degrade to UNAVAILABLE without throwing`);
+
+// ===== EIA-0 v2 (B3): the same aggregation, plus required official-release evidence per event version.
+// v1 above is unchanged; v2 is a separate, versioned contract. A plan whose cutoff precedes its
+// event's official publication instant is excluded; an admitted plan without valid evidence blocks.
+const instant = await loadBackendModule('event_facts/official_release_instant.ts');
+const eia2 = await loadBackendModule('event_aggregation/release_gate_contract.ts');
+assert.equal(eia.EVENT_AGGREGATION_SCHEMA_VERSION, 'xau.event-plan-aggregation.v1', 'v1 identity kept');
+assert.equal(eia.EVENT_AGGREGATION_ALGORITHM_VERSION, 'event-plan-aggregation-gate-1.0.0', 'v1 identity kept');
+assert.equal(eia2.EVENT_AGGREGATION_V2_SCHEMA_VERSION, 'xau.event-plan-aggregation.v2');
+assert.equal(eia2.EVENT_AGGREGATION_V2_ALGORITHM_VERSION, 'event-plan-aggregation-release-gate-2.0.0');
+const v2 = (plans, releases, kind = 'EVENT_IMPACT', cutoff = CUTOFF) =>
+  eia2.aggregateEventPlansWithOfficialRelease(kind, plans, releases, cutoff);
+const release = (n, publishedAt) => ({ eventVersionId: id(n), publishedAt });
+const okReleases = [release(1, '2026-09-21T12:30:00.000Z'), release(2, '2026-10-01T14:15:00.000Z')];
+
+// Decided case: same S-0 summary as v1, so CHAIN-0 and its golden digest are unaffected.
+let r = v2([p2, p1], okReleases);
+assert.equal(r.schemaVersion, 'xau.event-plan-aggregation.v2');
+assert.equal(r.algorithmVersion, 'event-plan-aggregation-release-gate-2.0.0');
+assert.equal(r.releaseEvidence, 'REQUIRED');
+assert.deepEqual(r.summary, eia.aggregateEventPlans('EVENT_IMPACT', [p1, p2], CUTOFF).summary);
+assert.deepEqual(r.reasonCodes, ['ALL_EVENTS_INSUFFICIENT']);
+assert.deepEqual(r.eventVersionIds, [id(1), id(2)]);
+assert.deepEqual(r.counts, { received: 2, admitted: 2, excludedAfterCutoff: 0, excludedBeforeOfficialRelease: 0,
+  missingReleaseInstant: 0, releasesUnused: 0, insufficient: 2, unavailable: 0, assessed: 0, rejected: 0 });
+assert.deepEqual(v2([p1, p2], [...okReleases].reverse()), r, 'order-independent (plans and evidence)');
+const v2Digest = await chain.computeDecisionChainDigest(chain.evaluateDecisionChain(
+  { ...structuredClone(golden.input), eventImpact: r.summary,
+    goldTransmission: v2([gtPlan(1), gtPlan(2)], okReleases, 'GOLD_TRANSMISSION').summary }, CUTOFF).result);
+assert.equal(v2Digest, 'sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c', 'golden digest unchanged');
+console.log('PASS EIA-0 v2: with valid release evidence the summary equals v1 and keeps the golden CHAIN-0 digest');
+
+// Back-dated, equal, later: the comparison is exact to the nanosecond, across offsets.
+const cpiAt = '2026-09-11T12:30:00.000Z';
+const cpiPlan = (cutoff) => eiPlan(5, cutoff);
+const atCpi = (cutoff) => v2([p1, cpiPlan(cutoff)], [okReleases[0], release(5, cpiAt)]);
+r = atCpi('2026-09-01T00:00:00Z');
+assert.equal(r.summary.status, 'INSUFFICIENT_EVIDENCE', 'the other event still aggregates');
+assert.deepEqual(r.reasonCodes, ['EVENT_PLAN_BEFORE_OFFICIAL_RELEASE', 'ALL_EVENTS_INSUFFICIENT']);
+assert.deepEqual(r.eventVersionIds, [id(1)], 'back-dated CPI excluded');
+assert.equal(r.counts.excludedBeforeOfficialRelease, 1);
+assert.deepEqual(atCpi('2026-09-11T12:29:59.999999999Z').eventVersionIds, [id(1)], '1 ns before: excluded');
+assert.deepEqual(atCpi('2026-09-11T08:29:59.999999999-04:00').eventVersionIds, [id(1)], 'offset form, 1 ns before');
+assert.deepEqual(atCpi('2026-09-11T12:30:00Z').eventVersionIds, [id(1), id(5)].sort(), 'equal: admitted');
+assert.deepEqual(atCpi('2026-09-11T08:30:00-04:00').eventVersionIds, [id(1), id(5)].sort(), 'equal in offset form');
+assert.deepEqual(atCpi('2026-09-22T00:00:00Z').eventVersionIds, [id(1), id(5)].sort(), 'later: admitted');
+r = v2([cpiPlan('2026-09-01T00:00:00Z')], [release(5, cpiAt)]);
+assert.equal(r.summary.status, 'UNAVAILABLE');
+assert.deepEqual(r.reasonCodes, ['NO_EVENT_PLANS', 'EVENT_PLAN_BEFORE_OFFICIAL_RELEASE']);
+// The v1 contract, unchanged, still admits the back-dated plan: the protection lives in v2 only.
+assert.equal(eia.aggregateEventPlans('EVENT_IMPACT', [cpiPlan('2026-09-01T00:00:00Z')], CUTOFF).counts.admitted, 1);
+console.log('PASS EIA-0 v2 excludes a plan known before its official release, exactly at the instant');
+
+// DST: the instant comes from the official text; an EDT assumption in winter would admit too early.
+for (const [raw, early, exact] of [
+  ['8:30 a.m. (ET) Friday, March 6, 2026', '2026-03-06T12:30:00Z', '2026-03-06T13:30:00Z'],
+  ['8:30 a.m. (ET) Thursday, March 12, 2026', '2026-03-12T12:29:59.999Z', '2026-03-12T12:30:00Z'],
+  ['8:30 a.m. (ET) Friday, October 30, 2026', '2026-10-30T12:29:59.999Z', '2026-10-30T12:30:00Z'],
+  ['8:30 a.m. (ET) Friday, November 6, 2026', '2026-11-06T12:30:00Z', '2026-11-06T13:30:00Z'],
+]) {
+  const publishedAt = instant.parseOfficialReleaseInstant(raw);
+  const late = '2026-12-31T00:00:00.000Z';
+  assert.equal(v2([eiPlan(6, early)], [release(6, publishedAt)], 'EVENT_IMPACT', late).counts.excludedBeforeOfficialRelease, 1, raw);
+  assert.equal(v2([eiPlan(6, exact)], [release(6, publishedAt)], 'EVENT_IMPACT', late).counts.admitted, 1, raw);
+}
+console.log('PASS EIA-0 v2 applies the daylight-saving instants of the official texts');
+
+// Fail-closed: evidence required but missing or invalid makes the summary UNAVAILABLE.
+const blocked = (plans, releases, reason, kind = 'EVENT_IMPACT') => {
+  const out2 = v2(plans, releases, kind);
+  assert.equal(out2.summary.status, 'UNAVAILABLE', reason);
+  assert.ok(out2.reasonCodes.includes(reason), `${reason}: ${out2.reasonCodes}`);
+  assert.ok(!out2.reasonCodes.includes('ALL_EVENTS_INSUFFICIENT'), reason);
+  return out2;
+};
+assert.equal(blocked([p1, p2], [okReleases[0]], 'RELEASE_INSTANT_MISSING').counts.missingReleaseInstant, 1);
+blocked([p1, p2], [], 'RELEASE_INSTANT_MISSING');
+for (const bad of [undefined, null, {}, 'x', { 0: okReleases[0] }]) blocked([p1, p2], bad, 'INVALID_RELEASE_SET');
+for (const entry of [
+  null, [], 'x', {}, { eventVersionId: id(2) }, { publishedAt: '2026-10-01T14:15:00Z' },
+  { eventVersionId: '', publishedAt: '2026-10-01T14:15:00Z' }, { eventVersionId: 7, publishedAt: '2026-10-01T14:15:00Z' },
+  { eventVersionId: id(2), publishedAt: '2026-09-31T12:30:00Z' }, { eventVersionId: id(2), publishedAt: '2026-10-01' },
+  { eventVersionId: id(2), publishedAt: 1_790_000_000_000 }, { eventVersionId: id(2), publishedAt: null },
+  { eventVersionId: id(2), publishedAt: '2026-10-01T14:15:00Z', source: 'trust me' },
+  { get eventVersionId() { throw new Error('hostile'); }, publishedAt: '2026-10-01T14:15:00Z' },
+]) {
+  blocked([p1, p2], [okReleases[0], entry], 'INVALID_RELEASE_SET');
+}
+blocked([p1, p2], [...okReleases, release(2, '2026-10-01T14:15:00.000Z')], 'INVALID_RELEASE_SET'); // duplicate, same instant
+blocked([p1, p2], [...okReleases, release(2, '2026-09-01T00:00:00.000Z')], 'INVALID_RELEASE_SET'); // duplicate, conflicting
+// Version inconsistencies are refused exactly as in v1.
+blocked([gtPlan(1)], [release(1, '2026-09-21T12:30:00Z')], 'EVENT_PLAN_VERSION_MISMATCH');
+blocked([p1, { ...p2, processorVersion: 'event-impact-deterministic-processor-v4' }], okReleases, 'EVENT_PLAN_VERSION_MISMATCH');
+blocked([p1, { ...p2, algorithmVersion: 'event-impact-deterministic-processor-v6' }], okReleases, 'EVENT_PLAN_VERSION_MISMATCH');
+blocked([p1, { ...p2, assessmentStatus: 'ASSESSED' }], okReleases, 'AGGREGATION_RULE_NOT_APPROVED');
+// A plan known after the chain cutoff needs no evidence; unused evidence is counted, never trusted.
+r = v2([p1, eiPlan(4, '2026-10-01T14:15:00.000001Z')], [okReleases[0]]);
+assert.equal(r.summary.status, 'INSUFFICIENT_EVIDENCE');
+assert.deepEqual(r.reasonCodes, ['EVENT_PLAN_AFTER_KNOWLEDGE_CUTOFF', 'ALL_EVENTS_INSUFFICIENT']);
+assert.equal(v2([p1], okReleases).counts.releasesUnused, 1);
+for (const cutoff of [undefined, '', '2026-02-30T00:00:00Z']) {
+  const out3 = eia2.aggregateEventPlansWithOfficialRelease('EVENT_IMPACT', [p1], okReleases, cutoff);
+  assert.equal(out3.summary.status, 'UNAVAILABLE', String(cutoff));
+  assert.ok(out3.reasonCodes.includes('INVALID_KNOWLEDGE_CUTOFF'), String(cutoff));
+}
+for (const plans of hostile) {
+  for (const kind of ['EVENT_IMPACT', 'GOLD_TRANSMISSION']) assert.equal(v2(plans, okReleases, kind).summary.status, 'UNAVAILABLE');
+}
+const releasesBefore = JSON.stringify(okReleases);
+v2([p1, p2], okReleases);
+assert.equal(JSON.stringify(okReleases), releasesBefore, 'evidence not mutated');
+assert.equal(eia.aggregateEventPlansWithOfficialRelease, undefined, 'v1 module exports no v2 entry point');
+for (const file of ['core.ts', 'release_gate_contract.ts']) {
+  const text = readFileSync(new URL(`../backend/event_aggregation/${file}`, import.meta.url), 'utf8');
+  assert.doesNotMatch(text, /status: 'ASSESSED'|fetch\(|process\.env|Date\.now\(|new Date\(|Math\.random\(/, file);
+}
+console.log('PASS EIA-0 v2 is fail-closed: missing, malformed, duplicate or hostile evidence and version drift are UNAVAILABLE');

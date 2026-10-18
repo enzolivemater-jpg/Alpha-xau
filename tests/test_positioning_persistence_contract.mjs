@@ -44,9 +44,9 @@ assert.equal(before.algorithmVersion, 'positioning-persisted-evidence-adapter-1.
 assert.equal(before.persistence.historyCompleteness, 'COMPLETE_OR_ERROR');
 assert.equal(before.persistence.runtimeWiring, 'NOT_ACTIVATED');
 assert.equal(before.persistence.providerApproval, 'NONE');
-assert.equal(before.evidence.evidenceState, 'EVIDENCE_READY');
+assert.equal(before.evidence.evidenceState, 'ABSTAIN'); // B5: P-0 v2, no freshness policy approved
 assert.equal(before.evidence.positioningState, 'UNAVAILABLE');
-assert.deepEqual(before.evidence.reasonCodes, ['METHODOLOGY_NOT_APPROVED']);
+assert.deepEqual(before.evidence.reasonCodes, ['FRESHNESS_POLICY_NOT_APPROVED', 'METHODOLOGY_NOT_APPROVED']);
 
 const afterRows = [rows[2], rows[1], rows[0]];
 const after = mod.buildPersistedPositioningEvidence(afterRows, '2026-10-01T12:06:00Z');

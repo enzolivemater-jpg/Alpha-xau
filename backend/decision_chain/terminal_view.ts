@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.0.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.2.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -66,6 +66,7 @@ export const REASON_CODE_CATEGORY: Readonly<Record<string, BlockerCategory>> = {
   EVIDENCE_AFTER_KNOWLEDGE_CUTOFF: 'DATA',
   DUPLICATE_EVIDENCE_KEY: 'DATA',
   METHODOLOGY_NOT_APPROVED: 'BUSINESS_DECISION',
+  FRESHNESS_POLICY_NOT_APPROVED: 'BUSINESS_DECISION',
   // Regime (R-0)
   MARKET_PRICING_VERSION_MISMATCH: 'INTEGRITY',
   POSITIONING_VERSION_MISMATCH: 'INTEGRITY',
@@ -165,6 +166,7 @@ export const REASON_CODE_PLAIN_FR: Readonly<Record<string, string>> = {
   EVIDENCE_AFTER_KNOWLEDGE_CUTOFF: 'Une preuve de positionnement est postérieure au cutoff.',
   DUPLICATE_EVIDENCE_KEY: 'Une preuve de positionnement est en double.',
   METHODOLOGY_NOT_APPROVED: 'La méthode de lecture du positionnement n\'est pas approuvée.',
+  FRESHNESS_POLICY_NOT_APPROVED: 'Aucun seuil de fraîcheur approuvé pour ce jeu de positionnement : fraîcheur non évaluée.',
   MARKET_PRICING_VERSION_MISMATCH: 'Version du prix de marché incohérente entre étages.',
   POSITIONING_VERSION_MISMATCH: 'Version du positionnement incohérente entre étages.',
   UPSTREAM_CUTOFF_MISMATCH: 'Les étages amont n\'ont pas le même cutoff.',
@@ -257,6 +259,29 @@ const MARKET_STATUS_PLAIN_FR: Readonly<Record<string, string>> = {
 export type TerminalCapabilityStatus = 'OPERATIONAL_LOCAL' | 'SIMULATED' | 'BLOCKED' | 'NOT_VALIDATED';
 
 export type TerminalDataOrigin = 'GOLDEN_FIXTURE' | 'LOCAL_INPUT_FILE' | 'LOCAL_SCENARIO' | 'LOCAL_MARKET_ARCHIVE';
+
+/** B4: the chain inputs whose source the view names one by one. */
+export const TERMINAL_VIEW_INPUTS = [
+  'MARKET', 'POSITIONING', 'EVENT_IMPACT', 'GOLD_TRANSMISSION', 'EVIDENCE_GRAPH', 'AUTHORIZATIONS',
+] as const;
+export type TerminalInputName = typeof TERMINAL_VIEW_INPUTS[number];
+
+/**
+ * Source of one chain input (B4). Only the market can come from an archive:
+ * CAPTURED_ARCHIVE is a replayed archive whose class is CAPTURED (declared by
+ * the operator, not independently attested); SYNTHETIC_FIXTURE is a fixture,
+ * a scenario built from it, or a synthetic archive; LOCAL_INPUT_UNVERIFIED is
+ * a local file of unknown provenance; UNAVAILABLE means nothing was supplied
+ * or evaluated; UNKNOWN means the claims are missing or contradict each other.
+ */
+export type TerminalInputSource =
+  | 'CAPTURED_ARCHIVE' | 'SYNTHETIC_FIXTURE' | 'LOCAL_INPUT_UNVERIFIED' | 'UNAVAILABLE' | 'UNKNOWN';
+
+export interface TerminalInputProvenance {
+  readonly input: TerminalInputName;
+  readonly source: TerminalInputSource;
+  readonly detail: string;
+}
 
 /**
  * DATA-1 market evidence behind the chain's market snapshot, when the view
@@ -366,12 +391,45 @@ export interface TerminalHoldRationale {
   readonly unclassifiedCodes: readonly string[];
 }
 
+export interface TerminalPositioningFreshness {
+  readonly status: 'NOT_EVALUATED' | 'NO_EVIDENCE';
+  readonly reason: 'FRESHNESS_POLICY_NOT_APPROVED' | null;
+  readonly plain: string;
+  readonly latestPublishedAt: string | null;
+  readonly publishedAgeSecondsAtCutoff: number | null;
+}
+
+const NO_POSITIONING_EVIDENCE_FRESHNESS: TerminalPositioningFreshness = {
+  status: 'NO_EVIDENCE', reason: null, plain: 'aucune preuve de positionnement',
+  latestPublishedAt: null, publishedAgeSecondsAtCutoff: null,
+};
+
+/** B5: the latest publication among the kept evidence, and its age at the cutoff. */
+function positioningFreshnessOf(
+  evidence: readonly { readonly publishedAt: string }[],
+  knowledgeCutoff: string,
+): TerminalPositioningFreshness {
+  const published = evidence.map((item) => parseStrictTimestamp(item.publishedAt)).filter((ms): ms is number => ms !== null);
+  if (published.length === 0) return NO_POSITIONING_EVIDENCE_FRESHNESS;
+  const latest = Math.max(...published);
+  const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
+  return {
+    status: 'NOT_EVALUATED',
+    reason: 'FRESHNESS_POLICY_NOT_APPROVED',
+    plain: 'fraîcheur non évaluée — aucun seuil approuvé',
+    latestPublishedAt: new Date(latest).toISOString(),
+    publishedAgeSecondsAtCutoff: cutoffMs === null ? null : Math.floor((cutoffMs - latest) / 1000),
+  };
+}
+
 export interface TerminalView {
   readonly schemaVersion: typeof TERMINAL_VIEW_SCHEMA_VERSION;
   readonly algorithmVersion: typeof TERMINAL_VIEW_ALGORITHM_VERSION;
   readonly generatedAt: string;
   readonly origin: { readonly kind: TerminalDataOrigin; readonly label: string };
   readonly simulated: true;
+  /** B4: where each chain input comes from; the origin above names only the market's carrier. */
+  readonly inputProvenance: readonly TerminalInputProvenance[];
   readonly temporal: {
     readonly classification: 'HISTORICAL' | 'AT_GENERATION' | 'UNKNOWN';
     readonly cutoffAgeSeconds: number | null;
@@ -405,6 +463,11 @@ export interface TerminalView {
     readonly evidenceCount: number;
     readonly sourceAuthorities: readonly string[];
     readonly observedThrough: string | null;
+    /**
+     * B5: no freshness policy is approved, so freshness is never evaluated. The
+     * publication age at the cutoff is a fact, not a judgement of freshness.
+     */
+    readonly freshness: TerminalPositioningFreshness;
   };
   readonly horizons: readonly { readonly horizon: string; readonly status: string; readonly direction: string }[];
   readonly acceptance: {
@@ -616,6 +679,80 @@ function marketEvidenceOf(replay: MarketEvidenceReplay | null): TerminalMarketEv
   };
 }
 
+type InputDocumentSource = { readonly source: TerminalInputSource; readonly detail: string };
+
+/** The document every non-market input comes from, from its declared origin; UNKNOWN unless exact. */
+function inputDocumentSource(origin: unknown): InputDocumentSource {
+  const unknown = { source: 'UNKNOWN' as const, detail: 'origine du document d\'entrée inconnue ou contradictoire' };
+  if (typeof origin !== 'object' || origin === null) return unknown;
+  const { kind, label } = origin as { kind?: unknown; label?: unknown };
+  if (typeof label !== 'string' || label.length === 0) return unknown;
+  if (kind === 'GOLDEN_FIXTURE' || kind === 'LOCAL_SCENARIO') {
+    return { source: 'SYNTHETIC_FIXTURE', detail: `fixture synthétique (${label})` };
+  }
+  if (kind === 'LOCAL_INPUT_FILE') {
+    return { source: 'LOCAL_INPUT_UNVERIFIED', detail: `fichier local fourni par l'opérateur, provenance non vérifiée (${label})` };
+  }
+  return unknown;
+}
+
+/**
+ * B4 per-input provenance. The market is the archive's only when a replay
+ * manifest is present, the view's origin is an archive (or an archive
+ * scenario) and the archive's class agrees with its nature; every other input
+ * follows the input document. Missing or contradictory claims are UNKNOWN,
+ * inputs that carry nothing are UNAVAILABLE. Nothing is ever promoted.
+ */
+function inputProvenanceOf(
+  outcome: DecisionChainOutcome,
+  origin: { readonly kind: TerminalDataOrigin; readonly label: string },
+  replay: MarketEvidenceReplay | null,
+  inputDocument: unknown,
+): TerminalInputProvenance[] {
+  const document = inputDocument === undefined
+    ? (origin.kind === 'LOCAL_MARKET_ARCHIVE' ? inputDocumentSource(null) : inputDocumentSource(origin))
+    : origin.kind !== 'LOCAL_MARKET_ARCHIVE' && JSON.stringify(inputDocument) !== JSON.stringify(origin)
+      ? inputDocumentSource(null)
+      : inputDocumentSource(inputDocument);
+  const rejected = outcome.kind === 'REJECTED';
+  const notEvaluated = { source: 'UNAVAILABLE' as const, detail: 'entrée rejetée : rien n\'a été évalué' };
+
+  let market: InputDocumentSource;
+  if (replay !== null) {
+    const klass = replay.archive.provenanceClass;
+    if (origin.kind !== 'LOCAL_MARKET_ARCHIVE' && origin.kind !== 'LOCAL_SCENARIO') {
+      market = { source: 'UNKNOWN', detail: 'manifeste d\'archive présent sur une origine qui n\'est pas une archive' };
+    } else if (replay.status === 'INVALID') {
+      market = { source: 'UNAVAILABLE', detail: 'archive rejetée au rejeu : aucune valeur retenue' };
+    } else if (klass === 'CAPTURED' && replay.nature !== 'SIMULATION') {
+      market = { source: 'CAPTURED_ARCHIVE', detail: `archive capturée localement (${replay.archive.archiveId}) ; `
+        + 'provenance déclarée par l\'opérateur, sans attestation indépendante' };
+    } else if (klass === 'SYNTHETIC_FIXTURE' && replay.nature === 'SIMULATION') {
+      market = { source: 'SYNTHETIC_FIXTURE', detail: `archive synthétique (${replay.archive.archiveId})` };
+    } else {
+      market = { source: 'UNKNOWN', detail: 'classe de provenance et nature de l\'archive contradictoires' };
+    }
+  } else if (origin.kind === 'LOCAL_MARKET_ARCHIVE') {
+    market = { source: 'UNKNOWN', detail: 'origine archive sans manifeste de rejeu' };
+  } else {
+    market = rejected ? notEvaluated : document;
+  }
+
+  const fromDocument = (carriesNothing: boolean, nothing: string): InputDocumentSource =>
+    rejected ? notEvaluated : carriesNothing ? { source: 'UNAVAILABLE', detail: nothing } : document;
+  const stages = outcome.kind === 'COMPLETED' ? outcome.result.stages : null;
+  const entries: Record<TerminalInputName, InputDocumentSource> = {
+    MARKET: market,
+    POSITIONING: fromDocument((stages?.positioning.evidence.length ?? 0) === 0, 'aucune preuve de positionnement fournie'),
+    EVENT_IMPACT: fromDocument(false, ''),
+    GOLD_TRANSMISSION: fromDocument(false, ''),
+    EVIDENCE_GRAPH: fromDocument(stages?.prePm.reasonCodes.includes('EVIDENCE_GRAPH_UNAVAILABLE') ?? true,
+      'graphe de preuves non fourni'),
+    AUTHORIZATIONS: fromDocument(false, ''),
+  };
+  return TERMINAL_VIEW_INPUTS.map((input) => ({ input, ...entries[input] }));
+}
+
 const errorText = (error: { readonly path: string; readonly code: string }) =>
   `${error.path === '' ? '<input>' : error.path}: ${error.code}`;
 
@@ -636,6 +773,12 @@ export function buildTerminalView(
   origin: { readonly kind: TerminalDataOrigin; readonly label: string },
   generatedAt: string,
   marketEvidenceReplay: MarketEvidenceReplay | null = null,
+  /**
+   * B4: origin of the chain input document (fixture, scenario or local file)
+   * when the view's origin is a market archive. Without it, an archive view's
+   * non-market inputs are UNKNOWN; other origins are their own document.
+   */
+  inputDocument?: { readonly kind: TerminalDataOrigin; readonly label: string },
 ): TerminalView {
   const base = {
     schemaVersion: TERMINAL_VIEW_SCHEMA_VERSION,
@@ -643,6 +786,7 @@ export function buildTerminalView(
     generatedAt,
     origin: { kind: origin.kind, label: origin.label },
     simulated: true as const,
+    inputProvenance: inputProvenanceOf(outcome, origin, marketEvidenceReplay, inputDocument),
     marketEvidence: marketEvidenceOf(marketEvidenceReplay),
   };
   if (outcome.kind === 'REJECTED') {
@@ -683,7 +827,8 @@ export function buildTerminalView(
       },
       stages: [],
       market: { state: null, observedThrough: null, replay: null, fields: [] },
-      positioning: { evidenceState: null, positioningState: null, evidenceCount: 0, sourceAuthorities: [], observedThrough: null },
+      positioning: { evidenceState: null, positioningState: null, evidenceCount: 0, sourceAuthorities: [], observedThrough: null,
+        freshness: NO_POSITIONING_EVIDENCE_FRESHNESS },
       horizons: [],
       acceptance: { state: null, productionReadiness: null, evidence: [] },
       observability: { state: null, correlationId: null, deploymentId: null },
@@ -753,6 +898,7 @@ export function buildTerminalView(
       evidenceCount: positioning.evidence.length,
       sourceAuthorities: [...positioning.sourceAuthorities],
       observedThrough: positioning.observedThrough,
+      freshness: positioningFreshnessOf(positioning.evidence, result.knowledgeCutoff),
     },
     horizons: result.stages.horizonSynthesis.scenarios.map(({ horizon, status, direction }) => ({ horizon, status, direction })),
     acceptance: {

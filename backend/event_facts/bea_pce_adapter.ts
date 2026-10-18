@@ -6,6 +6,82 @@
  * economic interpretation, and market inference are outside this module.
  */
 
+// BEGIN official-release-instant (B3) — keep byte-identical in the four adapters
+const RELEASE_INSTANT_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const RELEASE_INSTANT_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+  'September', 'October', 'November', 'December'];
+const RELEASE_INSTANT_CLOCK = '([1-9]|1[0-2]):([0-5]\\d) (a\\.m\\.|p\\.m\\.|A\\.M\\.|P\\.M\\.)';
+const RELEASE_INSTANT_DAY = `(${RELEASE_INSTANT_WEEKDAYS.join('|')}), (${RELEASE_INSTANT_MONTHS.join('|')}) ([1-9]|[12]\\d|3[01]), (\\d{4})`;
+const RELEASE_INSTANT_FORMATS = [
+  new RegExp(`^${RELEASE_INSTANT_CLOCK} \\((ET|Eastern)\\) ${RELEASE_INSTANT_DAY}$`),
+  new RegExp(`^EMBARGOED UNTIL RELEASE AT ${RELEASE_INSTANT_CLOCK} (EDT|EST), ${RELEASE_INSTANT_DAY}$`),
+];
+
+/** Days since 1970-01-01 of a proleptic Gregorian date (month 1-12). */
+function releaseInstantDays(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year;
+  const era = Math.floor(y / 400);
+  const yoe = y - era * 400;
+  const doy = Math.floor((153 * (month + (month > 2 ? -3 : 9)) + 2) / 5) + day - 1;
+  return era * 146097 + yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy - 719468;
+}
+
+/** Inverse of releaseInstantDays. */
+function releaseInstantCivil(days: number): readonly [number, number, number] {
+  const z = days + 719468;
+  const era = Math.floor(z / 146097);
+  const doe = z - era * 146097;
+  const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+  const mp = Math.floor((5 * doy + 2) / 153);
+  const month = mp < 10 ? mp + 3 : mp - 9;
+  return [yoe + era * 400 + (month <= 2 ? 1 : 0), month, doy - Math.floor((153 * mp + 2) / 5) + 1];
+}
+
+/** 0 = Sunday; 1970-01-01 was a Thursday. */
+function releaseInstantWeekday(days: number): number {
+  return ((days % 7) + 11) % 7;
+}
+
+/**
+ * UTC instant (`YYYY-MM-DDTHH:MM:00.000Z`) stated by an official US release
+ * text in Eastern time, or null when it cannot be read exactly.
+ */
+function officialReleaseInstantUtc(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length > 200) return null;
+  const match = RELEASE_INSTANT_FORMATS[0].exec(raw) ?? RELEASE_INSTANT_FORMATS[1].exec(raw);
+  if (match === null) return null;
+  const [, hourText, minuteText, meridiem, zone, weekday, monthName, dayText, yearText] = match;
+  const year = Number(yearText);
+  const month = RELEASE_INSTANT_MONTHS.indexOf(monthName) + 1;
+  const day = Number(dayText);
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const monthLength = month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+  if (year < 2007 || day > monthLength) return null; // the daylight-saving rule below holds from 2007
+  const days = releaseInstantDays(year, month, day);
+  if (RELEASE_INSTANT_WEEKDAYS[releaseInstantWeekday(days)] !== weekday) return null;
+  const minutes = ((Number(hourText) % 12) + (meridiem.toLowerCase() === 'p.m.' ? 12 : 0)) * 60 + Number(minuteText);
+  // EDT from 02:00 EST on the second Sunday of March to 02:00 EDT on the first Sunday of November.
+  const start = 8 + ((7 - releaseInstantWeekday(releaseInstantDays(year, 3, 1))) % 7);
+  const end = 1 + ((7 - releaseInstantWeekday(releaseInstantDays(year, 11, 1))) % 7);
+  let daylight: boolean;
+  if (month === 3 && day === start) {
+    if (minutes >= 120 && minutes < 180) return null; // does not exist
+    daylight = minutes >= 180;
+  } else if (month === 11 && day === end) {
+    if (minutes >= 60 && minutes < 120) return null; // ambiguous
+    daylight = minutes < 60;
+  } else {
+    daylight = (month > 3 || (month === 3 && day > start)) && (month < 11 || (month === 11 && day < end));
+  }
+  if ((zone === 'EDT' && !daylight) || (zone === 'EST' && daylight)) return null;
+  const utcMinutes = minutes + (daylight ? 240 : 300);
+  const [y, m, d] = releaseInstantCivil(days + Math.floor(utcMinutes / 1440));
+  const two = (value: number) => String(value).padStart(2, '0');
+  return `${String(y).padStart(4, '0')}-${two(m)}-${two(d)}T${two(Math.floor((utcMinutes % 1440) / 60))}:${two(utcMinutes % 60)}:00.000Z`;
+}
+// END official-release-instant (B3)
+
 export const BEA_PCE_EVENT_FACTS_ADAPTER_VERSION =
   'bea-pce-event-facts-adapter-v1' as const;
 export const BEA_PCE_IDENTITY_STRATEGY_VERSION =
@@ -94,6 +170,8 @@ export interface BeaPceResolvedResult {
   readonly canonicalEventStateSchemaVersion:
     typeof BEA_PCE_CANONICAL_EVENT_STATE_SCHEMA_VERSION;
   readonly canonicalEventState: BeaPceCanonicalEventStateV2;
+  /** UTC instant stated by the release text; null when it cannot be read exactly (B3). */
+  readonly publishedAt: string | null;
 }
 
 export interface BeaPceNonResolvedResult {
@@ -310,6 +388,7 @@ export function mapBeaPceReleaseToEventFacts(input: unknown): BeaPceAdapterResul
     kind: 'RESOLVED',
     adapterVersion: BEA_PCE_EVENT_FACTS_ADAPTER_VERSION,
     releaseIdentity: identity,
+    publishedAt: officialReleaseInstantUtc(release.publicReleaseAtRaw),
     canonicalEventStateSchemaVersion: BEA_PCE_CANONICAL_EVENT_STATE_SCHEMA_VERSION,
     canonicalEventState: {
       event_type: 'STATISTICAL_RELEASE',

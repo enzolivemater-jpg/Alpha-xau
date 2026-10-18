@@ -17,8 +17,8 @@ const input = {
     knowledgeCutoff: cutoff,
   },
   positioning: {
-    schemaVersion: 'xau.positioning-evidence.v1',
-    algorithmVersion: 'positioning-evidence-normalizer-1.0.0',
+    schemaVersion: 'xau.positioning-evidence.v2',
+    algorithmVersion: 'positioning-evidence-normalizer-2.0.0',
     evidenceState: 'EVIDENCE_READY',
     positioningState: 'UNAVAILABLE',
     reasonCodes: ['METHODOLOGY_NOT_APPROVED'],
