@@ -34,6 +34,21 @@ function defaultSources() {
   return readdirSync(DEFAULT_DIR).map((d) => path.join(DEFAULT_DIR, d, 'archive.json')).filter(existsSync).sort();
 }
 
+/**
+ * Latest reception time of a source, compared as instants. A lexical sort
+ * mis-orders `…:00Z` against `…:00.500Z` ('.' sorts before 'Z'). A value that
+ * does not parse never wins; the replay then reports the source INVALID.
+ */
+export function latestIngestedAt(records) {
+  let best = null;
+  let bestMs = Number.NEGATIVE_INFINITY;
+  for (const r of records) {
+    const ms = Date.parse(r.ingestedAt);
+    if (Number.isFinite(ms) && ms > bestMs) { best = r.ingestedAt; bestMs = ms; }
+  }
+  return best ?? records.map((r) => r.ingestedAt).sort().at(-1);
+}
+
 export async function validate(files, outDir) {
   const ev = await loadBackendModule('market_engine/evidence_archive.ts');
   const cap = await loadBackendModule('market_engine/evidence_capture.ts');
@@ -52,7 +67,7 @@ export async function validate(files, outDir) {
     const bytes = readFileSync(file, 'utf8');
     const archive = JSON.parse(bytes);
     sources.push(archive);
-    const latest = archive.records.map((r) => r.ingestedAt).sort().at(-1);
+    const latest = latestIngestedAt(archive.records);
     const r = await replay(archive, latest);
     check(`source ${archive.archiveId}: valid`, r.status !== 'INVALID', r.reasonCodes.join(','));
     for (const [digest, payload] of Object.entries(archive.rawPayloads)) {

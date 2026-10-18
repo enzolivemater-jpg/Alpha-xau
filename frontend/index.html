@@ -45,6 +45,8 @@
     STALE_THRESHOLD_S: 60,       // au-delà, la donnée est marquée STALE
     V2_VIEW_URL: '',             // vue CHAIN-0 du serveur local ; vide = sections V2 indisponibles
     V2_SCENARIOS_URL: '',        // scénarios de simulation du serveur local ; vide = aucun
+    V2_ARCHIVE_CUTOFFS_URL: '',  // instants de rejeu d'une archive (--archive) ; vide = aucun
+    V2_CATALOG_URL: '',          // données locales sélectionnables (catalogue du serveur local) ; vide = aucune
   };
 </script>
 
@@ -251,8 +253,8 @@
       </table>
 
       <p class="matrix__note">
-        Real Yield en hausse pèse sur l'or : le coût d'opportunité de détention
-        d'un actif sans rendement augmente.
+        Principe général, pas une lecture des valeurs affichées : un Real Yield en hausse
+        pèse sur l'or, car le coût d'opportunité de détention d'un actif sans rendement augmente.
       </p>
     </div>
   </section>
@@ -344,10 +346,38 @@
         <span class="v2__scenario-hint" id="v2-scenario-hint"></span>
       </div>
 
+      <div class="v2__scenario v2__data" id="v2-data-wrap" hidden>
+        <span class="v2__scenario-key">DONNÉES LOCALES</span>
+        <label class="v2__data-label" for="v2-data-market">Marché</label>
+        <select id="v2-data-market" aria-describedby="v2-data-hint"></select>
+        <label class="v2__data-label" for="v2-data-positioning">Positionnement</label>
+        <select id="v2-data-positioning" aria-describedby="v2-data-hint"></select>
+        <span class="v2__scenario-hint" id="v2-data-hint"></span>
+        <dl class="v2__data-card" id="v2-data-card-market" aria-label="Source de marché choisie"></dl>
+        <dl class="v2__data-card" id="v2-data-card-positioning" aria-label="Source de positionnement choisie"></dl>
+      </div>
+
+      <div class="v2__scenario" id="v2-replay-cutoff-wrap" hidden>
+        <label class="v2__scenario-key" for="v2-replay-cutoff">CUTOFF DE REJEU (ARCHIVE)</label>
+        <select id="v2-replay-cutoff" aria-describedby="v2-replay-cutoff-hint"></select>
+        <span class="v2__scenario-hint" id="v2-replay-cutoff-hint"></span>
+        <p class="v2__captures-failed" id="v2-captures-failed" role="alert" hidden></p>
+        <details class="v2__avail" id="v2-archive-avail" hidden>
+          <summary>DISPONIBILITÉ DE L'ARCHIVE PAR CHAMP</summary>
+          <ul class="v2__avail-list" id="v2-archive-avail-list"></ul>
+        </details>
+      </div>
+
       <div class="v2__status" id="v2-status" data-state="unavailable" role="status">
         <span class="v2__state" id="v2-state">INDISPONIBLE</span>
         <span class="v2__detail" id="v2-detail">Aucun runtime V2 déployé.</span>
       </div>
+
+      <section class="prov" id="v2-prov" aria-labelledby="v2-prov-title" hidden>
+        <h3 class="v2__subtitle" id="v2-prov-title">PROVENANCE DES ENTRÉES</h3>
+        <p class="prov__status" id="v2-prov-status">—</p>
+        <ul class="prov__list" id="v2-prov-list"></ul>
+      </section>
 
       <section class="summary" id="v2-sec-summary" aria-labelledby="v2-summary-title" hidden>
         <h3 class="v2__subtitle v2__subtitle--first" id="v2-summary-title">SYNTHÈSE DÉCISIONNELLE</h3>
@@ -382,6 +412,7 @@
       <div class="v2__why" id="v2-why" hidden>
         <p class="v2__why-lead" id="v2-why-lead"></p>
         <p class="v2__why-lift" id="v2-why-lift"></p>
+        <p class="v2__why-cutoffs" id="v2-why-cutoffs" hidden></p>
         <div class="v2__why-list" id="v2-why-list"></div>
       </div>
 
@@ -417,6 +448,7 @@
         <dl class="v2__facts v2__facts--stack">
           <div><dt>REJEU MARCHÉ</dt><dd id="v2-replay">—</dd></div>
           <div><dt>POSITIONNEMENT</dt><dd id="v2-positioning">—</dd></div>
+          <div><dt>FRAÎCHEUR POSITIONNEMENT</dt><dd id="v2-positioning-freshness">—</dd></div>
           <div><dt>POSITIONNEMENT OBSERVÉ JUSQU'À</dt><dd class="num" id="v2-positioning-through">—</dd></div>
           <div><dt>SOURCES POSITIONNEMENT</dt><dd id="v2-positioning-sources">—</dd></div>
         </dl>

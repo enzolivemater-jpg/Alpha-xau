@@ -153,6 +153,86 @@ randomness, clock or I/O).
 | Database / migrations | NOT_MIGRATED; none touched |
 | Recovery / security | FROZEN; REC-1 human gate |
 
+## RC OFFLINE stack (2026-10-17/18): B1–B5, PR #154, RECON-AUTO-1
+
+Base PR #153 `44b08b933052cfd89c4370569835c3853f12b608` (Quality Gate run
+`39070091763`, 11/11). Blockers B1–B7 come from the OFFLINE E2E qualification
+of `44b08b9`. All commits local except where pushed below.
+
+| Item | Commit | Branch |
+|---|---|---|
+| B1 E2E test | `c6bb706` | `feat/b1-rc0-e2e-offline` |
+| B3 release instant in adapters | `ad747b1` | `feat/b3-event-release-instant` |
+| B3 EIA-0 v2 release gate | `390c26c` | same |
+| B4 terminal per-input provenance | `b695b78` | `feat/b4-terminal-input-provenance` |
+| B5 P-0 v2 freshness fail-closed | `6a0eb53` | `feat/b5-positioning-freshness` |
+| PR #154 patch (cherry-pick `-x` of `7092274`) | `58d63e4` | `recon/rc-b5-plus-154` (pushed; PR #155, draft) |
+| RECON-AUTO-1 (cherry-pick of `636dcf5`) | `296f490` | `recon/rc-offline-qualification` |
+
+| # | Domain | Defect (demonstrated) | Fix | Main files |
+|---|---|---|---|---|
+| 34 | DATA-3 tooling | `validate_evidence_captures.mjs` chose each source's replay cutoff by lexical `sort()`: `…:00Z` ranked after `…:00.500Z`, so the source was replayed at an earlier instant than its latest capture | `latestIngestedAt()` compares instants (`Date.parse`); unparseable values never win | `scripts/validate_evidence_captures.mjs`, `tests/test_validate_evidence_latest_ingest.mjs` (red-before-fix only as a missing export; behaviour asserted after) |
+| 35 | Integration (B1) | No repository test ran official artifact → Event Facts → EI/GT → EIA-0 → CHAIN-0 → OBS-0 → terminal at one cutoff | RC-0 block on the four official fixtures; future events excluded to 1 ns; 6 negative cases | `tests/test_rc0_cross_system_contract.mjs` |
+| 36 | Macro time (B3) | A CPI released 11 Sept was admitted with a 1 Sept cutoff: adapters dropped the release instant | `publishedAt` (US Eastern → UTC, DST, weekday/zone checked; byte-identical copy per adapter, drift-tested) and `admitEventVersionAtOfficialRelease` | `backend/event_facts/official_release_instant.ts`, the four adapters, `tests/test_official_release_instant.mjs` |
+| 37 | Macro time (B3) | EIA-0 aggregated back-dated plans | EIA-0 v2 (`xau.event-plan-aggregation.v2` / `event-plan-aggregation-release-gate-2.0.0`): release evidence required, back-dated plans excluded, missing evidence fails closed; v1 unchanged (20,000-case differential) | `backend/event_aggregation/{core,release_gate_contract,contract}.ts` |
+| 38 | Terminal (B4) | `--archive` lent the archive's origin to synthetic fixture inputs | `inputProvenance` per input (terminal 4.1.0); contradictions refuse the view | `backend/decision_chain/terminal_view.ts`, `scripts/serve_terminal_local.mjs`, `frontend/`, `tests/test_terminal_input_provenance.mjs` |
+| 39 | Positioning (B5) | Weekly evidence stayed `EVIDENCE_READY` a year later | P-0 v2 (`xau.positioning-evidence.v2` / `…-2.0.0`): `FRESHNESS_POLICY_NOT_APPROVED`, never ready; terminal 4.2.0 "fraîcheur non évaluée — aucun seuil approuvé". Golden digest `sha256:b39bad10…ec7a6f7` → `sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c` | `backend/positioning_engine/evidence_contract.ts`, `tests/test_positioning_freshness_gate.mjs` |
+| 40 | Tooling | Cloud and local contributions were reconciled by hand | RECON-AUTO-1 dry-run reconciliation, `--apply` create-only on `recon/*`, plan drift report | `scripts/recon_auto.mjs`, `tests/test_recon_auto.mjs`, `docs/XAU_V2_RECON_AUTO_1.md`, `docs/recon/plan-rc-offline.json` |
+
+CI references: PR #153 `44b08b9` run `39070091763` 11/11; PR #156 `2f44903` (= `58d63e4`
+plus one `workflow_dispatch:` line) run `39117320216` 11/11. **No CI run exists on
+`58d63e4` itself** (PR #155): a base change does not re-trigger the Quality Gate. Local:
+`58d63e4` typecheck clean, 144/144 (Node 22), DATA-3 real captures 115/115; this branch:
+see `docs/XAU_V2_RC_OFFLINE_QUALIFICATION.md`.
+
+## Autonomous session 2026-10-18 (branch `feat/auto-session-1`, local, on RC `ea5aa64`)
+
+Branch created from `ea5aa64` (RC OFFLINE, CI 11/11 by the user's statement; no CI on any
+commit below). Nothing pushed; `main`, REC-1 and production untouched; HOLD / FORBIDDEN on
+every path; CHAIN-0, OBS-0 and the golden digest `sha256:9bbd9cac…eef2db3c` unchanged.
+
+| # | Domain | Defect (demonstrated) or gap | Fix | Main files |
+| --- | --- | --- | --- | --- |
+| 41 | Terminal | Positioning evidence published after an earlier replay cutoff read "publiée -7 h avant le cutoff" | view 4.3.0 `AFTER_KNOWLEDGE_CUTOFF`, no age; page refuses a negative age | `terminal_view.ts`, `dashboard.js`, `tests/test_terminal_lookahead_positioning.mjs` |
+| 42 | Terminal (P1) | `--archive` could only be replayed at one cutoff fixed at start | `/local/v2/archive-cutoffs.json` (reception instants, fields received, per-field availability, capture series); `?cutoff=` replay; CUTOFF DE REJEU selector | `serve_terminal_local.mjs`, `frontend/`, `tests/test_terminal_archive_cutoffs.mjs` |
+| 43 | Terminal (P1) | Real capture logs needed a manual DATA-3 merge before `--archive` | `--captures DIR` (in-memory merge, replay after the last reception), `--captures-local`, `xau-terminal-captures.cmd` | same, `terminal_launch.mjs`, `tests/test_terminal_captures.mjs` |
+| 44 | Terminal (P0, on the RC) | An unreadable archive or failed merge made the page refuse the whole view ("nature de marché incohérente"): 128/150 mutated archives on `ea5aa64` | page accepts exactly INVALID / no class / SIMULATION / no observation as ARCHIVE REJETÉE, HOLD; failed merge reasons shown; 0/150 after | `dashboard.js`, `tests/test_terminal_captures.mjs` |
+| 45 | Terminal (P0) | The launcher reused a running instance started with other data options | `health.json` `args`; mismatch exits 1 with "--stop first" | `terminal_launch.mjs`, `tests/test_terminal_offline_finalisation.mjs` |
+| 46 | Terminal (P3) | A replay at another instant showed only "1 incohérence interne" | view 4.5.0 `cutoffAlignment` (input summary cutoffs vs chain cutoff), shown under POURQUOI HOLD; same view from the unified rehearsal (RC-0) | `terminal_view.ts`, `unified_rehearsal.ts`, `tests/test_terminal_cutoff_alignment.mjs` |
+| 47 | Terminal | Start lines written in two writes: `test_terminal_cli_process` failed 1 run in 3 under load | one write | `serve_terminal_local.mjs` |
+| 48 | Positioning (P2) | No offline path from a CFTC COT file to P-0 | CFTC disaggregated adapter 1.1.0 (pure, one report per call, declared instants and declared dataset — futures only or combined share their columns —, `NOT_APPROVED`); terminal `--positioning-cot … --cot-dataset` (view 4.4.0, `LOCAL_INPUT_UNVERIFIED`) | `backend/positioning_engine/cftc_cot_offline_adapter.ts`, `tests/test_cftc_cot_offline_adapter.mjs`, `tests/test_terminal_positioning_cot.mjs` |
+| 49 | Event facts (P2) | Consensus source NOT_STARTED, no boundary for a future figure | C-0 consensus evidence contract against the RESOLVED official result; consensus stays UNKNOWN | `backend/event_facts/consensus_evidence_contract.ts`, `docs/XAU_V2_CONSENSUS_EVIDENCE_CONTRACT.md` |
+| 51 | CHAIN-0 audit (no change) | Probed market snapshot injections: observation or capture after the cutoff, expired field, inverted book are all caught; a declared negative age is recomputed by MP-0. A spot far outside the bid/ask book is not flagged: a methodology decision (a last trade may sit outside the current quote), left to review | — | — |
+| 50 | Tooling (P4) | Plan drift needed SHAs found and copied by hand; plans written by hand | RECON-AUTO-1 1.1.0: drift `ADVANCED` / `REWRITTEN` / `DECLARED_UNKNOWN` with commits, `proposed-plan.json`; `--init-plan` from named refs (create-only) | `scripts/recon_auto.mjs`, `tests/test_recon_auto.mjs` |
+| 52 | Tooling (P4) | A failed `--verify full` kept only six output lines per stream: the failing file had to be dug out | `failedTests` (from `FAILED: <file> (exit N)`) and `verify-<step>.log` beside the report; first test of `--verify` | `scripts/recon_auto.mjs`, `tests/test_recon_auto.mjs` |
+| 53 | Terminal | The launcher compared data options in order (same data, other order: refused); the replay or scenario choice was lost on reload | `sameDataOptions()` order-insensitive; choice kept in `#chaine/scenario/<id>` / `#chaine/rejeu/<instant>`, restored only if it exists | `terminal_launch.mjs`, `dashboard.js` |
+| 54 | Labelling audit (no change) | A captured archive replayed 30 s after its last reception (AT_GENERATION) | stays HOLD, HISTORICAL_UNVERIFIED, never "EN DIRECT", "TEMPS RÉEL" or "DONNÉES RÉELLES" | — |
+| 55 | Terminal (regression of row 42, caught before delivery) | Without an archive the page still asked `/local/v2/archive-cutoffs.json`: one HTTP 404 and a console error on the default page (the RC walk went 22/23) | the cutoffs URL is injected only in `--archive` / `--captures` mode; RC walk 23/23 again | `serve_terminal_local.mjs`, `tests/test_terminal_archive_cutoffs.mjs` |
+
+### DATA-TO-TERMINAL (branch `feat/data-to-terminal`, local, on `5dd666e`)
+
+| # | Domain | Defect (demonstrated) or gap | Fix | Main files |
+| --- | --- | --- | --- | --- |
+| 56 | Positioning | Every unknown CFTC input was rejected, but a semicolon/tab file read "guillemet non fermé", a ZIP/Excel/HTML file and a legacy or TFF report a list of 18 missing columns | adapter 1.2.0: `UNSUPPORTED_FORMAT` (ZIP, Excel/binary/UTF-16/non-UTF-8, HTML, JSON, separator) and `UNSUPPORTED_LAYOUT` (legacy, TFF, unknown CFTC report) | `cftc_cot_offline_adapter.ts`, `tests/test_cftc_cot_offline_adapter.mjs` |
+| 57 | Terminal | The data shown was fixed at launch by options; single capture logs could not be seen; a CFTC file needed four options and was out of reach of the Windows launcher; no source's period, provenance or validation was visible | `--data-root` catalog (`/local/v2/catalog.json`), DONNÉES LOCALES panel (market and positioning by catalog id only, one card per source), replay instants per source, anchor `#chaine/donnees/…`; launcher `--local-data`, `npm run terminal:data`, `xau-terminal.cmd` passes it | `serve_terminal_local.mjs`, `frontend/`, `terminal_launch.mjs`, `tests/test_terminal_data_catalog.mjs` |
+| 58 | Terminal (UX) | Declaring a CFTC file meant writing JSON by hand; a missing directory was a silent empty panel or a raw code on the start line | `scripts/cot_declare.mjs` (converts first, create-only); notes in plain words in the page and on the start line | `scripts/cot_declare.mjs`, `tests/test_cot_declare.mjs` |
+
+Evidence (local): RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `8076b8e` (155/155, inventory 180); real
+launch through `xau-terminal.sh --local-data` in a minimal environment on `~/.local/share/xau-v2` (4 real market
+sources, every view HOLD / FORBIDDEN, exit 0); Chromium 129: local-data walk 40/40 (real captures plus synthetic
+CFTC files), the RC walk 23/23, captures walk 32/32, layout 40/40; catalog fuzz 40 mutated roots, 400 views, no
+exception, no refused view. No real CFTC file exists on this machine: CFTC paths are tested on the synthetic
+fixture and on built byte sequences only.
+
+Evidence (local, Node 22): full suite 153/153 and typecheck on every head; final RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `cce8ca5`; earlier, before this
+note; RECON-AUTO-1 `--verify inventory,typecheck,full` PASS on `4c41a5d` (FAST_FORWARD on
+`ea5aa64`); Chromium 129 layout 35/35 and a 31-check walk with the real local captures;
+19/19 mutants killed; fuzz: 500 mutated archives through the view, 300 archives and 200
+input documents through the page, no exception and no refused server view. Not tested:
+Windows `.cmd` execution, Firefox (absent), Safari (impossible here). The CFTC column names
+are not verified against a real CFTC file; the consensus contract has no approved source.
+Captures are merged once at start: logs added later need a restart.
+
 ## Integration with the cloud branch (DONE locally on `integration/pr-149-plus-cloud-canonical-json`)
 
 Created from `4e132f4`; `84e5374` cherry-picked as `979d601` with no conflict (git auto-merged
@@ -179,7 +259,9 @@ this branch (change 24).
 
 ## PostgreSQL validation (17 tests, CI only)
 
-No PostgreSQL toolchain is installed locally (`which psql pg_ctl postgres initdb` finds
+*Update 2026-10-18:* a disposable PostgreSQL 17.6 in the sandbox ran the 17 suites 17/17 on
+`44b08b9`, and CI ran the 10 PostgreSQL jobs green on `2f44903` (run `39117320216`). The
+original note follows. No PostgreSQL toolchain is installed locally (`which psql pg_ctl postgres initdb` finds
 nothing), so the 17 `*_postgres.mjs` tests only run in CI. `quality-gate.yml` runs exactly 17
 `node tests/*_postgres.mjs` commands over 11 jobs on `postgres:17.6`, but only for pull
 requests to `main` and pushes to `main`: obtaining a run needs a pull request, which needs a
@@ -191,10 +273,9 @@ This is a reading, not a run.
 
 ## Remaining / next
 
-1. Confirm in CI (ephemeral PostgreSQL included) on the exact head commit.
-2. Known and left alone: `validate_evidence_captures.mjs` picks each source's
-   latest `ingestedAt` with a lexical `sort()` (mis-orders `…:00Z` against
-   `…:00.500Z`); it only affects which cutoff the per-source check replays at.
+1. Confirm in CI (ephemeral PostgreSQL included) on the exact head commit. *Partly done:* green on `2f44903`
+   (PR #156), not on `58d63e4` (PR #155) nor on any later qualification commit.
+2. *(Done, see change 34)* `validate_evidence_captures.mjs` latest-`ingestedAt` lexical sort.
 3. Not yet swept: committee / orchestrator legacy paths (`committee_orchestrator.ts`, 2,000+
    lines), `backend/ingest.ts` (V1 news pipeline), the event shadow batches / orchestrators
    (mock-database sweeps), and `backend/worker.ts` routes (deploy-gated). Note: the CPI
