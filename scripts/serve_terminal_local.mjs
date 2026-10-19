@@ -37,6 +37,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
+import { codeIdentity, describeCode } from './lib/code_identity.mjs';
 import { aggregateOfficialReleasesAt, officialReleaseFiles, readOfficialReleases } from './lib/official_events.mjs';
 import { TERMINAL_SCENARIOS, findTerminalScenario } from './lib/terminal_scenarios.mjs';
 
@@ -68,6 +69,7 @@ const VIEW_URL_PLACEHOLDER = "V2_VIEW_URL: '',";
 const SCENARIOS_URL_PLACEHOLDER = "V2_SCENARIOS_URL: '',";
 const CUTOFFS_URL_PLACEHOLDER = "V2_ARCHIVE_CUTOFFS_URL: '',";
 const CATALOG_URL_PLACEHOLDER = "V2_CATALOG_URL: '',";
+const CODE_PLACEHOLDER = '<span id="code-version">—</span>';
 /** A replay cutoff asked by the page: an explicit UTC instant, nothing else. */
 const REQUEST_CUTOFF = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 
@@ -86,9 +88,9 @@ const CONTENT_TYPES = {
  * `archiveCutoffs`: the server replays an archive (--archive or --captures); only then does the page
  * get the replay-cutoff URL, so the default page never asks a route that answers 404.
  */
-export function localIndexHtml({ archiveCutoffs: withArchive = false } = {}) {
+export function localIndexHtml({ archiveCutoffs: withArchive = false, code = null } = {}) {
   const html = readFileSync(path.join(FRONTEND, 'index.html'), 'utf8');
-  for (const placeholder of [VIEW_URL_PLACEHOLDER, SCENARIOS_URL_PLACEHOLDER, CUTOFFS_URL_PLACEHOLDER, CATALOG_URL_PLACEHOLDER]) {
+  for (const placeholder of [VIEW_URL_PLACEHOLDER, SCENARIOS_URL_PLACEHOLDER, CUTOFFS_URL_PLACEHOLDER, CATALOG_URL_PLACEHOLDER, CODE_PLACEHOLDER]) {
     if (html.split(placeholder).length !== 2) {
       throw new Error(`frontend/index.html must contain exactly one "${placeholder}"`);
     }
@@ -96,8 +98,12 @@ export function localIndexHtml({ archiveCutoffs: withArchive = false } = {}) {
   return html.replace(VIEW_URL_PLACEHOLDER, `V2_VIEW_URL: '${VIEW_PATH}',`)
     .replace(SCENARIOS_URL_PLACEHOLDER, `V2_SCENARIOS_URL: '${SCENARIOS_PATH}',`)
     .replace(CUTOFFS_URL_PLACEHOLDER, withArchive ? `V2_ARCHIVE_CUTOFFS_URL: '${ARCHIVE_CUTOFFS_PATH}',` : CUTOFFS_URL_PLACEHOLDER)
-    .replace(CATALOG_URL_PLACEHOLDER, `V2_CATALOG_URL: '${CATALOG_PATH}',`);
+    .replace(CATALOG_URL_PLACEHOLDER, `V2_CATALOG_URL: '${CATALOG_PATH}',`)
+    // The footer names the code this server runs (commit, branch), so an outdated checkout is visible.
+    .replace(CODE_PLACEHOLDER, `<span id="code-version" title="${escapeHtml(describeCode(code))}">${escapeHtml(describeCode(code))}</span>`);
 }
+
+const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /**
  * The replay cutoffs of an --archive: every distinct reception instant
@@ -666,7 +672,9 @@ export function listenOnLoopback(server, { port, range = 1 }) {
 export async function createTerminalServer(options = {}) {
   const view = await buildLocalView(options);
   // The replay-cutoff URL only when some market source is an archive (never a request answered 404).
-  const index = localIndexHtml({ archiveCutoffs: view.catalog().market.some((source) => source.replayable) });
+  // Read once: the server keeps running the code it loaded even if the checkout moves afterwards.
+  const code = codeIdentity(ROOT);
+  const index = localIndexHtml({ archiveCutoffs: view.catalog().market.some((source) => source.replayable), code });
   const csp = contentSecurityPolicy(index);
   const server = createServer(async (request, response) => {
     const method = request.method ?? 'GET';
@@ -699,8 +707,9 @@ export async function createTerminalServer(options = {}) {
     }
     if (pathname === HEALTH_PATH) {
       // args: the server's own command-line options, so the launcher never reuses an instance showing other data.
-      const health = { app: 'xau-v2-terminal-local', schemaVersion: 'xau.terminal-local-health.v1', root: ROOT, pid: process.pid,
-        args: Array.isArray(options.launchArgs) ? options.launchArgs : [] };
+      // code: the commit it runs, so the launcher never reuses a server left on older code.
+      const health = { app: 'xau-v2-terminal-local', schemaVersion: 'xau.terminal-local-health.v2', root: ROOT, pid: process.pid,
+        args: Array.isArray(options.launchArgs) ? options.launchArgs : [], code };
       send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(health), method);
       return;
     }

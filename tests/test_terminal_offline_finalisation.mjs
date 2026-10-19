@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { codeIdentity, describeCode } from '../scripts/lib/code_identity.mjs';
 import { buildLocalView, VIEW_PATH } from '../scripts/serve_terminal_local.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -126,11 +127,20 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
   assert.ok(first.text().indexOf('prêt :') < first.text().indexOf('navigateur ouvert'), 'ready before the browser');
   const health = await (await fetch('http://127.0.0.1:4573/local/v2/health.json')).json();
   // args (auto-session): the server's options, so a launch asking for other data never reuses it.
-  assert.deepEqual(Object.keys(health).sort(), ['app', 'args', 'pid', 'root', 'schemaVersion']);
+  assert.deepEqual(Object.keys(health).sort(), ['app', 'args', 'code', 'pid', 'root', 'schemaVersion']);
   assert.deepEqual(health.args, PORTS);
   assert.equal(health.app, 'xau-v2-terminal-local');
-  assert.equal(health.schemaVersion, 'xau.terminal-local-health.v1');
+  assert.equal(health.schemaVersion, 'xau.terminal-local-health.v2');
   assert.equal(health.root, ROOT);
+  // code (v2): the commit the server runs, also in the page footer and in the launcher's lines.
+  const runningCode = codeIdentity(ROOT);
+  assert.deepEqual(health.code, runningCode);
+  assert.match(runningCode.commit ?? '', /^[0-9a-f]{40}$/, 'this checkout is a git repository');
+  const page = await (await fetch('http://127.0.0.1:4573/')).text();
+  const footer = new JSDOM(page).window.document.getElementById('code-version');
+  assert.equal(footer.textContent, describeCode(runningCode));
+  assert.equal(footer.parentElement.textContent.trim(), `CODE ${describeCode(runningCode)}`);
+  assert.ok(first.text().includes(`code ${describeCode(runningCode)}`), 'the launcher says which code it starts');
   // fetch() drops a Host override; node:http sends it.
   const foreign = await new Promise((resolve, reject) => {
     http.get({ host: '127.0.0.1', port: 4573, path: '/local/v2/health.json', headers: { Host: 'evil.example:4573' } },
@@ -180,6 +190,48 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
   assert.equal(none.status, 1);
   assert.match(none.stdout, /aucun terminal/);
   console.log('PASS launcher: one instance per checkout; --status and --stop; the port is released');
+
+  // B4b. A server of this checkout left on other code (the checkout moved since, or a version without
+  // the code field) is never reused: the launcher refuses and says to stop it.
+  for (const [code, shown] of [[{ commit: '0'.repeat(40), branch: 'old', dirty: false }, '0000000 (old)'], [undefined, 'inconnu']]) {
+    const stale = http.createServer((request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ app: 'xau-v2-terminal-local', schemaVersion: 'xau.terminal-local-health.v1', root: ROOT, pid: 1,
+        args: PORTS, ...(code ? { code } : {}) }));
+    });
+    await new Promise((resolve) => stale.listen(4573, '127.0.0.1', resolve));
+    const opened = openedLines().length;
+    const refused = start(PORTS);
+    assert.equal((await refused.exited).code, 1, refused.text());
+    assert.ok(refused.text().includes(`exécute le code ${shown}, le dossier est à ${describeCode(codeIdentity(ROOT))}`), refused.text());
+    assert.match(refused.text(), /version périmée.*--stop/s);
+    assert.equal(openedLines().length, opened, 'no browser on outdated code');
+    assert.equal(await portOpen(4574), false, 'no second server either');
+    await new Promise((resolve) => stale.close(resolve));
+  }
+  // codeIdentity: commit, branch, tracked changes; detached; nothing outside a repository.
+  const repo = path.join(SCRATCH, 'code-repo');
+  mkdirSync(repo);
+  const g = (...args) => spawnSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { encoding: 'utf8' });
+  g('init', '-q', '-b', 'work');
+  writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  g('add', 'a.txt');
+  g('commit', '-q', '-m', 'a');
+  const sha = g('rev-parse', 'HEAD').stdout.trim();
+  assert.deepEqual(codeIdentity(repo), { commit: sha, branch: 'work', dirty: false });
+  writeFileSync(path.join(repo, 'untracked.txt'), 'u\n');
+  assert.equal(codeIdentity(repo).dirty, false, 'untracked files (node_modules link) do not count');
+  writeFileSync(path.join(repo, 'a.txt'), 'b\n');
+  assert.equal(codeIdentity(repo).dirty, true);
+  assert.equal(describeCode(codeIdentity(repo)), `${sha.slice(0, 7)} (work) + modifications non commitées`);
+  g('checkout', '-q', '--detach');
+  assert.equal(codeIdentity(repo).branch, null);
+  assert.match(describeCode(codeIdentity(repo)), /\(détaché\)/);
+  const notRepo = path.join(SCRATCH, 'not-a-repo');
+  mkdirSync(notRepo);
+  assert.deepEqual(codeIdentity(notRepo), { commit: null, branch: null, dirty: null });
+  assert.equal(describeCode(null), 'inconnu');
+  console.log('PASS launcher: a server of this checkout on other code is refused, never reused; the code is named everywhere');
 
   // B5. A busy port (another program): the server takes the next one and the browser follows it.
   const blocker = createServer();

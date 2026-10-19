@@ -274,6 +274,18 @@ The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`.
   skips the browser, and other options (`--port`, `--port-range`, `--input`,
   `--archive`, `--archive-digest`, `--cutoff`) pass through. Exit: 0 ok, 1
   server failure, 3 environment, 64 usage.
+- **Which code runs** (health `xau.terminal-local-health.v2`): the server
+  reads its checkout's commit, branch and whether tracked files changed
+  (`scripts/lib/code_identity.mjs`: read-only `git rev-parse`, `symbolic-ref`,
+  `status --untracked-files=no`, no shell) once at start. Health answers it as
+  `code: { commit, branch, dirty }` (all null without git); the page footer
+  shows `CODE <sha7> (<branch>)` (`+ modifications non commitées` when dirty;
+  cut with an ellipsis on narrow screens, full value in the tooltip); the
+  launcher prints it when it starts, reuses or reports a server. A server of
+  this checkout that runs other code — the checkout moved after it started, or
+  it predates the field — is never reused: the launcher refuses (exit 1),
+  names both versions and says to `--stop` it, so a double-click never shows an
+  outdated terminal.
 - Test: `tests/test_terminal_offline_finalisation.mjs`. The `.cmd` itself is
   only checked statically: no Windows host in CI.
 

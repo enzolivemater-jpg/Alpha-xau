@@ -28,6 +28,8 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { codeIdentity, describeCode } from './lib/code_identity.mjs';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SERVER = path.join(ROOT, 'scripts', 'serve_terminal_local.mjs');
 const DEFAULT_PORT = 4173;
@@ -104,7 +106,8 @@ export async function probeInstances(port = DEFAULT_PORT, range = DEFAULT_RANGE)
   const found = await Promise.all(ports.map(async (p) => {
     const health = await getJson(p, HEALTH, 800);
     return health && health.app === 'xau-v2-terminal-local' && typeof health.root === 'string' && Number.isSafeInteger(health.pid)
-      ? { port: p, root: health.root, pid: health.pid, args: Array.isArray(health.args) ? health.args.map(String) : null } : null;
+      ? { port: p, root: health.root, pid: health.pid, args: Array.isArray(health.args) ? health.args.map(String) : null,
+        code: health.code && typeof health.code === 'object' ? health.code : null } : null;
   }));
   return found.filter(Boolean);
 }
@@ -175,7 +178,7 @@ async function status(options) {
     say(`aucun terminal lancé depuis ${ROOT} sur les ports ${options.port}–${options.port + options.range - 1}.`);
     return 1;
   }
-  say(`lancé : http://localhost:${instance.port}/ (processus ${instance.pid}, ${ROOT})`);
+  say(`lancé : http://localhost:${instance.port}/ (processus ${instance.pid}, ${ROOT}, code ${describeCode(instance.code)})`);
   return 0;
 }
 
@@ -215,14 +218,21 @@ async function start(options) {
       + ' « --stop » l\'arrête ; relancer ensuite avec les options voulues.');
     return 1;
   }
+  // A server keeps the code it loaded: after the checkout moved (or from a version without this field), it is outdated.
+  const current = codeIdentity(ROOT);
+  if (own && current.commit !== null && own.code?.commit !== current.commit) {
+    fail(`diagnostic : le terminal du port ${own.port} exécute le code ${describeCode(own.code)}, le dossier est à`
+      + ` ${describeCode(current)} : il montrerait une version périmée. « --stop » l'arrête ; relancer ensuite.`);
+    return 1;
+  }
   if (own) {
-    say(`déjà lancé depuis ce dossier sur le port ${own.port} : pas de second serveur.`);
+    say(`déjà lancé depuis ce dossier sur le port ${own.port} (code ${describeCode(own.code)}) : pas de second serveur.`);
     await showBrowser(pageUrl(own.port), options.browser);
     return 0;
   }
   for (const other of running) say(`un autre terminal XAU (${other.root}) occupe le port ${other.port} : un port libre suivant sera pris.`);
 
-  say(`démarrage depuis ${ROOT} (Node ${process.versions.node})…`);
+  say(`démarrage depuis ${ROOT} (Node ${process.versions.node}, code ${describeCode(current)})…`);
   const child = spawn(process.execPath, [SERVER, ...options.server], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   let err = '';

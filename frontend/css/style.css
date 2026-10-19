@@ -873,6 +873,8 @@ body {
 .footbar__item { white-space: nowrap; }
 .footbar__item span { color: var(--text-dim); }
 .footbar__item--right { margin-left: auto; color: var(--major); }
+/* CODE: the commit first, so a narrow footer still shows it; the rest gives way before the other items. */
+.footbar__item--code { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .footbar__item--right[hidden] { display: none; }
 
 /* --------------------------------------------------------------------------
@@ -1438,6 +1440,7 @@ tr[data-status='UNAVAILABLE'] .v2__state-cell { color: var(--down); }
   .scen__levels { grid-template-columns: repeat(2, 1fr); }
   .footbar { gap: var(--sp-1) var(--sp-3); flex-wrap: wrap; flex-basis: auto; padding: var(--sp-1) var(--sp-3); }
   .footbar__item--right { margin-left: 0; }
+  .footbar__item--code { max-width: 100%; }
 }
 
 /* --------------------------------------------------------------------------
