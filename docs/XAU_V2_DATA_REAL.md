@@ -178,6 +178,34 @@ January 6 report on January 16.
 | 2026-10-06 | 2026-10-09 | 2026-10-09T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
 | 2026-10-13 | 2026-10-16 | 2026-10-16T19:30:00.000Z | OFFICIAL_SCHEDULE_INFERRED | Release Schedule |
 
+### Audit of the inferred instants (2026-10-19)
+
+- **Where they matter.** P-0 drops a value published *or received* after the
+  cutoff, so a value is known from max(`publishedAt`, `receivedAt`). For the
+  file received on 2026-10-18 every report is known from that reception,
+  whatever its publication instant: an inferred instant cannot create
+  look-ahead there. It matters in two places:
+  - a declared history (one declaration per past report, received at its
+    publication): an instant inferred *earlier* than the real one is
+    look-ahead;
+  - ages under P-FRESH-CFTC-1.
+- **Observed error of the rule.** January 2026: the tentative schedule says
+  January 9, while PR 9138-25 published the January 6 report on January 16.
+  That is a 7-day error, in the unsafe direction. Holiday delays
+  (2026-06-22, 2026-07-06) are already in the table.
+- **What would prove an instant**, per report (none collected; collecting
+  needs an authorization):
+  1. an official CFTC document pairing the report with its release date
+     (press release, notice of delay);
+  2. the CFTC's own `Last-Modified` / archive timestamp of the weekly files.
+     This only bounds publication from above, as the 2026-10-13 one does
+     (19:28:01 GMT);
+  3. a reception receipt written at capture time, which proves "known by
+     then", never the publication instant.
+- **Until then.** Declarations keep `OFFICIAL_SCHEDULE_INFERRED`. The
+  terminal and `terminal:check-data` say "déclaration seule" / the basis. No
+  inferred instant is turned into an official one.
+
 ## 6. Proposals — NOT ACTIVE, NOT APPROVED (versioned for review)
 
 ### P-FRESH-CFTC-1 — freshness of CFTC COT weekly evidence (proposal)
@@ -211,3 +239,13 @@ January 6 report on January 16.
 
 Both proposals need a named approver and their own version and tests; neither
 changes HOLD / FORBIDDEN.
+
+### Review aid (2026-10-19): benefits, risks, acceptance criteria
+
+| | P-FRESH-CFTC-1 | P-METHOD-CFTC-1 |
+| --- | --- | --- |
+| Benefit | positioning can leave `FRESHNESS_POLICY_NOT_APPROVED`; a stale report blocks instead of being silently old | a bounded, descriptive state the regime / horizon layers can consume once approved |
+| Main risk | an inferred instant (7-day error seen in January) makes an old report look fresh, or a fresh one stale | look-ahead in the back-test if instants are inferred; percentile cut-offs fitted to the sample; gaps filled by mistake |
+| Mitigation in the text | only `EXPLICIT_OFFICIAL_MAPPING` or an approved basis is aged; others stay `NOT_EVALUATED` | only `EVIDENCE_READY` input; gaps are gaps; no direction, size or order |
+| Acceptance criteria | approver named; P-0 v3 with the policy table; tests at the 9-day edge, on holidays and with an inferred basis (NOT_EVALUATED); golden digest change reviewed | approver named; N and cut-offs fixed before the back-test; back-test on reports whose instants are proved; out-of-sample period; tests for gaps and for revisions |
+| Blocked by | the publication-basis decision (accept the schedule rule or not) | P-FRESH-CFTC-1, and the history of proved instants |
