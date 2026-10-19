@@ -35,6 +35,8 @@ const VARIANTS = [
   { name: 'chaine --archive rejeu déplié', hash: 'chaine', archive: true, replayIndex: 2, expand: true },
   // --data-root: the DONNÉES LOCALES panel with both cards (archive log and a CFTC file), synthetic data only.
   { name: 'chaine --data-root sources déplié', hash: 'chaine', data: true, expand: true },
+  // The same panel as it opens (the input document's cards, with its file path), before any choice.
+  { name: 'chaine --data-root document', hash: 'chaine', data: true, keepDefault: true },
 ];
 
 /** Runs in the page: clipped and overflowing elements. */
@@ -49,7 +51,9 @@ function findClipping() {
     const cs = getComputedStyle(e);
     const clipX = ['hidden', 'clip'].includes(cs.overflowX);
     const clipY = ['hidden', 'clip'].includes(cs.overflowY);
-    if ((clipX && e.scrollWidth > e.clientWidth + 1) || (clipY && e.scrollHeight > e.clientHeight + 1)) {
+    // An ellipsis whose full text is in a tooltip is a deliberate cut, not lost content.
+    const deliberate = cs.textOverflow === 'ellipsis' && (e.title || e.querySelector('[title]'));
+    if (!deliberate && ((clipX && e.scrollWidth > e.clientWidth + 1) || (clipY && e.scrollHeight > e.clientHeight + 1))) {
       out.push(`clipped ${e.tagName.toLowerCase()}.${e.className}#${e.id}`);
     }
     // Content inside a scrolling container is reachable, not lost.
@@ -63,6 +67,10 @@ function findClipping() {
     if (!scroller && (box.right > window.innerWidth + 1 || box.left < -1)) {
       out.push(`overflows viewport ${e.tagName.toLowerCase()}.${e.className}#${e.id}`);
     }
+  }
+  // Text can overflow a box that does not clip it (a long path): only the page width shows it.
+  if (document.documentElement.scrollWidth > window.innerWidth + 1) {
+    out.push(`page scrolls sideways (${document.documentElement.scrollWidth} px for ${window.innerWidth})`);
   }
   return [...new Set(out)];
 }
@@ -166,7 +174,7 @@ async function main() {
         const page = await browser.newPage({ viewport: { width, height } });
         await page.goto(`${variant.data ? dataBase : variant.archive ? archiveBase : base}#${variant.hash}`, { waitUntil: 'load' });
         await page.waitForTimeout(800);
-        if (variant.data) {
+        if (variant.data && !variant.keepDefault) {
           await page.selectOption('#v2-data-market', 'log:evidence:synthetic-log');
           await page.selectOption('#v2-data-positioning', 'cot:gold-synthetic.csv');
           await page.waitForTimeout(600);
