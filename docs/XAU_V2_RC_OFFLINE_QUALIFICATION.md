@@ -34,7 +34,7 @@ documents; it changes no backend, frontend, SQL or fixture.
 | 4 | Terminal shows provenance, simulated/observed distinction, cutoff and 12 stages; invalid evidence and altered receipts give no actionable signal | PASS in Chromium 129; other browsers not checked | `test_terminal_local`, `test_terminal_view`, `test_terminal_input_provenance` (B4), `test_positioning_freshness_gate` (B5), `test_unified_receipt_gate`, layout check 30/30 at 320–1440 px |
 | 5 | Absent actual evidence stays PENDING / UNVERIFIED; no supplier request, migration, broker or order | PASS | replay `INCOMPLETE` on real captures, `CAPTURED_ARCHIVE` labelled "non certifiée", P-0 never ready, CHAIN mutation sweep 2,762 inputs always HOLD/FORBIDDEN, no network in tests |
 | 6 | `main` unchanged, no PR merged, no deploy | PASS | `main` = `ec9cde542d6b51b68391462ee8fa474e650b389f` locally and on GitHub; PRs #155/#156 draft and open |
-| — | Published handoff and residual risk register | PASS on this branch (not published) | `docs/XAU_V2_NIGHT_HANDOFF.md` (rows 34–40), this file |
+| — | Published handoff and residual risk register | PASS on this branch (not published) | `docs/XAU_V2_AGENT_HANDOFF.md` (rows 34–40), this file |
 
 ## E2E blockers from the offline qualification of `44b08b9`
 

@@ -2,8 +2,8 @@
 
 Status: `LOCAL TOOL — DRY_RUN BY DEFAULT — NOT SCHEDULED`
 
-`scripts/recon_auto.mjs` integrates explicitly declared branches (Claude Cloud
-PRs, local WSL branches) onto an explicitly declared canonical candidate in a
+`scripts/recon_auto.mjs` integrates explicitly declared branches (`XAU V2 —
+CLOUD DEVELOPMENT` PRs, `XAU V2 — LOCAL DEVELOPMENT` WSL branches) onto an explicitly declared canonical candidate in a
 throwaway worktree, and reports PASS, CONFLICT or BLOCKED with the evidence.
 It reuses the repository's own checks (`tests/test_ci_inventory.mjs`, `tsc
 --noEmit`, `scripts/run_ci_tests.mjs`) and the O_EXCL lock convention of
