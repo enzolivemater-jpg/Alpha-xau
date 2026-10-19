@@ -271,6 +271,22 @@ await settle();
 assert.equal(d.getElementById('v2-cutoff').textContent, '2026-09-25T19:45:00.000Z');
 assert.doesNotMatch(d.getElementById('v2-positioning-evidence').textContent, /APRÈS LE CUTOFF/, 'the report is known at that instant');
 assert.equal(d.getElementById('v2-state').textContent.includes('HOLD'), true);
+// Before that instant the report is shown, set aside, with the instant from which it is known.
+{
+  const v = await view(null, { market: 'log:evidence:fred-log', positioning: 'cot:gold.csv', cutoff: '2026-09-25T19:44:59.999Z' });
+  const early = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/#chaine' });
+  early.window.fetch = async (url) => ({ ok: String(url).startsWith(VIEW_PATH), status: String(url).startsWith(VIEW_PATH) ? 200 : 404,
+    json: async () => structuredClone(v) });
+  early.window.ALPHA_XAU_CONFIG = { SUPABASE_URL: '', SUPABASE_ANON_KEY: '', ANALYSIS_INTERVAL_MS: 1e6, V2_VIEW_URL: VIEW_PATH };
+  const sc = early.window.document.createElement('script');
+  sc.textContent = js;
+  early.window.document.body.appendChild(sc);
+  await settle();
+  const head = early.window.document.querySelector('#v2-positioning-evidence .v2__pos-group-head');
+  assert.equal(head.getAttribute('data-after-cutoff'), 'true');
+  assert.match(head.textContent, /reçu 2026-09-25 19:45:00Z · APRÈS LE CUTOFF : écartée \(connue à partir du 2026-09-25 19:45:00Z\)$/, head.textContent);
+  early.window.close();
+}
 // Back to the document's positioning: that instant is no longer offered, the server cutoff applies again.
 change(dom, d.getElementById('v2-data-positioning'), 'input');
 await settle();

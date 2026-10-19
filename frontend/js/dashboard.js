@@ -2121,6 +2121,12 @@ let pollTimer = null;
    * 4.6.0 : les preuves de positionnement brutes, groupées par rapport. Des faits (valeur, unité, période,
    * instants, source), jamais une lecture : aucun net, ratio, rang ni direction n'est calculé.
    */
+  /** Instant à partir duquel P-0 connaît un rapport : publié et reçu (le plus tardif des deux). */
+  const knownFrom = (r) => {
+    const at = [r.publishedAt, r.observedAt].filter((x) => isText(x) && UTC_INSTANT.test(x));
+    return at.length === 2 ? (Date.parse(at[1]) > Date.parse(at[0]) ? at[1] : at[0]) : null;
+  };
+
   function renderPositioningEvidence(pos) {
     const rows = pos && isList(pos.evidence) ? pos.evidence : [];
     el.v2PositioningEvidence.hidden = rows.length === 0;
@@ -2142,7 +2148,8 @@ let pollTimer = null;
       const after = items.some((i) => i.afterCutoff === true);
       wrap.appendChild(node('p', 'v2__pos-group-head', `${String(head.sourceAuthority).toUpperCase()} · ${head.datasetCode} · ${head.instrumentCode}`
         + ` · rapport du ${head.periodEnd} · publié ${instant(head.publishedAt)} · reçu ${instant(head.observedAt)}`
-        + `${after ? ' · APRÈS LE CUTOFF : écartée' : ''}`, { 'data-after-cutoff': String(after) }));
+        + `${after ? ` · APRÈS LE CUTOFF : écartée${knownFrom(head) ? ` (connue à partir du ${instant(knownFrom(head))})` : ''}` : ''}`,
+        { 'data-after-cutoff': String(after) }));
       const list = node('ul', 'v2__pos-list');
       for (const i of items) {
         const li = node('li', '');
