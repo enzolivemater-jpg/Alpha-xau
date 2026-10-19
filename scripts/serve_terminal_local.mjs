@@ -64,7 +64,8 @@ export const CATALOG_PATH = '/local/v2/catalog.json';
 /** Size bound of that list (a page bound, not a market rule): the latest instants are kept. */
 export const MAX_ARCHIVE_CUTOFFS = 500;
 /** Market fields of a DATA-1 archive, in MP-0 order. */
-const ARCHIVE_FIELDS = ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti'];
+/** The market fields a replay reads (MP-1 order); a VERIFIED replay needs every one of them. */
+export const ARCHIVE_FIELDS = ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti'];
 const VIEW_URL_PLACEHOLDER = "V2_VIEW_URL: '',";
 const SCENARIOS_URL_PLACEHOLDER = "V2_SCENARIOS_URL: '',";
 const CUTOFFS_URL_PLACEHOLDER = "V2_ARCHIVE_CUTOFFS_URL: '',";

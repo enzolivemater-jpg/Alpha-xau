@@ -38,7 +38,7 @@ copyFileSync(REPOSITORY_OFFICIAL_RELEASES[3], path.join(good, 'official', 'cpi.j
 let r = await checkData(good);
 assert.deepEqual(r.problems, []);
 const text = r.lines.join('\n');
-assert.match(text, /log:evidence:log-a : 1 enregistrement\(s\), champs us10y/);
+assert.match(text, /log:evidence:log-a : 1 enregistrement\(s\), champs us10y \(absents : spot, bid, ask, dxy, realYield, vix, wti\)/);
 // A hand-written DATA-1 archive is not a capture log: the merge refuses it, and the check says so.
 const notLog = root();
 mkdirSync(path.join(notLog, 'evidence', 'hand-written'), { recursive: true });

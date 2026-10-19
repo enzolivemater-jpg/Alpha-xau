@@ -17,7 +17,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { buildLocalView } from './serve_terminal_local.mjs';
+import { ARCHIVE_FIELDS, buildLocalView } from './serve_terminal_local.mjs';
 
 export function parseArgs(argv) {
   const options = { dataRoot: path.join(homedir(), '.local', 'share', 'xau-v2'), json: false };
@@ -38,7 +38,9 @@ export async function checkData(dataRoot) {
   lines.push(`marché : ${market.length} source(s)`);
   for (const m of market) {
     const v = m.validation;
-    lines.push(`  - ${m.id} : ${m.records} enregistrement(s), champs ${m.fields.join(', ') || 'aucun'}, `
+    // The fields a replay reads that this source never holds (a VERIFIED replay needs all of them).
+    const absent = ARCHIVE_FIELDS.filter((f) => !m.fields.includes(f));
+    lines.push(`  - ${m.id} : ${m.records} enregistrement(s), champs ${m.fields.join(', ') || 'aucun'} (absents : ${absent.join(', ') || 'aucun'}), `
       + `observé ${m.observed ? `${m.observed.first} → ${m.observed.last}` : '—'}, rejeu ${v ? `${v.status}${v.nature ? `/${v.nature}` : ''}` : '—'}`
       + `${v && v.reasonCodes.length ? ` (${v.reasonCodes.join(', ')})` : ''}${m.problems.length ? ` ; problèmes : ${m.problems.join(', ')}` : ''}`);
     if (m.problems.length || (v && v.status === 'INVALID')) problems.push(`${m.id} : ${m.problems.join(', ') || 'archive rejetée au rejeu'}`);
