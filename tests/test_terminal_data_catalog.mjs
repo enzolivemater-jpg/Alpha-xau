@@ -307,6 +307,20 @@ dom.window.close();
 assert.equal(d.getElementById('v2-data-market').value, 'input');
 assert.ok(asked.filter((u) => u.startsWith(VIEW_PATH)).every((u) => u === VIEW_PATH), asked.join());
 dom.window.close();
+// The publication basis is shown as declared: an inferred date is never presented as an official one.
+for (const [kind, expected] of [
+  ['OFFICIAL_SCHEDULE_INFERRED', /Base de la date de publicationDÉDUITE du calendrier officiel provisoire \(non prouvée pour ce rapport\) — https:\/\/www\.cftc\.gov\/x/],
+  ['EXPLICIT_OFFICIAL_MAPPING', /Base de la date de publicationdocument officiel associant ce rapport à sa date — https:\/\/www\.cftc\.gov\/x/],
+]) {
+  const withBasis = { ...catalog, positioning: catalog.positioning.map((x) => (x.id === 'cot:gold.csv'
+    ? { ...x, publicationBasis: { kind, reference: 'https://www.cftc.gov/x' } } : x)) };
+  ({ dom, d } = await render('#chaine/donnees/log:evidence:fred-log/cot:gold.csv', withBasis));
+  await settle();
+  const text = d.getElementById('v2-data-card-positioning').textContent;
+  assert.match(text, expected, text);
+  if (kind === 'OFFICIAL_SCHEDULE_INFERRED') assert.doesNotMatch(text, /document officiel associant/);
+  dom.window.close();
+}
 // Nothing to choose (input only): no panel.
 ({ dom, d } = await render('#chaine', { ...catalog, market: [catalog.market[0]], positioning: [catalog.positioning[0]], events: [catalog.events[0]], notes: [] }));
 assert.equal(d.getElementById('v2-data-wrap').hidden, true);
