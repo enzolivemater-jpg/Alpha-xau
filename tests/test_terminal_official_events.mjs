@@ -145,6 +145,29 @@ assert.match(d.getElementById('v2-data-card-events').textContent, /US_CPI 2026-0
 assert.notEqual(d.getElementById('v2-status').getAttribute('data-state'), 'rejected');
 assert.doesNotMatch(d.getElementById('v2-official-events').textContent, /BULL|BEAR|haussier|baissier|\bachat\b|\bvente\b/i);
 dom.window.close();
+// At an earlier cutoff, the releases published after it are listed as not yet published, and excluded.
+{
+  const early = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/#chaine' });
+  early.window.fetch = async (url) => {
+    const u = String(url);
+    const json = (b) => ({ ok: b !== null, status: b === null ? 404 : 200, json: async () => structuredClone(b) });
+    if (u === CATALOG_PATH) return json(catalog);
+    if (u.startsWith(VIEW_PATH)) return json(await view(null, { events: 'official:repository', cutoff: '2026-09-20T00:00:00.000Z' }));
+    return json(null);
+  };
+  early.window.ALPHA_XAU_CONFIG = { SUPABASE_URL: '', SUPABASE_ANON_KEY: '', ANALYSIS_INTERVAL_MS: 1e6, V2_VIEW_URL: VIEW_PATH, V2_CATALOG_URL: CATALOG_PATH };
+  const s2 = early.window.document.createElement('script');
+  s2.textContent = js;
+  early.window.document.body.appendChild(s2);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const lis = [...early.window.document.querySelectorAll('#v2-official-events-list li')];
+  const byState = (state) => lis.filter((li) => li.getAttribute('data-state') === state).map((li) => li.textContent);
+  assert.equal(byState('known').length, 4);
+  assert.deepEqual(byState('pending').map((t) => t.replace(/ · .*/, '')), ['US_PCE 2026-08', 'US_JOBLESS_CLAIMS semaine au 2026-09-26']);
+  assert.ok(byState('pending').every((t) => /PAS ENCORE PUBLIÉE au cutoff : exclue/.test(t)), byState('pending').join(' | '));
+  assert.match(byState('pending')[0], /publiée 2026-09-30 12:30:00Z/);
+  early.window.close();
+}
 // A view that lists official releases while its provenance says otherwise is refused.
 {
   const forged = structuredClone(after);
