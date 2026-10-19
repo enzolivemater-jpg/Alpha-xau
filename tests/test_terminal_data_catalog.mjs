@@ -136,6 +136,10 @@ const withOptions = await buildLocalView({ dataRoot: ROOT, capturesDir: path.joi
     reportDate: '2026-09-22', dataset: 'FUTURES_ONLY' } });
 assert.deepEqual(withOptions.catalog().defaults, { market: 'merged:evidence', positioning: 'cli-cot', events: 'input' });
 assert.equal(withOptions.catalog().market.filter((x) => x.kind === 'CAPTURES_MERGED').length, 1, 'the same directory is listed once');
+// The server's own positioning (--positioning-cot) also gives its knowledge instant when the page sends no id.
+assert.deepEqual(withOptions.archiveCutoffs().knownAt, [{ at: '2026-09-25T19:45:00.000Z', input: 'POSITIONING', source: 'cli-cot', reportDate: '2026-09-22' }]);
+assert.ok(withOptions.archiveCutoffs().cutoffs.includes('2026-09-25T19:45:00.000Z'));
+assert.equal(view.archiveCutoffs('log:evidence:fred-log').knownAt, undefined, 'the document positioning (input) adds nothing');
 console.log('PASS the chosen sources drive the view (HOLD / FORBIDDEN); unknown ids, paths, or a scenario with data are refused');
 
 // ---- HTTP.
@@ -288,6 +292,14 @@ assert.equal(d.getElementById('v2-data-market').value, 'log:evidence:fred-log');
 assert.equal(d.getElementById('v2-data-positioning').value, 'cot:gold.csv');
 assert.ok(asked.some((u) => u.startsWith(VIEW_PATH) && u.includes('market=log%3Aevidence%3Afred-log') && u.includes('positioning=cot%3Agold.csv')
   && u.includes('cutoff=2026-10-01T06%3A00%3A00.000Z')), asked.join());
+dom.window.close();
+// An anchor on the instant the CFTC report becomes known comes back too (it is offered for that positioning).
+({ dom, d, asked } = await render('#chaine/donnees/log:evidence:fred-log/cot:gold.csv/rejeu/2026-09-25T19:45:00.000Z'));
+await settle();
+assert.equal(d.getElementById('v2-replay-cutoff').value, '2026-09-25T19:45:00.000Z');
+assert.equal(d.getElementById('v2-cutoff').textContent, '2026-09-25T19:45:00.000Z');
+assert.doesNotMatch(d.getElementById('v2-positioning-evidence').textContent, /APRÈS LE CUTOFF/);
+assert.equal(dom.window.location.hash, '#chaine/donnees/log:evidence:fred-log/cot:gold.csv/rejeu/2026-09-25T19:45:00.000Z');
 dom.window.close();
 ({ dom, d, asked } = await render('#chaine/donnees/log:evidence:gone/cot:gold.csv'));
 assert.equal(d.getElementById('v2-data-market').value, 'input');

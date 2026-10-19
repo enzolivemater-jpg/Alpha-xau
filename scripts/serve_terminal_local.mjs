@@ -531,7 +531,8 @@ export async function buildLocalView({
   render.archiveCutoffs = (marketId = null, positioningId = null) => {
     const source = market.get(marketId ?? defaultMarket);
     if (!source || source.load === null) return null;
-    const pos = positioningId === null ? null : positioning.get(positioningId);
+    // Without an id: the server's own positioning source (e.g. --positioning-cot), as the view does.
+    const pos = positioning.get(positioningId ?? defaultPositioning);
     if (pos === undefined) return undefined;
     const document = readChainDocument(inputFile);
     const list = withPositioningKnownAt(archiveCutoffsOf(source.load(), defaultCutoffOf(source, document), capturedFields), pos);
