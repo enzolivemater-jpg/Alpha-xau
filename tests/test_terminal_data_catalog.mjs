@@ -98,6 +98,7 @@ assert.deepEqual(p['cot:f_disagg.zip'].reasonCodes, ['UNSUPPORTED_FORMAT']);
 assert.match(p['cot:f_disagg.zip'].detail, /archive ZIP/);
 assert.deepEqual(p['cot:legacy.txt'].reasonCodes, ['UNSUPPORTED_LAYOUT']);
 assert.match(catalog.notes.join(), /nom de fichier non pris en charge \("odd name\.csv"\)/);
+assert.ok(catalog.notes.includes('CAPTURE_LOG_WITHOUT_ARCHIVE:evidence/empty-dir'), 'a capture directory without archive.json is named');
 assert.ok(!JSON.stringify(catalog).includes(ROOT), 'no path reaches the page');
 const dirOnly = await readPositioningDir(path.join(ROOT, 'missing'));
 assert.match(dirOnly.problem, /POSITIONING_DIR_UNREADABLE/);
@@ -235,6 +236,7 @@ const change = (dom, el, value) => { el.value = value; el.dispatchEvent(new dom.
 let { dom, d, asked } = await render('#chaine');
 assert.equal(d.getElementById('v2-data-wrap').hidden, false);
 assert.deepEqual([...d.querySelectorAll('#v2-data-market option')].map((o) => o.value), catalog.market.map((x) => x.id));
+assert.match(d.getElementById('v2-data-hint').textContent, /dossier de capture sans archive\.json \(evidence\/empty-dir\) : ignoré, ses données manquent à la fusion/);
 assert.match(d.getElementById('v2-data-card-market').textContent, /document d'entrée/);
 assert.ok(!asked.some((u) => u.startsWith(ARCHIVE_CUTOFFS_PATH)), 'the input document has no replay cutoffs to ask');
 change(dom, d.getElementById('v2-data-market'), 'log:evidence:fred-log');

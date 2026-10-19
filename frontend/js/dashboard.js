@@ -2017,7 +2017,8 @@ let pollTimer = null;
       if (notes.length) {
         setText(el.v2DataHint, `${el.v2DataHint.textContent} À savoir : ${notes.map((n) => V2_DATA_NOTES[n] || (/^POSITIONING_DIR_UNREADABLE/.test(n)
           ? `dossier positioning/ illisible (${n.split(':')[1] || '?'})`
-          : /^EVENTS_SOURCE_UNKNOWN:/.test(n) ? `source d'événements inconnue (${n.slice(22)}) : celle du document est utilisée` : n)).join(' ; ')}.`);
+          : /^EVENTS_SOURCE_UNKNOWN:/.test(n) ? `source d'événements inconnue (${n.slice(22)}) : celle du document est utilisée`
+            : /^CAPTURE_LOG_WITHOUT_ARCHIVE:/.test(n) ? `dossier de capture sans archive.json (${n.slice(28)}) : ignoré, ses données manquent à la fusion` : n)).join(' ; ')}.`);
       }
       el.v2DataMarket.hidden = market.length < 2;
       el.v2DataPositioning.hidden = positioning.length < 2;

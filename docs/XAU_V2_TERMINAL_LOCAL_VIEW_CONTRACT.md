@@ -457,7 +457,14 @@ market capture could never be seen as known: every offered cutoff came before
 it. The page asks with the chosen positioning, labels that instant
 « POSITIONNEMENT connu (rapport CFTC du …) », reloads the list when the
 positioning changes and returns to the server cutoff when the chosen instant
-is no longer offered. An unknown positioning id is 404. Defaults: `--archive` → `archive`, `--captures` → its merge,
+is no longer offered. An unknown positioning id is 404. Without a positioning id, the
+server's own positioning source applies (as for the view).
+
+A sub-directory of a captures directory (`--captures`, `<data root>/evidence`)
+without `archive.json` is neither merged nor listed; the catalog names it in
+`notes` (`CAPTURE_LOG_WITHOUT_ARCHIVE:<dir>/<name>`), the page explains it and
+`terminal:check-data` counts it as a point to fix: its data would otherwise be
+missing from the merge without a word. Defaults: `--archive` → `archive`, `--captures` → its merge,
 `--positioning-cot` → `cli-cot`, otherwise `input`. A capture log or merge
 replays at its last reception unless `--cutoff` or a chosen instant says
 otherwise. Everything is read once at start (restart to see new files).

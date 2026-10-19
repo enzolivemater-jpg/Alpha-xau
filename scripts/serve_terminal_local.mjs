@@ -324,6 +324,16 @@ export async function readPositioningDir(dir) {
   return { entries, problem: null };
 }
 
+/** Sub-directories of a captures directory that hold no archive.json (safe names only; others are not listed). */
+function captureDirsWithoutArchive(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && SAFE_NAME.test(d.name)
+      && !existsSync(path.join(dir, d.name, 'archive.json'))).map((d) => d.name).sort();
+  } catch {
+    return [];
+  }
+}
+
 /** Each capture log of a directory, read on its own (no merge). */
 function readCaptureLogs(dir) {
   try {
@@ -383,6 +393,8 @@ export async function buildLocalView({
   }
   for (const { dir, merged } of captureDirs) {
     const tag = SAFE_NAME.test(path.basename(dir)) ? path.basename(dir) : 'captures';
+    // A capture directory without archive.json is left out of the merge and of the list: say so, never silently.
+    for (const name of captureDirsWithoutArchive(dir)) dataNotes.push(`CAPTURE_LOG_WITHOUT_ARCHIVE:${tag}/${name}`);
     const mergedArchive = merged.archive;
     market.set(`merged:${tag}`, { id: `merged:${tag}`, kind: 'CAPTURES_MERGED',
       label: `captures ${tag} (${merged.sources} journal(aux) fusionné(s))`, load: () => (mergedArchive === null ? null : structuredClone(mergedArchive)),
