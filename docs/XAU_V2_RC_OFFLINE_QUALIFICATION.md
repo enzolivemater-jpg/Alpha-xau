@@ -113,6 +113,18 @@ broker and trading.
 - PR #160 (agent naming) renames `docs/XAU_V2_NIGHT_HANDOFF.md`, which #161 extends: the PR
   landed second needs a trivial rebase.
 
+## Local commits after the published candidate (not CI-qualified)
+
+Last SHA qualified on GitHub: `0fd973dd72719e6571a2960666b4f982060d3373` (PR #161 head,
+run `39247558521`, 11/11; `adae6fa` + this file). The commits below are local only. Publishing
+them needs an authorization; their evidence is local until then.
+
+| Commit | Change | Local evidence |
+|---|---|---|
+| `fa467ed` | Replay cutoffs reach the instant a CFTC report becomes known (`knownAt`) | `test_terminal_data_catalog` (3 mutants killed); Chromium on the real data: 6th instant 2026-10-18T21:44:42.077Z, 14 CFTC values known, HOLD |
+| `12bdca1` | `terminal:check-data` prints reception and « connu à partir de » | `test_terminal_data_check` |
+| `77413ab` | Audit of the inferred CFTC instants; P-FRESH / P-METHOD review aid (docs) | — |
+
 ## Capability matrix (candidate `adae6fa`, 2026-10-19)
 
 VERIFIED = shown by evidence on this SHA; BLOCKED = needs a decision or data that is not
@@ -134,6 +146,8 @@ every path stays HOLD / FORBIDDEN.
 | Positioning method / freshness | BLOCKED | P-FRESH-CFTC-1, P-METHOD-CFTC-1 not approved: signal UNAVAILABLE |
 | Official releases → EI / GT at the chain cutoff | VERIFIED | 6/7 read; each `publishedAt` equals its document's release line (8:30 a.m. EDT = 12:30Z); at 2026-09-20 two later releases are « pas encore publiées »; Event Impact / Gold Transmission INSUFFICIENT_EVIDENCE |
 | BLS Employment Situation July 2026 | VERIFIED (rejected on purpose) | `averageHourlyEarningsMom` absent from the document: REQUIRED_OFFICIAL_EVIDENCE_UNAVAILABLE, no value made up |
+| Authentic CFTC values reachable at their knowledge instant | VERIFIED locally (not CI) | `fa467ed`: the replay offers 2026-10-18T21:44:42.077Z; at that cutoff P-0 keeps the 14 values, 1 ms before it flags them |
+| Local captures: no API key stored, raw bodies private | VERIFIED (2026-10-19) | no `api_key` / `apikey` / `token=` in `~/.local/share/xau-v2`; capture directories 700, raw bodies 600; DATA-3 validator 115/115 (payload digests, values re-read from bytes) |
 | Real market replay (local captures) | BLOCKED | 39 records readable, `publishedAt` absent everywhere, coverage not declared: INCOMPLETE; DATA-3 capture decisions, DXY / bid-ask sources |
 | Provenance labels and cutoff alignment | VERIFIED | MARKET CAPTURED_ARCHIVE, POSITIONING / EVENTS LOCAL_INPUT_UNVERIFIED, AUTHORIZATIONS SYNTHETIC_FIXTURE; cutoffs aligned at every offered replay instant |
 | Merge, deploy, production, trading | OUT OF SCOPE | not authorized |
