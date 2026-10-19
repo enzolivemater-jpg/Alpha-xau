@@ -250,6 +250,15 @@ const START_NOTES = {
   POSITIONING_DIR_ABSENT: 'pas de dossier positioning/ (fichiers CFTC : déposer le fichier puis node scripts/cot_declare.mjs)',
 };
 
+/** One catalog note in plain words for the start line; an unknown note is shown as is. */
+export function startNoteText(note) {
+  if (START_NOTES[note]) return START_NOTES[note];
+  if (note.startsWith('CAPTURE_LOG_WITHOUT_ARCHIVE:')) {
+    return `dossier de capture sans archive.json (${note.slice(28)}) : ignoré, ses données manquent à la fusion`;
+  }
+  return note;
+}
+
 /** A source identifier the page may send: never a path, only what the catalog lists. */
 const SOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -911,7 +920,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         const read = catalog.positioning.filter((p) => p.kind === 'CFTC_FILE');
         lines.push(`données locales de ${serverOptions.dataRoot} : ${catalog.market.length - 1} source(s) de marché, `
           + `${read.length} fichier(s) CFTC (${read.filter((p) => p.status === 'EXTRACTED').length} lu(s)), à choisir dans « DONNÉES LOCALES »`
-          + `${catalog.notes.length ? ` ; ${catalog.notes.map((note) => START_NOTES[note] ?? note).join(' ; ')}` : ''}`);
+          + `${catalog.notes.length ? ` ; ${catalog.notes.map(startNoteText).join(' ; ')}` : ''}`);
       }
       {
         const catalog = server.terminalView.catalog();

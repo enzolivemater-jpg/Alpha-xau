@@ -16,7 +16,7 @@ import { JSDOM } from 'jsdom';
 import { loadBackendModule } from '../scripts/lib/backend_module_loader.mjs';
 import {
   ARCHIVE_CUTOFFS_PATH, CATALOG_PATH, SCENARIOS_PATH, VIEW_PATH,
-  buildLocalView, createTerminalServer, listenOnLoopback, parseArgs, readPositioningDir,
+  buildLocalView, createTerminalServer, listenOnLoopback, parseArgs, readPositioningDir, startNoteText,
 } from '../scripts/serve_terminal_local.mjs';
 import { LOCAL_DATA_ROOT, parseArgs as launcherArgs } from '../scripts/terminal_launch.mjs';
 
@@ -99,6 +99,10 @@ assert.match(p['cot:f_disagg.zip'].detail, /archive ZIP/);
 assert.deepEqual(p['cot:legacy.txt'].reasonCodes, ['UNSUPPORTED_LAYOUT']);
 assert.match(catalog.notes.join(), /nom de fichier non pris en charge \("odd name\.csv"\)/);
 assert.ok(catalog.notes.includes('CAPTURE_LOG_WITHOUT_ARCHIVE:evidence/empty-dir'), 'a capture directory without archive.json is named');
+assert.equal(startNoteText('CAPTURE_LOG_WITHOUT_ARCHIVE:evidence/empty-dir'),
+  'dossier de capture sans archive.json (evidence/empty-dir) : ignoré, ses données manquent à la fusion');
+assert.equal(startNoteText('EVIDENCE_DIR_ABSENT'), 'pas de dossier evidence/ (journaux de capture)');
+assert.equal(startNoteText('SOMETHING_NEW'), 'SOMETHING_NEW');
 assert.ok(!JSON.stringify(catalog).includes(ROOT), 'no path reaches the page');
 const dirOnly = await readPositioningDir(path.join(ROOT, 'missing'));
 assert.match(dirOnly.problem, /POSITIONING_DIR_UNREADABLE/);
