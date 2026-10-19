@@ -2058,6 +2058,7 @@ let pollTimer = null;
         v2Positioning = el.v2DataPositioning.value || null;
         renderDataCards();
         writeChoiceToHash();
+        loadArchiveCutoffs(v2Market);
         refreshV2();
       });
       if (requestedChoice && requestedChoice.kind === 'donnees'
@@ -2192,7 +2193,13 @@ let pollTimer = null;
       if (!source || source.replayable !== true) return;
     }
     try {
-      const url = marketId === null ? CONFIG.V2_ARCHIVE_CUTOFFS_URL : `${CONFIG.V2_ARCHIVE_CUTOFFS_URL}?market=${encodeURIComponent(marketId)}`;
+      // Le positionnement choisi (s'il n'est pas celui du serveur) : son instant de connaissance est proposé aussi.
+      const params = [];
+      if (marketId !== null) params.push(`market=${encodeURIComponent(marketId)}`);
+      if (v2Catalog !== null && v2Positioning !== null && v2Positioning !== v2Catalog.defaults.positioning) {
+        params.push(`positioning=${encodeURIComponent(v2Positioning)}`);
+      }
+      const url = `${CONFIG.V2_ARCHIVE_CUTOFFS_URL}${params.length ? `?${params.join('&')}` : ''}`;
       const response = await fetch(url, { headers: { accept: 'application/json' } });
       if (request !== cutoffsRequest) return;
       if (!response.ok) return;
@@ -2218,15 +2225,29 @@ let pollTimer = null;
       const received = new Map((isList(list.receptions) ? list.receptions : [])
         .filter((r) => r && typeof r.at === 'string' && isList(r.fields))
         .map((r) => [r.at, r.fields.filter((f) => typeof f === 'string' && /^[A-Za-z0-9]{1,16}$/.test(f))]));
-      instants.forEach((at, i) => {
+      // Instants où une autre entrée devient connue (rapport CFTC publié et reçu) : pas une réception du marché.
+      const known = new Map((isList(list.knownAt) ? list.knownAt : [])
+        .filter((k) => k && typeof k.at === 'string' && UTC_INSTANT.test(k.at) && k.input === 'POSITIONING')
+        .map((k) => [k.at, isText(k.reportDate) && /^\d{4}-\d{2}-\d{2}$/.test(k.reportDate) ? k.reportDate : null]));
+      const receptionsOnly = instants.filter((at) => !known.has(at) || received.has(at));
+      instants.forEach((at) => {
         const fields = received.get(at);
-        options.push(node('option', '', `${at.replace('T', ' ')} — réception ${i + 1}/${instants.length}`
-          + `${fields && fields.length ? ` · ${fields.map((f) => f.toUpperCase()).join(', ')}` : ''}`, { value: at }));
+        const i = receptionsOnly.indexOf(at);
+        const parts = [];
+        if (i >= 0) parts.push(`réception ${i + 1}/${receptionsOnly.length}${fields && fields.length ? ` · ${fields.map((f) => f.toUpperCase()).join(', ')}` : ''}`);
+        if (known.has(at)) parts.push(`POSITIONNEMENT connu${known.get(at) ? ` (rapport CFTC du ${known.get(at)})` : ''}`);
+        options.push(node('option', '', `${at.replace('T', ' ')} — ${parts.join(' · ')}`, { value: at }));
       });
       el.v2ReplayCutoff.replaceChildren(...options);
-      setText(el.v2ReplayCutoffHint, `${instants.length} instant${instants.length > 1 ? 's' : ''} de réception de l'archive${list.truncated === true ? ' (les plus récents)' : ''} : `
+      setText(el.v2ReplayCutoffHint, `${receptionsOnly.length} instant${receptionsOnly.length > 1 ? 's' : ''} de réception de l'archive${list.truncated === true ? ' (les plus récents)' : ''}`
+        + `${known.size ? ` et ${known.size} instant où le positionnement choisi devient connu (publié et reçu)` : ''} : `
         + 'chaque rejeu ne connaît que les données reçues à cet instant. Les autres entrées restent celles du document : '
         + 'un cutoff différent du leur est signalé comme incohérence. HOLD, exécution interdite.');
+      // Le cutoff choisi reste appliqué s'il est encore proposé ; sinon retour au cutoff du serveur.
+      if (v2ReplayCutoff !== null) {
+        if (instants.includes(v2ReplayCutoff)) el.v2ReplayCutoff.value = v2ReplayCutoff;
+        else { v2ReplayCutoff = null; writeChoiceToHash(); refreshV2(); }
+      }
       el.v2ReplayCutoffWrap.hidden = false;
       renderArchiveAvailability(list.fields);
       el.v2ReplayCutoff.disabled = v2Scenario !== null;

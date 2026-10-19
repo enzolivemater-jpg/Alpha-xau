@@ -448,7 +448,16 @@ report date, declared instants, metric count, artifact digest, reasons;
 catalog ids only (`?market=`, `?positioning=`, with `?cutoff=` for an archive
 source); anything else is 400, an unknown id 404, a scenario with a data
 source 400. `archive-cutoffs.json?market=<id>` lists that source's replay
-instants. Defaults: `--archive` → `archive`, `--captures` → its merge,
+instants. With `&positioning=<id>` of a CFTC file whose report was extracted,
+the instant from which that report is known — the latest `publishedAt` /
+`observedAt` of its values, P-0's own rule — is merged into `cutoffs` and
+listed in `knownAt` (`{ at, input: 'POSITIONING', source, reportDate }`);
+`receptions` stay the market's. Without it a report received after the last
+market capture could never be seen as known: every offered cutoff came before
+it. The page asks with the chosen positioning, labels that instant
+« POSITIONNEMENT connu (rapport CFTC du …) », reloads the list when the
+positioning changes and returns to the server cutoff when the chosen instant
+is no longer offered. An unknown positioning id is 404. Defaults: `--archive` → `archive`, `--captures` → its merge,
 `--positioning-cot` → `cli-cot`, otherwise `input`. A capture log or merge
 replays at its last reception unless `--cutoff` or a chosen instant says
 otherwise. Everything is read once at start (restart to see new files).

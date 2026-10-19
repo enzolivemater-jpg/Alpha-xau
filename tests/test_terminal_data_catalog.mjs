@@ -165,6 +165,21 @@ try {
   assert.equal((await get(port, `${ARCHIVE_CUTOFFS_PATH}?market=log:evidence:fred-log`)).status, 200);
   assert.equal((await get(port, `${ARCHIVE_CUTOFFS_PATH}?market=input`)).status, 404);
   assert.equal((await get(port, `${ARCHIVE_CUTOFFS_PATH}?market=a/b`)).status, 400);
+  // With a CFTC positioning source: the instant its report is known (published and received) is offered too.
+  const withCot = JSON.parse((await get(port, `${ARCHIVE_CUTOFFS_PATH}?market=log:evidence:fred-log&positioning=cot:gold.csv`)).body);
+  assert.deepEqual(withCot.cutoffs, ['2026-09-25T19:45:00.000Z', '2026-10-01T06:00:00.000Z']);
+  assert.deepEqual(withCot.knownAt, [{ at: '2026-09-25T19:45:00.000Z', input: 'POSITIONING', source: 'cot:gold.csv', reportDate: '2026-09-22' }]);
+  assert.deepEqual(withCot.receptions.map((r) => r.at), ['2026-10-01T06:00:00.000Z'], 'receptions stay the market ones');
+  const noCot = JSON.parse((await get(port, `${ARCHIVE_CUTOFFS_PATH}?market=log:evidence:fred-log&positioning=cot:legacy.txt`)).body);
+  assert.deepEqual([noCot.cutoffs, noCot.knownAt], [['2026-10-01T06:00:00.000Z'], undefined], 'a rejected file adds nothing');
+  assert.equal((await get(port, `${ARCHIVE_CUTOFFS_PATH}?market=log:evidence:fred-log&positioning=cot:nope.csv`)).status, 404);
+  assert.equal((await get(port, `${ARCHIVE_CUTOFFS_PATH}?market=log:evidence:fred-log&positioning=../x`)).status, 400);
+  // At that instant the report is known: P-0 keeps its values (none flagged after the cutoff); one millisecond before, none.
+  const at = JSON.parse((await get(port, q({ market: 'log:evidence:fred-log', positioning: 'cot:gold.csv', cutoff: '2026-09-25T19:45:00.000Z' }))).body);
+  assert.ok(at.positioning.evidence.length === 14 && at.positioning.evidence.every((e) => e.afterCutoff === false));
+  assert.equal(at.chain.chainState, 'HOLD');
+  const before = JSON.parse((await get(port, q({ market: 'log:evidence:fred-log', positioning: 'cot:gold.csv', cutoff: '2026-09-25T19:44:59.999Z' }))).body);
+  assert.ok(before.positioning.evidence.every((e) => e.afterCutoff === true));
 } finally {
   server.close();
 }
@@ -196,7 +211,7 @@ const render = async (hash = '', cat = catalog) => {
     const qs = new URL(u, 'http://x').searchParams;
     if (u === CATALOG_PATH) return json(cat);
     if (u === SCENARIOS_PATH) return json(scenarios);
-    if (u.startsWith(ARCHIVE_CUTOFFS_PATH)) return json(view.archiveCutoffs(qs.get('market')));
+    if (u.startsWith(ARCHIVE_CUTOFFS_PATH)) return json(view.archiveCutoffs(qs.get('market'), qs.get('positioning')) ?? null);
     if (u.startsWith(VIEW_PATH)) {
       return json(qs.get('scenario') ? await view(qs.get('scenario'))
         : await view(null, { market: qs.get('market'), positioning: qs.get('positioning'), cutoff: qs.get('cutoff') }));
@@ -239,6 +254,25 @@ await settle();
 assert.match(d.getElementById('v2-data-card-positioning').textContent, /LU — 14 mesures brutes, aucune méthode approuvée.*futures seuls.*2026-09-22/);
 assert.match(d.getElementById('v2-data-card-positioning').textContent, /Rapports dans le fichier2 \(2026-09-22 → 2026-09-29\) · un seul est lu : celui déclaré/);
 assert.match(d.getElementById('v2-data-card-positioning').textContent, /Base de la date de publicationnon indiquée \(déclaration de l'opérateur seule\)/);
+// The replay cutoffs follow the positioning choice: the instant its report becomes known is offered and labelled.
+assert.ok(asked.includes(`${ARCHIVE_CUTOFFS_PATH}?market=log%3Aevidence%3Afred-log&positioning=cot%3Agold.csv`), asked.join());
+const cutoffOptions = () => [...d.querySelectorAll('#v2-replay-cutoff option')].map((o) => [o.value, o.textContent]);
+assert.deepEqual(cutoffOptions().slice(1), [['2026-09-25T19:45:00.000Z', '2026-09-25 19:45:00.000Z — POSITIONNEMENT connu (rapport CFTC du 2026-09-22)'],
+  ['2026-10-01T06:00:00.000Z', '2026-10-01 06:00:00.000Z — réception 1/1 · US10Y']]);
+assert.match(d.getElementById('v2-replay-cutoff-hint').textContent, /^1 instant de réception de l'archive et 1 instant où le positionnement choisi devient connu/);
+change(dom, d.getElementById('v2-replay-cutoff'), '2026-09-25T19:45:00.000Z');
+await settle();
+assert.equal(d.getElementById('v2-cutoff').textContent, '2026-09-25T19:45:00.000Z');
+assert.doesNotMatch(d.getElementById('v2-positioning-evidence').textContent, /APRÈS LE CUTOFF/, 'the report is known at that instant');
+assert.equal(d.getElementById('v2-state').textContent.includes('HOLD'), true);
+// Back to the document's positioning: that instant is no longer offered, the server cutoff applies again.
+change(dom, d.getElementById('v2-data-positioning'), 'input');
+await settle();
+assert.deepEqual(cutoffOptions().slice(1).map(([v]) => v), ['2026-10-01T06:00:00.000Z']);
+assert.equal(d.getElementById('v2-replay-cutoff').value, '');
+assert.equal(d.getElementById('v2-cutoff').textContent, '2026-10-01T06:00:00.000Z');
+change(dom, d.getElementById('v2-data-positioning'), 'cot:gold.csv');
+await settle();
 assert.equal(dom.window.location.hash, '#chaine/donnees/log:evidence:fred-log/cot:gold.csv');
 assert.notEqual(d.getElementById('v2-status').getAttribute('data-state'), 'rejected');
 assert.doesNotMatch(d.getElementById('v2-status').closest('section').textContent, /\b(BUY|SELL|EVIDENCE_READY)\b/);

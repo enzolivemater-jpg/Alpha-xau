@@ -120,6 +120,22 @@ export function archiveCutoffs(archiveFile, defaultCutoff) {
   return archiveCutoffsOf(archive, defaultCutoff);
 }
 
+/**
+ * Adds to a cutoff list the instant a CFTC positioning source becomes known:
+ * the latest publishedAt / observedAt of its extracted evidence (P-0 drops a
+ * value published or observed after the cutoff). Listed in `knownAt` and
+ * merged into `cutoffs` (time order). No source, no extraction: unchanged.
+ */
+export function withPositioningKnownAt(list, source) {
+  const evidence = source?.kind === 'CFTC_FILE' && source.conversion?.status === 'EXTRACTED' ? source.conversion.evidence : [];
+  const ms = evidence.flatMap((e) => [e.publishedAt, e.observedAt]).filter((at) => typeof at === 'string' && REQUEST_CUTOFF.test(at))
+    .map((at) => Date.parse(at)).filter(Number.isFinite);
+  if (ms.length === 0 || ms.length !== evidence.length * 2) return list;
+  const at = new Date(Math.max(...ms)).toISOString();
+  const cutoffs = [...new Set([...list.cutoffs, at])].sort((a, b) => Date.parse(a) - Date.parse(b));
+  return { ...list, cutoffs, knownAt: [{ at, input: 'POSITIONING', source: source.id, reportDate: source.conversion.reportDate ?? null }] };
+}
+
 /** archiveCutoffs of an archive already in memory (a --captures merge). */
 export function archiveCutoffsOf(archive, defaultCutoff, capturedFields = null) {
   const records = archive && Array.isArray(archive.records) ? archive.records : [];
@@ -506,12 +522,19 @@ export async function buildLocalView({
   render.captures = captures === null ? null : { sources: captures.sources, merged: captures.archive !== null,
     records: captures.archive?.records.length ?? 0, problems: captures.problems };
   render.positioning = cot === null ? null : { label: cot.label, ...cot.conversion, evidence: undefined, evidenceCount: cot.conversion.evidence.length };
-  /** Replay cutoffs of an archive source (default: the selected one); null when it is not an archive. */
-  render.archiveCutoffs = (marketId = null) => {
+  /**
+   * Replay cutoffs of an archive source (default: the selected one); null when it is not an archive,
+   * undefined when the positioning id is unknown. With a CFTC positioning source, the instant from
+   * which its report is known is offered too (P-0's rule: published and received at or before the
+   * cutoff), so the replay can reach it; nothing about the market changes.
+   */
+  render.archiveCutoffs = (marketId = null, positioningId = null) => {
     const source = market.get(marketId ?? defaultMarket);
     if (!source || source.load === null) return null;
+    const pos = positioningId === null ? null : positioning.get(positioningId);
+    if (pos === undefined) return undefined;
     const document = readChainDocument(inputFile);
-    const list = archiveCutoffsOf(source.load(), defaultCutoffOf(source, document), capturedFields);
+    const list = withPositioningKnownAt(archiveCutoffsOf(source.load(), defaultCutoffOf(source, document), capturedFields), pos);
     // A captures merge: whether it succeeded and why not, so the page can say it (the replay only says "rejected").
     return source.kind === 'CAPTURES_MERGED' ? { ...list, captures: { sources: source.sources, merged: source.problems.length === 0,
       problems: [...source.problems] } } : list;
@@ -723,12 +746,13 @@ export async function createTerminalServer(options = {}) {
       return;
     }
     if (pathname === ARCHIVE_CUTOFFS_PATH) {
-      if (marketId !== null && !SOURCE_ID.test(marketId)) {
-        send(response, 400, 'text/plain; charset=utf-8', 'market: catalog id only', method);
+      if ((marketId !== null && !SOURCE_ID.test(marketId)) || (positioningId !== null && !SOURCE_ID.test(positioningId))) {
+        send(response, 400, 'text/plain; charset=utf-8', 'market / positioning: catalog ids only', method);
         return;
       }
-      const list = view.archiveCutoffs(marketId);
+      const list = view.archiveCutoffs(marketId, positioningId);
       if (list === null) send(response, 404, 'text/plain; charset=utf-8', 'no archive', method);
+      else if (list === undefined) send(response, 404, 'text/plain; charset=utf-8', 'unknown positioning source', method);
       else send(response, 200, CONTENT_TYPES['.json'], JSON.stringify(list), method);
       return;
     }
