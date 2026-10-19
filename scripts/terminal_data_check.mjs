@@ -44,9 +44,11 @@ export async function checkData(dataRoot) {
     if (m.problems.length || (v && v.status === 'INVALID')) problems.push(`${m.id} : ${m.problems.join(', ') || 'archive rejetée au rejeu'}`);
   }
   const cot = catalog.positioning.filter((p) => p.kind === 'CFTC_FILE');
+  // P-0's rule (the terminal offers the same instant as a replay cutoff): known once both published and received.
+  const knownFrom = (p) => (Date.parse(p.receivedAt) > Date.parse(p.publishedAt) ? p.receivedAt : p.publishedAt);
   lines.push(`positionnement CFTC : ${cot.length} fichier(s)`);
   for (const p of cot) {
-    lines.push(`  - ${p.id} : ${p.status === 'EXTRACTED' ? `lu, rapport du ${p.reportDate}, ${p.metrics} mesures, publié ${p.publishedAt} (base : ${p.publicationBasis ? p.publicationBasis.kind : 'déclaration seule'})`
+    lines.push(`  - ${p.id} : ${p.status === 'EXTRACTED' ? `lu, rapport du ${p.reportDate}, ${p.metrics} mesures, publié ${p.publishedAt} (base : ${p.publicationBasis ? p.publicationBasis.kind : 'déclaration seule'}), reçu ${p.receivedAt}, connu à partir de ${knownFrom(p)}`
       : `REJETÉ — ${p.reasonCodes.join(', ')} : ${p.detail}`}${p.fileReports ? ` ; le fichier contient ${p.fileReports.count} rapport(s) ${p.fileReports.first} → ${p.fileReports.last}` : ''}`);
     if (p.status !== 'EXTRACTED') problems.push(`${p.id} : ${p.reasonCodes.join(', ')}`);
   }
