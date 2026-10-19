@@ -202,6 +202,14 @@ January 6 report on January 16.
      (19:28:01 GMT);
   3. a reception receipt written at capture time, which proves "known by
      then", never the publication instant.
+- **Local evidence for the 2026-10-13 report** (checked 2026-10-19).
+  - HTTP `Last-Modified: Fri, 16 Oct 2026 19:28:01 GMT`: the server copy
+    changed 2 minutes before 3:30 p.m. ET. This corroborates the schedule
+    instant, without proving it.
+  - The ZIP entry `f_year.txt` is dated `2026-10-15 15:27:10`, with no time
+    zone (DOS time): the file was built the day *before* the release. An
+    archive's internal timestamp is therefore never a publication instant.
+  - Received `2026-10-18T21:44:42.077Z`: known from then.
 - **Until then.** Declarations keep `OFFICIAL_SCHEDULE_INFERRED`. The
   terminal and `terminal:check-data` say "déclaration seule" / the basis. No
   inferred instant is turned into an official one.
