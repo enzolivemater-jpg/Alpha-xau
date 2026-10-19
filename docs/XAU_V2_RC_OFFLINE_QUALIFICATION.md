@@ -124,6 +124,14 @@ them needs an authorization; their evidence is local until then.
 | `fa467ed` | Replay cutoffs reach the instant a CFTC report becomes known (`knownAt`) | `test_terminal_data_catalog` (3 mutants killed); Chromium on the real data: 6th instant 2026-10-18T21:44:42.077Z, 14 CFTC values known, HOLD |
 | `12bdca1` | `terminal:check-data` prints reception and « connu à partir de » | `test_terminal_data_check` |
 | `77413ab` | Audit of the inferred CFTC instants; P-FRESH / P-METHOD review aid (docs) | — |
+| `4e72d17` | The server's own CFTC positioning (`--positioning-cot`) also offers its knowledge instant; anchor on it restored | `test_terminal_data_catalog` (the old code fails it) |
+| `5e39d07` | A capture directory without `archive.json` is named (`CAPTURE_LOG_WITHOUT_ARCHIVE`), never dropped silently | `test_terminal_data_check`, `test_terminal_data_catalog`; damaged copies of the real captures: edited raw body, reception before observation and truncated JSON refused with their reason; a duplicated log merges to the same 39 records |
+| `cd896f3` | Test: an inferred CFTC date is never labelled as official | mutant killed |
+| `3474d5b` | Local publication evidence of the 2026-10-13 report (docs) | `Last-Modified` 2026-10-16 19:28:01 GMT; ZIP entry dated the day before |
+| `cb22aad` | The data panel no longer makes the page scroll sideways on phones; layout check also fails on page width, checks the panel as it opens | `check_terminal_layout` 45/45 (16 failures before the CSS fix); 34 real-data states at 390 px clean |
+| `0a879a8` | `terminal:check-data` names the market fields each source never holds | real captures: bid, ask, dxy absent |
+| `0401518` | Test: releases after the cutoff shown « PAS ENCORE PUBLIÉE », excluded | mutant killed |
+| `9561d8f` | A CFTC report set aside at the cutoff says from when it is known | page test; real data: « connue à partir du 2026-10-18 21:44:42.077Z » |
 
 ## Capability matrix (candidate `adae6fa`, 2026-10-19)
 
@@ -147,6 +155,8 @@ every path stays HOLD / FORBIDDEN.
 | Official releases → EI / GT at the chain cutoff | VERIFIED | 6/7 read; each `publishedAt` equals its document's release line (8:30 a.m. EDT = 12:30Z); at 2026-09-20 two later releases are « pas encore publiées »; Event Impact / Gold Transmission INSUFFICIENT_EVIDENCE |
 | BLS Employment Situation July 2026 | VERIFIED (rejected on purpose) | `averageHourlyEarningsMom` absent from the document: REQUIRED_OFFICIAL_EVIDENCE_UNAVAILABLE, no value made up |
 | Authentic CFTC values reachable at their knowledge instant | VERIFIED locally (not CI) | `fa467ed`: the replay offers 2026-10-18T21:44:42.077Z; at that cutoff P-0 keeps the 14 values, 1 ms before it flags them |
+| Damaged local data fails closed with a reason | VERIFIED locally (not CI) | copies outside Git: edited raw body, chronology, truncated JSON, missing `archive.json` (now named), duplicated log; CFTC declarations published after reception, report absent, published before the report date: all refused with their reason |
+| Terminal at phone width with every real-data selection | VERIFIED locally (not CI) | 34 states at 390 px: HOLD, no console error, no sideways scroll; layout check 45/45 |
 | Local captures: no API key stored, raw bodies private | VERIFIED (2026-10-19) | no `api_key` / `apikey` / `token=` in `~/.local/share/xau-v2`; capture directories 700, raw bodies 600; DATA-3 validator 115/115 (payload digests, values re-read from bytes) |
 | Real market replay (local captures) | BLOCKED | 39 records readable, `publishedAt` absent everywhere, coverage not declared: INCOMPLETE; DATA-3 capture decisions, DXY / bid-ask sources |
 | Provenance labels and cutoff alignment | VERIFIED | MARKET CAPTURED_ARCHIVE, POSITIONING / EVENTS LOCAL_INPUT_UNVERIFIED, AUTHORIZATIONS SYNTHETIC_FIXTURE; cutoffs aligned at every offered replay instant |
