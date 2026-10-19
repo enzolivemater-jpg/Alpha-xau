@@ -1,4 +1,9 @@
-# XAU V2 — night handoff (offline RC remediation)
+# XAU V2 — AGENT HANDOFF (offline RC remediation)
+
+Agents: `XAU V2 — LOCAL DEVELOPMENT` (Claude Code on the local WSL machine)
+and `XAU V2 — CLOUD DEVELOPMENT` (Claude Code in the cloud). This file was
+`docs/XAU_V2_NIGHT_HANDOFF.md` until 2026-10-19; the content and row numbers
+are unchanged. The remote branch name quoted below is an immutable identifier.
 
 Branch `worktree-pr-149`, base `e1e70225a0e178bf2cbafcf19e1804200e818439`
 (RC-0 PR #149, verified ancestor of HEAD). Nothing pushed, merged or deployed;
