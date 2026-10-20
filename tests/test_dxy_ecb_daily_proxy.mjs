@@ -6,7 +6,7 @@ const sha='a'.repeat(64);
 const rates={USD:1.1,JPY:160,GBP:0.85,CAD:1.5,SEK:11.5,CHF:0.95};
 const header='KEY,FREQ,CURRENCY,CURRENCY_DENOM,TIME_PERIOD,OBS_VALUE';
 const rows=(day,rs)=>Object.entries(rs).map(([cc,v])=>`EXR.D.${cc}.EUR.SP00.A,D,${cc},EUR,${day},${v}`);
-const csv=(arr)=>[header,...arr].join('\\n');
+const csv=(arr)=>[header,...arr].join('\n');
 test('ECB EUR-cross construction equals manually quoted ICE formula',()=>{
   const r=rates,u=r.USD;
   const quoted=50.14348112*(u**(-.576))*((r.JPY/u)**.136)*((u/r.GBP)**(-.119))
