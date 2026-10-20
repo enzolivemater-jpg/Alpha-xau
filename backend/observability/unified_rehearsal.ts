@@ -8,7 +8,7 @@
  */
 import { evaluateDecisionChain } from '../decision_chain/dry_run.js';
 import {
-  buildTerminalView, type TerminalDataOrigin,
+  buildTerminalView, terminalInputCutoffs, type TerminalDataOrigin,
 } from '../decision_chain/terminal_view.js';
 import { buildOfflineAuditReceipt, type OfflineAuditReceipt } from '../observability/offline_receipt.js';
 import { buildEvidenceEligibilityManifest } from '../observability/evidence_manifest.js';
@@ -132,7 +132,8 @@ export async function runUnifiedOfflineRehearsal(raw: unknown) {
     ? await buildOfflineAuditReceipt(outcome.result)
     : null;
   const digest = fingerprintFromAcceptedReceipt(receipt);
-  const terminal = buildTerminalView(outcome, digest, input.origin, input.generatedAt);
+  const terminal = buildTerminalView(outcome, digest, input.origin, input.generatedAt, null, undefined, null,
+    terminalInputCutoffs(input.chainInput));
   const evidence = buildEvidenceEligibilityManifest(input.evidenceClaims, cutoff);
 
   // On ANY rejection or failed receipt, no upstream claim is promoted to UI.

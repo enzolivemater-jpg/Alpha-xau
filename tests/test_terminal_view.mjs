@@ -67,7 +67,7 @@ assert.equal(outcome.kind, 'COMPLETED');
 const digest = await chain.computeDecisionChainDigest(outcome.result);
 const view = tv.buildTerminalView(outcome, digest, ORIGIN, AT);
 assert.equal(view.schemaVersion, 'xau.terminal-local-view.v4');
-assert.equal(view.algorithmVersion, 'terminal-local-view-4.0.0');
+assert.equal(view.algorithmVersion, 'terminal-local-view-4.8.0');
 assert.equal(view.simulated, true);
 assert.equal(view.generatedAt, AT);
 assert.deepEqual(view.origin, ORIGIN);
@@ -103,8 +103,16 @@ assert.deepEqual(spot, { field: 'spot', role: 'REQUIRED', value: 3900, statusAtC
   observedAt: '2026-10-01T14:14:00.000Z', ageSecondsAtCutoff: 60, source: 'twelve_data' });
 assert.equal(view.market.fields.find((f) => f.field === 'dxy').statusAtCutoff, 'UNAVAILABLE');
 assert.deepEqual(view.market.replay, { mode: 'LATEST_ONLY', reproducible: false, reason: 'INGESTION_CUTOFF_NOT_AVAILABLE' });
-assert.deepEqual(view.positioning, { evidenceState: 'EVIDENCE_READY', positioningState: 'UNAVAILABLE',
-  evidenceCount: 1, sourceAuthorities: ['authority_test'], observedThrough: '2026-09-30T19:31:00.000Z' });
+// B5: no freshness policy approved, so the evidence is kept but abstains; its age is shown, not judged.
+// 4.6.0: the kept evidence itself, as raw facts (the golden fixture's one synthetic tuple).
+assert.deepEqual(view.positioning, { evidenceState: 'ABSTAIN', positioningState: 'UNAVAILABLE',
+  evidenceCount: 1, sourceAuthorities: ['authority_test'], observedThrough: '2026-09-30T19:31:00.000Z',
+  evidence: [{ sourceAuthority: 'authority_test', datasetCode: 'weekly_positions', instrumentCode: 'GC', metricCode: 'managed_money_net',
+    value: 12345, unit: 'CONTRACTS', periodEnd: '2026-09-29', publishedAt: '2026-09-30T19:30:00.000Z', observedAt: '2026-09-30T19:31:00.000Z',
+    afterCutoff: false }],
+  evidenceTruncated: false,
+  freshness: { status: 'NOT_EVALUATED', reason: 'FRESHNESS_POLICY_NOT_APPROVED', plain: 'fraîcheur non évaluée — aucun seuil approuvé',
+    latestPublishedAt: '2026-09-30T19:30:00.000Z', publishedAgeSecondsAtCutoff: 67500 } });
 assert.deepEqual(view.horizons, ['H1', 'H2', 'H3', 'H4', 'H5'].map((horizon) =>
   ({ horizon, status: 'ABSTAIN', direction: 'UNAVAILABLE' })));
 const acceptance = await loadBackendModule('acceptance_engine/contract.ts');
@@ -130,7 +138,7 @@ console.log('PASS temporal class: HISTORICAL beyond the XAUUSD LIVE window, UNKN
 
 // --- Why HOLD: root causes are the non-upstream reasons, grouped, in stage order.
 const why = view.holdRationale;
-assert.equal(why.firstBlockedStage, 'HORIZON_SYNTHESIS');
+assert.equal(why.firstBlockedStage, 'POSITIONING'); // B5: positioning abstains first
 assert.deepEqual(why.rootCauses.map((c) => c.category), ['DATA', 'BUSINESS_DECISION', 'AUTHORIZATION', 'ENVIRONMENT']);
 const upstream = view.stages.flatMap((st) => st.reasons).filter((r) => r.category === 'UPSTREAM').length;
 assert.equal(why.inheritedReasonCount, upstream);
@@ -159,7 +167,7 @@ assert.equal(summary.status, 'BLOCKED');
 assert.equal(summary.stageCount, 12);
 assert.equal(summary.blockedStageCount, view.stages.filter((st) => st.capability === 'BLOCKED').length);
 assert.equal(summary.headline,
-  `HOLD : ${summary.blockedStageCount} étage(s) sur 12 bloqué(s), le premier à HORIZON SYNTHESIS. Aucune décision positive n'est approuvée.`);
+  `HOLD : ${summary.blockedStageCount} étage(s) sur 12 bloqué(s), le premier à POSITIONING. Aucune décision positive n'est approuvée.`);
 // Main reasons: every root-cause category once, most codes first.
 assert.deepEqual(summary.mainReasons.map((r) => r.category).sort(), why.rootCauses.map((c) => c.category).sort());
 for (const r of summary.mainReasons) {

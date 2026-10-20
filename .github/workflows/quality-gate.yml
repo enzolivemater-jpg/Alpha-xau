@@ -2,16 +2,17 @@
 #  ALPHA-XAU — Quality gate (CI)
 #
 #  Runs the deterministic test suite (scripts/run_ci_tests.mjs) and the
-#  TypeScript typecheck (backend/**/*.ts, tsconfig.json) on every PR and
-#  push to main. No deploy, no database access, no secrets, no external
+#  TypeScript typecheck (backend/**/*.ts, tsconfig.json) on PRs to main or the OFFLINE terminal validation branch, and
+#  pushes to main. No deploy, no database access, no secrets, no external
 #  paid API calls — read-only, self-contained checks only.
 # =============================================================================
 
 name: Quality Gate
 
 on:
+  workflow_dispatch:
   pull_request:
-    branches: [main]
+    branches: [main, verify/terminal-demo-offline]
   push:
     branches: [main]
 

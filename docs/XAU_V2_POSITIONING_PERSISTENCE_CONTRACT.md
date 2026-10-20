@@ -21,8 +21,9 @@ Canonical implementation:
 
 - persistence schema: `xau.positioning-persistence.v1`;
 - adapter algorithm: `positioning-persisted-evidence-adapter-1.0.0`;
-- downstream evidence envelope: `xau.positioning-evidence.v1` /
-  `positioning-evidence-normalizer-1.0.0` (P-0).
+- downstream evidence envelope: `xau.positioning-evidence.v2` /
+  `positioning-evidence-normalizer-2.0.0` (P-0; v2 abstains while no
+  freshness policy is approved, B5).
 
 ## Evidence identity and revision semantics
 

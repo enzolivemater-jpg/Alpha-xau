@@ -1,9 +1,17 @@
-/** Provider-independent Positioning P-0 evidence contract. No signal inference. */
+/**
+ * Provider-independent Positioning P-0 evidence contract. No signal inference.
+ *
+ * v2 (B5): no freshness policy (maximum age and age reference) is approved for
+ * any positioning dataset, so valid evidence is never declared ready: it is
+ * kept, listed and abstains with FRESHNESS_POLICY_NOT_APPROVED. A later,
+ * separately approved per-dataset policy is the only way back to
+ * EVIDENCE_READY; this module defines no threshold.
+ */
 
 import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
-export const POSITIONING_SCHEMA_VERSION = 'xau.positioning-evidence.v1' as const;
-export const POSITIONING_ALGORITHM_VERSION = 'positioning-evidence-normalizer-1.0.0' as const;
+export const POSITIONING_SCHEMA_VERSION = 'xau.positioning-evidence.v2' as const;
+export const POSITIONING_ALGORITHM_VERSION = 'positioning-evidence-normalizer-2.0.0' as const;
 
 export type PositioningUnit = 'CONTRACTS' | 'PERCENT' | 'RATIO' | 'INDEX';
 export type PositioningEvidenceState = 'EVIDENCE_READY' | 'ABSTAIN';
@@ -14,6 +22,7 @@ export type PositioningReasonCode =
   | 'INVALID_EVIDENCE_VALUE'
   | 'DUPLICATE_EVIDENCE_KEY'
   | 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF'
+  | 'FRESHNESS_POLICY_NOT_APPROVED'
   | 'METHODOLOGY_NOT_APPROVED';
 
 export interface PositioningEvidenceInput {
@@ -173,17 +182,21 @@ export function buildPositioningEvidenceEnvelope(
     }
   }
 
+  // B5: whether valid evidence is still fresh needs an approved per-dataset
+  // policy; none exists, so its freshness cannot be evaluated (fail-closed).
+  if (validInputs.length > 0) reasons.add('FRESHNESS_POLICY_NOT_APPROVED');
   reasons.add('METHODOLOGY_NOT_APPROVED');
   const blocking = [
     'NO_POSITIONING_EVIDENCE', 'INVALID_KNOWLEDGE_CUTOFF',
     'INVALID_EVIDENCE_SHAPE', 'INVALID_EVIDENCE_VALUE',
     'DUPLICATE_EVIDENCE_KEY', 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF',
+    'FRESHNESS_POLICY_NOT_APPROVED',
   ] satisfies readonly PositioningReasonCode[];
   const ordered = [
     'NO_POSITIONING_EVIDENCE', 'INVALID_KNOWLEDGE_CUTOFF',
     'INVALID_EVIDENCE_SHAPE', 'INVALID_EVIDENCE_VALUE',
     'DUPLICATE_EVIDENCE_KEY', 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF',
-    'METHODOLOGY_NOT_APPROVED',
+    'FRESHNESS_POLICY_NOT_APPROVED', 'METHODOLOGY_NOT_APPROVED',
   ] satisfies readonly PositioningReasonCode[];
 
   const evidence = validInputs.map((input) => ({ ...input })).sort(compareEvidence);

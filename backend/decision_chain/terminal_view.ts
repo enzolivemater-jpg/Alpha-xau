@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.0.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.8.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -66,6 +66,7 @@ export const REASON_CODE_CATEGORY: Readonly<Record<string, BlockerCategory>> = {
   EVIDENCE_AFTER_KNOWLEDGE_CUTOFF: 'DATA',
   DUPLICATE_EVIDENCE_KEY: 'DATA',
   METHODOLOGY_NOT_APPROVED: 'BUSINESS_DECISION',
+  FRESHNESS_POLICY_NOT_APPROVED: 'BUSINESS_DECISION',
   // Regime (R-0)
   MARKET_PRICING_VERSION_MISMATCH: 'INTEGRITY',
   POSITIONING_VERSION_MISMATCH: 'INTEGRITY',
@@ -165,6 +166,7 @@ export const REASON_CODE_PLAIN_FR: Readonly<Record<string, string>> = {
   EVIDENCE_AFTER_KNOWLEDGE_CUTOFF: 'Une preuve de positionnement est postérieure au cutoff.',
   DUPLICATE_EVIDENCE_KEY: 'Une preuve de positionnement est en double.',
   METHODOLOGY_NOT_APPROVED: 'La méthode de lecture du positionnement n\'est pas approuvée.',
+  FRESHNESS_POLICY_NOT_APPROVED: 'Aucun seuil de fraîcheur approuvé pour ce jeu de positionnement : fraîcheur non évaluée.',
   MARKET_PRICING_VERSION_MISMATCH: 'Version du prix de marché incohérente entre étages.',
   POSITIONING_VERSION_MISMATCH: 'Version du positionnement incohérente entre étages.',
   UPSTREAM_CUTOFF_MISMATCH: 'Les étages amont n\'ont pas le même cutoff.',
@@ -257,6 +259,29 @@ const MARKET_STATUS_PLAIN_FR: Readonly<Record<string, string>> = {
 export type TerminalCapabilityStatus = 'OPERATIONAL_LOCAL' | 'SIMULATED' | 'BLOCKED' | 'NOT_VALIDATED';
 
 export type TerminalDataOrigin = 'GOLDEN_FIXTURE' | 'LOCAL_INPUT_FILE' | 'LOCAL_SCENARIO' | 'LOCAL_MARKET_ARCHIVE';
+
+/** B4: the chain inputs whose source the view names one by one. */
+export const TERMINAL_VIEW_INPUTS = [
+  'MARKET', 'POSITIONING', 'EVENT_IMPACT', 'GOLD_TRANSMISSION', 'EVIDENCE_GRAPH', 'AUTHORIZATIONS',
+] as const;
+export type TerminalInputName = typeof TERMINAL_VIEW_INPUTS[number];
+
+/**
+ * Source of one chain input (B4). Only the market can come from an archive:
+ * CAPTURED_ARCHIVE is a replayed archive whose class is CAPTURED (declared by
+ * the operator, not independently attested); SYNTHETIC_FIXTURE is a fixture,
+ * a scenario built from it, or a synthetic archive; LOCAL_INPUT_UNVERIFIED is
+ * a local file of unknown provenance; UNAVAILABLE means nothing was supplied
+ * or evaluated; UNKNOWN means the claims are missing or contradict each other.
+ */
+export type TerminalInputSource =
+  | 'CAPTURED_ARCHIVE' | 'SYNTHETIC_FIXTURE' | 'LOCAL_INPUT_UNVERIFIED' | 'UNAVAILABLE' | 'UNKNOWN';
+
+export interface TerminalInputProvenance {
+  readonly input: TerminalInputName;
+  readonly source: TerminalInputSource;
+  readonly detail: string;
+}
 
 /**
  * DATA-1 market evidence behind the chain's market snapshot, when the view
@@ -366,18 +391,154 @@ export interface TerminalHoldRationale {
   readonly unclassifiedCodes: readonly string[];
 }
 
+export const TERMINAL_POSITIONING_EVIDENCE_ROWS = 64;
+
+export interface TerminalPositioningEvidenceRow {
+  readonly sourceAuthority: string;
+  readonly datasetCode: string;
+  readonly instrumentCode: string;
+  readonly metricCode: string;
+  /** 4.8.0: null when the row was published or received after the cutoff (never served before it is known). */
+  readonly value: number | null;
+  readonly unit: string;
+  readonly periodEnd: string;
+  readonly publishedAt: string;
+  readonly observedAt: string;
+  readonly afterCutoff: boolean;
+}
+
+function positioningEvidenceRowsOf(
+  evidence: readonly { readonly sourceAuthority: string; readonly datasetCode: string; readonly instrumentCode: string;
+    readonly metricCode: string; readonly value: number; readonly unit: string; readonly periodEnd: string;
+    readonly publishedAt: string; readonly observedAt: string }[],
+  knowledgeCutoff: string,
+): TerminalPositioningEvidenceRow[] {
+  const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
+  const after = (at: string) => { const ms = parseStrictTimestamp(at); return cutoffMs !== null && ms !== null && ms > cutoffMs; };
+  return evidence.slice(0, TERMINAL_POSITIONING_EVIDENCE_ROWS).map((e) => {
+    const afterCutoff = after(e.publishedAt) || after(e.observedAt);
+    // 4.8.0: a replay never reveals a value it could not know; the row stays, with why it is set aside.
+    return {
+      sourceAuthority: e.sourceAuthority, datasetCode: e.datasetCode, instrumentCode: e.instrumentCode, metricCode: e.metricCode,
+      value: afterCutoff ? null : e.value, unit: e.unit, periodEnd: e.periodEnd, publishedAt: e.publishedAt, observedAt: e.observedAt,
+      afterCutoff,
+    };
+  });
+}
+
+export interface TerminalPositioningFreshness {
+  readonly status: 'NOT_EVALUATED' | 'NO_EVIDENCE' | 'AFTER_KNOWLEDGE_CUTOFF';
+  readonly reason: 'FRESHNESS_POLICY_NOT_APPROVED' | 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF' | null;
+  readonly plain: string;
+  readonly latestPublishedAt: string | null;
+  readonly publishedAgeSecondsAtCutoff: number | null;
+}
+
+const NO_POSITIONING_EVIDENCE_FRESHNESS: TerminalPositioningFreshness = {
+  status: 'NO_EVIDENCE', reason: null, plain: 'aucune preuve de positionnement',
+  latestPublishedAt: null, publishedAgeSecondsAtCutoff: null,
+};
+
+/**
+ * B5: the latest publication among the kept evidence, and its age at the cutoff.
+ * 4.3.0: P-0 keeps evidence it rejects as later than the cutoff; such evidence
+ * was not known at the cutoff, so it gets no publication age (it used to show a
+ * negative one).
+ */
+function positioningFreshnessOf(
+  evidence: readonly { readonly publishedAt: string; readonly observedAt: string }[],
+  knowledgeCutoff: string,
+): TerminalPositioningFreshness {
+  const published = evidence.map((item) => parseStrictTimestamp(item.publishedAt)).filter((ms): ms is number => ms !== null);
+  if (published.length === 0) return NO_POSITIONING_EVIDENCE_FRESHNESS;
+  const latest = Math.max(...published);
+  const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
+  const afterCutoff = cutoffMs !== null && evidence.some((item) => [item.publishedAt, item.observedAt]
+    .some((at) => { const ms = parseStrictTimestamp(at); return ms !== null && ms > cutoffMs; }));
+  if (afterCutoff) {
+    return {
+      status: 'AFTER_KNOWLEDGE_CUTOFF',
+      reason: 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF',
+      plain: 'preuve postérieure au cutoff — écartée, fraîcheur non évaluée',
+      latestPublishedAt: new Date(latest).toISOString(),
+      publishedAgeSecondsAtCutoff: null,
+    };
+  }
+  return {
+    status: 'NOT_EVALUATED',
+    reason: 'FRESHNESS_POLICY_NOT_APPROVED',
+    plain: 'fraîcheur non évaluée — aucun seuil approuvé',
+    latestPublishedAt: new Date(latest).toISOString(),
+    publishedAgeSecondsAtCutoff: cutoffMs === null ? null : Math.floor((cutoffMs - latest) / 1000),
+  };
+}
+
+/**
+ * 4.5.0: the Event Impact and Gold Transmission summaries are inputs computed
+ * at their own cutoff; CHAIN-0 does not recompute them. When the chain runs at
+ * another instant (an archive replay), the horizon synthesis abstains with
+ * UPSTREAM_CUTOFF_MISMATCH; this says which cutoffs differ, in plain words.
+ * null when the caller did not supply the input's cutoffs or the input was rejected.
+ */
+export interface TerminalCutoffAlignment {
+  readonly chainCutoff: string;
+  readonly inputs: readonly { readonly input: 'EVENT_IMPACT' | 'GOLD_TRANSMISSION'; readonly knowledgeCutoff: string | null }[];
+  readonly aligned: boolean;
+  readonly plain: string;
+}
+
+/** The cutoffs of a chain input's precomputed summaries, as every view producer passes them. */
+export function terminalInputCutoffs(chainInput: unknown): { readonly eventImpact: unknown; readonly goldTransmission: unknown } | null {
+  if (typeof chainInput !== 'object' || chainInput === null || Array.isArray(chainInput)) return null;
+  const read = (key: 'eventImpact' | 'goldTransmission'): unknown => {
+    const summary = (chainInput as Record<string, unknown>)[key];
+    return typeof summary === 'object' && summary !== null ? (summary as Record<string, unknown>).knowledgeCutoff : undefined;
+  };
+  return { eventImpact: read('eventImpact'), goldTransmission: read('goldTransmission') };
+}
+
+function cutoffAlignmentOf(
+  chainCutoff: string,
+  supplied: { readonly eventImpact: unknown; readonly goldTransmission: unknown } | null,
+): TerminalCutoffAlignment | null {
+  if (supplied === null || typeof supplied !== 'object') return null;
+  const text = (value: unknown) => (typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null);
+  const inputs = [
+    { input: 'EVENT_IMPACT' as const, knowledgeCutoff: text(supplied.eventImpact) },
+    { input: 'GOLD_TRANSMISSION' as const, knowledgeCutoff: text(supplied.goldTransmission) },
+  ];
+  const aligned = inputs.every((entry) => entry.knowledgeCutoff === chainCutoff);
+  const at = (value: string | null) => value ?? 'cutoff inconnu';
+  return {
+    chainCutoff,
+    inputs,
+    aligned,
+    plain: aligned
+      ? 'Impact des événements et transmission or sont au cutoff de la chaîne.'
+      : `Chaîne évaluée au ${chainCutoff} ; impact des événements au ${at(inputs[0].knowledgeCutoff)} et transmission or au `
+        + `${at(inputs[1].knowledgeCutoff)} (document d'entrée, non recalculés) : la synthèse des horizons s'abstient `
+        + '(UPSTREAM_CUTOFF_MISMATCH). Un rejeu cohérent exige un document d\'entrée calculé au même cutoff.',
+  };
+}
+
 export interface TerminalView {
   readonly schemaVersion: typeof TERMINAL_VIEW_SCHEMA_VERSION;
   readonly algorithmVersion: typeof TERMINAL_VIEW_ALGORITHM_VERSION;
   readonly generatedAt: string;
   readonly origin: { readonly kind: TerminalDataOrigin; readonly label: string };
   readonly simulated: true;
+  /** B4: where each chain input comes from; the origin above names only the market's carrier. */
+  readonly inputProvenance: readonly TerminalInputProvenance[];
   readonly temporal: {
     readonly classification: 'HISTORICAL' | 'AT_GENERATION' | 'UNKNOWN';
     readonly cutoffAgeSeconds: number | null;
     readonly currentWindowSeconds: number;
   };
   readonly holdRationale: TerminalHoldRationale;
+  /** 4.7.0, see TerminalOfficialEvents; absent from older producers. */
+  readonly officialEvents?: TerminalOfficialEvents | null;
+  /** 4.5.0, see TerminalCutoffAlignment. */
+  readonly cutoffAlignment: TerminalCutoffAlignment | null;
   readonly summary: TerminalDecisionSummary;
   readonly chain: {
     readonly outcome: 'COMPLETED' | 'REJECTED';
@@ -403,8 +564,20 @@ export interface TerminalView {
     readonly evidenceState: string | null;
     readonly positioningState: string | null;
     readonly evidenceCount: number;
+    /**
+     * 4.6.0: the raw evidence P-0 kept, as facts (value, unit, period, instants, source), in P-0's order,
+     * at most TERMINAL_POSITIONING_EVIDENCE_ROWS rows. Nothing derived (no net, ratio or rank): no method is approved.
+     * afterCutoff: published or observed after the knowledge cutoff (P-0 rejects it; it is shown, flagged).
+     */
+    readonly evidence?: readonly TerminalPositioningEvidenceRow[];
+    readonly evidenceTruncated?: boolean;
     readonly sourceAuthorities: readonly string[];
     readonly observedThrough: string | null;
+    /**
+     * B5: no freshness policy is approved, so freshness is never evaluated. The
+     * publication age at the cutoff is a fact, not a judgement of freshness.
+     */
+    readonly freshness: TerminalPositioningFreshness;
   };
   readonly horizons: readonly { readonly horizon: string; readonly status: string; readonly direction: string }[];
   readonly acceptance: {
@@ -616,6 +789,131 @@ function marketEvidenceOf(replay: MarketEvidenceReplay | null): TerminalMarketEv
   };
 }
 
+type InputDocumentSource = { readonly source: TerminalInputSource; readonly detail: string };
+
+/**
+ * 4.4.0: positioning evidence read from a local CFTC Commitments of Traders
+ * file (`--positioning-cot`) instead of the input document. Its publication and
+ * reception instants are declared by the operator and CFTC is not an approved
+ * source, so the evidence is at most LOCAL_INPUT_UNVERIFIED; a rejected file
+ * supplies nothing (UNAVAILABLE).
+ */
+export interface TerminalPositioningFile {
+  readonly label: string;
+  readonly status: 'EXTRACTED' | 'REJECTED';
+  readonly reportDate: string | null;
+  readonly reason: string | null;
+  /** The CFTC publication the operator declared (adapter 1.1.0); absent from older callers. */
+  readonly dataset?: 'FUTURES_ONLY' | 'FUTURES_AND_OPTIONS_COMBINED' | null;
+}
+
+/**
+ * 4.7.0: the Event Impact and Gold Transmission summaries computed by the
+ * caller from official release documents (EIA-0 v2 at the chain cutoff)
+ * instead of the input document. Local files, so at most LOCAL_INPUT_UNVERIFIED.
+ */
+export interface TerminalOfficialEvents {
+  readonly label: string;
+  readonly known: readonly { readonly name: string; readonly family: string | null; readonly period: string | null; readonly publishedAt: string | null }[];
+  readonly notYetPublished: readonly { readonly name: string; readonly family: string | null; readonly period: string | null; readonly publishedAt: string | null }[];
+  readonly rejected: readonly { readonly name: string; readonly reason: string | null }[];
+  readonly impactStatus: string;
+  readonly transmissionStatus: string;
+  readonly reasonCodes: readonly string[];
+}
+
+function officialEventsSource(events: TerminalOfficialEvents, rejectedChain: boolean): InputDocumentSource {
+  if (rejectedChain) return { source: 'UNAVAILABLE', detail: 'entrée rejetée : rien n\'a été évalué' };
+  return { source: 'LOCAL_INPUT_UNVERIFIED', detail: `publications officielles locales (${events.label}) : ${events.known.length} connue(s) au cutoff, `
+    + `${events.notYetPublished.length} pas encore publiée(s), agrégées par EIA-0 v2 au cutoff de la chaîne ; documents non vérifiés à l'exécution` };
+}
+
+function positioningFileSource(file: TerminalPositioningFile, rejectedChain: boolean): InputDocumentSource {
+  if (rejectedChain) return { source: 'UNAVAILABLE', detail: 'entrée rejetée : rien n\'a été évalué' };
+  if (file.status === 'EXTRACTED' && typeof file.reportDate === 'string') {
+    const dataset = file.dataset === 'FUTURES_ONLY' ? ', futures seuls (déclaré)'
+      : file.dataset === 'FUTURES_AND_OPTIONS_COMBINED' ? ', futures et options (déclaré)' : '';
+    return { source: 'LOCAL_INPUT_UNVERIFIED', detail: `fichier CFTC COT local (${file.label}), rapport du ${file.reportDate}${dataset} ; `
+      + 'publication et réception déclarées par l\'opérateur ; source non approuvée' };
+  }
+  return { source: 'UNAVAILABLE', detail: `fichier CFTC COT rejeté (${file.label}${file.reason ? ` : ${file.reason}` : ''}) : aucune preuve retenue` };
+}
+
+/** The document every non-market input comes from, from its declared origin; UNKNOWN unless exact. */
+function inputDocumentSource(origin: unknown): InputDocumentSource {
+  const unknown = { source: 'UNKNOWN' as const, detail: 'origine du document d\'entrée inconnue ou contradictoire' };
+  if (typeof origin !== 'object' || origin === null) return unknown;
+  const { kind, label } = origin as { kind?: unknown; label?: unknown };
+  if (typeof label !== 'string' || label.length === 0) return unknown;
+  if (kind === 'GOLDEN_FIXTURE' || kind === 'LOCAL_SCENARIO') {
+    return { source: 'SYNTHETIC_FIXTURE', detail: `fixture synthétique (${label})` };
+  }
+  if (kind === 'LOCAL_INPUT_FILE') {
+    return { source: 'LOCAL_INPUT_UNVERIFIED', detail: `fichier local fourni par l'opérateur, provenance non vérifiée (${label})` };
+  }
+  return unknown;
+}
+
+/**
+ * B4 per-input provenance. The market is the archive's only when a replay
+ * manifest is present, the view's origin is an archive (or an archive
+ * scenario) and the archive's class agrees with its nature; every other input
+ * follows the input document. Missing or contradictory claims are UNKNOWN,
+ * inputs that carry nothing are UNAVAILABLE. Nothing is ever promoted.
+ */
+function inputProvenanceOf(
+  outcome: DecisionChainOutcome,
+  origin: { readonly kind: TerminalDataOrigin; readonly label: string },
+  replay: MarketEvidenceReplay | null,
+  inputDocument: unknown,
+  positioningFile: TerminalPositioningFile | null = null,
+  officialEvents: TerminalOfficialEvents | null = null,
+): TerminalInputProvenance[] {
+  const document = inputDocument === undefined
+    ? (origin.kind === 'LOCAL_MARKET_ARCHIVE' ? inputDocumentSource(null) : inputDocumentSource(origin))
+    : origin.kind !== 'LOCAL_MARKET_ARCHIVE' && JSON.stringify(inputDocument) !== JSON.stringify(origin)
+      ? inputDocumentSource(null)
+      : inputDocumentSource(inputDocument);
+  const rejected = outcome.kind === 'REJECTED';
+  const notEvaluated = { source: 'UNAVAILABLE' as const, detail: 'entrée rejetée : rien n\'a été évalué' };
+
+  let market: InputDocumentSource;
+  if (replay !== null) {
+    const klass = replay.archive.provenanceClass;
+    if (origin.kind !== 'LOCAL_MARKET_ARCHIVE' && origin.kind !== 'LOCAL_SCENARIO') {
+      market = { source: 'UNKNOWN', detail: 'manifeste d\'archive présent sur une origine qui n\'est pas une archive' };
+    } else if (replay.status === 'INVALID') {
+      market = { source: 'UNAVAILABLE', detail: 'archive rejetée au rejeu : aucune valeur retenue' };
+    } else if (klass === 'CAPTURED' && replay.nature !== 'SIMULATION') {
+      market = { source: 'CAPTURED_ARCHIVE', detail: `archive capturée localement (${replay.archive.archiveId}) ; `
+        + 'provenance déclarée par l\'opérateur, sans attestation indépendante' };
+    } else if (klass === 'SYNTHETIC_FIXTURE' && replay.nature === 'SIMULATION') {
+      market = { source: 'SYNTHETIC_FIXTURE', detail: `archive synthétique (${replay.archive.archiveId})` };
+    } else {
+      market = { source: 'UNKNOWN', detail: 'classe de provenance et nature de l\'archive contradictoires' };
+    }
+  } else if (origin.kind === 'LOCAL_MARKET_ARCHIVE') {
+    market = { source: 'UNKNOWN', detail: 'origine archive sans manifeste de rejeu' };
+  } else {
+    market = rejected ? notEvaluated : document;
+  }
+
+  const fromDocument = (carriesNothing: boolean, nothing: string): InputDocumentSource =>
+    rejected ? notEvaluated : carriesNothing ? { source: 'UNAVAILABLE', detail: nothing } : document;
+  const stages = outcome.kind === 'COMPLETED' ? outcome.result.stages : null;
+  const entries: Record<TerminalInputName, InputDocumentSource> = {
+    MARKET: market,
+    POSITIONING: positioningFile !== null ? positioningFileSource(positioningFile, rejected)
+      : fromDocument((stages?.positioning.evidence.length ?? 0) === 0, 'aucune preuve de positionnement fournie'),
+    EVENT_IMPACT: officialEvents !== null ? officialEventsSource(officialEvents, rejected) : fromDocument(false, ''),
+    GOLD_TRANSMISSION: officialEvents !== null ? officialEventsSource(officialEvents, rejected) : fromDocument(false, ''),
+    EVIDENCE_GRAPH: fromDocument(stages?.prePm.reasonCodes.includes('EVIDENCE_GRAPH_UNAVAILABLE') ?? true,
+      'graphe de preuves non fourni'),
+    AUTHORIZATIONS: fromDocument(false, ''),
+  };
+  return TERMINAL_VIEW_INPUTS.map((input) => ({ input, ...entries[input] }));
+}
+
 const errorText = (error: { readonly path: string; readonly code: string }) =>
   `${error.path === '' ? '<input>' : error.path}: ${error.code}`;
 
@@ -636,6 +934,18 @@ export function buildTerminalView(
   origin: { readonly kind: TerminalDataOrigin; readonly label: string },
   generatedAt: string,
   marketEvidenceReplay: MarketEvidenceReplay | null = null,
+  /**
+   * B4: origin of the chain input document (fixture, scenario or local file)
+   * when the view's origin is a market archive. Without it, an archive view's
+   * non-market inputs are UNKNOWN; other origins are their own document.
+   */
+  inputDocument?: { readonly kind: TerminalDataOrigin; readonly label: string },
+  /** 4.4.0: the local CFTC file the server's positioning evidence came from, if any. */
+  positioningFile: TerminalPositioningFile | null = null,
+  /** 4.5.0: the knowledge cutoffs of the input's Event Impact and Gold Transmission summaries. */
+  inputCutoffs: { readonly eventImpact: unknown; readonly goldTransmission: unknown } | null = null,
+  /** 4.7.0: the official releases behind the Event Impact / Gold Transmission summaries, if any. */
+  officialEvents: TerminalOfficialEvents | null = null,
 ): TerminalView {
   const base = {
     schemaVersion: TERMINAL_VIEW_SCHEMA_VERSION,
@@ -643,6 +953,9 @@ export function buildTerminalView(
     generatedAt,
     origin: { kind: origin.kind, label: origin.label },
     simulated: true as const,
+    inputProvenance: inputProvenanceOf(outcome, origin, marketEvidenceReplay, inputDocument, positioningFile, officialEvents),
+    // 4.7.0: which official releases the macro summaries rest on (null: the input document's summaries).
+    officialEvents: officialEvents === null ? null : structuredClone(officialEvents),
     marketEvidence: marketEvidenceOf(marketEvidenceReplay),
   };
   if (outcome.kind === 'REJECTED') {
@@ -650,6 +963,7 @@ export function buildTerminalView(
       ...base,
       temporal: temporalOf(null, generatedAt),
       holdRationale: { firstBlockedStage: null, rootCauses: [], inheritedReasonCount: 0, unclassifiedCodes: [] },
+      cutoffAlignment: null,
       summary: {
         decision: 'HOLD',
         execution: 'FORBIDDEN',
@@ -683,7 +997,8 @@ export function buildTerminalView(
       },
       stages: [],
       market: { state: null, observedThrough: null, replay: null, fields: [] },
-      positioning: { evidenceState: null, positioningState: null, evidenceCount: 0, sourceAuthorities: [], observedThrough: null },
+      positioning: { evidenceState: null, positioningState: null, evidenceCount: 0, sourceAuthorities: [], observedThrough: null,
+        freshness: NO_POSITIONING_EVIDENCE_FRESHNESS },
       horizons: [],
       acceptance: { state: null, productionReadiness: null, evidence: [] },
       observability: { state: null, correlationId: null, deploymentId: null },
@@ -726,6 +1041,7 @@ export function buildTerminalView(
     ...base,
     temporal: temporalOf(result.knowledgeCutoff, generatedAt),
     holdRationale,
+    cutoffAlignment: cutoffAlignmentOf(result.knowledgeCutoff, inputCutoffs),
     summary: summaryOf(stages, holdRationale, result.integrity !== 'CONSISTENT', fields, evidence),
     chain: {
       outcome: 'COMPLETED',
@@ -751,8 +1067,11 @@ export function buildTerminalView(
       evidenceState: positioning.evidenceState,
       positioningState: positioning.positioningState,
       evidenceCount: positioning.evidence.length,
+      evidence: positioningEvidenceRowsOf(positioning.evidence, result.knowledgeCutoff),
+      evidenceTruncated: positioning.evidence.length > TERMINAL_POSITIONING_EVIDENCE_ROWS,
       sourceAuthorities: [...positioning.sourceAuthorities],
       observedThrough: positioning.observedThrough,
+      freshness: positioningFreshnessOf(positioning.evidence, result.knowledgeCutoff),
     },
     horizons: result.stages.horizonSynthesis.scenarios.map(({ horizon, status, direction }) => ({ horizon, status, direction })),
     acceptance: {
