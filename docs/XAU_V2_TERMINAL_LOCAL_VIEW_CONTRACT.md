@@ -10,7 +10,7 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.7.0`.
+- `terminal-local-view-4.8.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
@@ -84,6 +84,14 @@ cutoff; P-0 rejects it, the row is shown flagged). Nothing is derived: no
 net, ratio, rank or direction (no positioning method is approved). The page
 groups the rows by report under PREUVES DE POSITIONNEMENT — VALEURS BRUTES
 and refuses a view whose untruncated rows do not match `evidenceCount`.
+
+Algorithm 4.8.0 (cloud audit D1): a positioning row published or received
+after the cutoff has `value: null`. Before, its value was served with
+`afterCutoff: true`. A replay never reveals a value it could not know: the
+row keeps its metric, period, instants and `afterCutoff`, so the page still
+shows why it is set aside (« masquée (inconnue au cutoff) », « connue à partir
+du … »). The page refuses a view where such a row carries a value, and one
+where a known row has none.
 
 Algorithm 4.7.0 adds a macro events source. The catalog lists `events`:
 `input` (the input document's Event Impact / Gold Transmission summaries,

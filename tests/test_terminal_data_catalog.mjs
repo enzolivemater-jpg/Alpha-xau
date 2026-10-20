@@ -189,6 +189,13 @@ try {
   assert.equal(at.chain.chainState, 'HOLD');
   const before = JSON.parse((await get(port, q({ market: 'log:evidence:fred-log', positioning: 'cot:gold.csv', cutoff: '2026-09-25T19:44:59.999Z' }))).body);
   assert.ok(before.positioning.evidence.every((e) => e.afterCutoff === true));
+  // D1 (view 4.8.0): a value not yet known at the cutoff is never served; the row keeps why it is set aside.
+  assert.ok(before.positioning.evidence.every((e) => e.value === null), 'no value before its knowledge instant');
+  assert.equal(before.positioning.evidence.length, 14, 'the rows stay, with metric, period and instants');
+  for (const e of at.positioning.evidence) {
+    assert.ok(!JSON.stringify(before).includes(`"value":${e.value}`), `value of ${e.metricCode} absent from the JSON before the cutoff`);
+  }
+  assert.ok(at.positioning.evidence.every((e) => Number.isInteger(e.value)), 'known at the cutoff: values served');
 } finally {
   server.close();
 }
@@ -289,6 +296,22 @@ assert.equal(d.getElementById('v2-state').textContent.includes('HOLD'), true);
   const head = early.window.document.querySelector('#v2-positioning-evidence .v2__pos-group-head');
   assert.equal(head.getAttribute('data-after-cutoff'), 'true');
   assert.match(head.textContent, /reçu 2026-09-25 19:45:00Z · APRÈS LE CUTOFF : écartée \(connue à partir du 2026-09-25 19:45:00Z\)$/, head.textContent);
+  const values = [...early.window.document.querySelectorAll('#v2-positioning-evidence .v2__pos-value')].map((x) => x.textContent);
+  assert.equal(values.length, 14);
+  assert.ok(values.every((x) => x === 'masquée (inconnue au cutoff)'), values.join(' | '));
+  // A view that would still carry such a value is refused by the page, not shown.
+  const leaking = structuredClone(v);
+  leaking.positioning.evidence[0].value = 987654; // SYNTHETIC test value, not CFTC data
+  const leak = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'http://127.0.0.1:4173/#chaine' });
+  leak.window.fetch = async (url) => ({ ok: String(url).startsWith(VIEW_PATH), status: 200, json: async () => structuredClone(leaking) });
+  leak.window.ALPHA_XAU_CONFIG = { SUPABASE_URL: '', SUPABASE_ANON_KEY: '', ANALYSIS_INTERVAL_MS: 1e6, V2_VIEW_URL: VIEW_PATH };
+  const sl = leak.window.document.createElement('script');
+  sl.textContent = js;
+  leak.window.document.body.appendChild(sl);
+  await settle();
+  assert.equal(leak.window.document.getElementById('v2-status').getAttribute('data-state'), 'rejected');
+  assert.doesNotMatch(leak.window.document.body.textContent, /987\s?654/);
+  leak.window.close();
   early.window.close();
 }
 // Back to the document's positioning: that instant is no longer offered, the server cutoff applies again.

@@ -1342,7 +1342,9 @@ let pollTimer = null;
     }
     // 4.6.0 : les valeurs brutes, quand elles sont données, sont exactement celles que P-0 a gardées.
     if (pos && pos.evidence !== undefined) {
-      if (!isList(pos.evidence) || pos.evidence.some((r) => !r || !isText(r.metricCode) || !isNum(r.value) || typeof r.afterCutoff !== 'boolean')
+      // 4.8.0 : valeur connue = nombre ; postérieure au cutoff = null (une vue qui la révélerait est refusée).
+      if (!isList(pos.evidence) || pos.evidence.some((r) => !r || !isText(r.metricCode) || typeof r.afterCutoff !== 'boolean'
+          || (r.afterCutoff ? r.value !== null : !isNum(r.value)))
           || (pos.evidenceTruncated !== true && pos.evidence.length !== pos.evidenceCount)) return 'preuves de positionnement non conformes';
     }
     for (const h of view.horizons) {
@@ -2136,7 +2138,8 @@ let pollTimer = null;
     }
     const groups = new Map();
     for (const r of rows) {
-      if (!r || !isText(r.metricCode) || !isNum(r.value) || !isText(r.periodEnd)) continue;
+      // 4.8.0 : une valeur inconnue au cutoff arrive à null ; la ligne reste (motif), la valeur est masquée.
+      if (!r || !isText(r.metricCode) || !isText(r.periodEnd) || !(isNum(r.value) || (r.value === null && r.afterCutoff === true))) continue;
       const key = [r.sourceAuthority, r.datasetCode, r.instrumentCode, r.periodEnd, r.publishedAt, r.observedAt].join('|');
       if (!groups.has(key)) groups.set(key, { head: r, items: [] });
       groups.get(key).items.push(r);
@@ -2154,7 +2157,8 @@ let pollTimer = null;
       for (const i of items) {
         const li = node('li', '');
         li.appendChild(node('span', 'v2__pos-metric', label(i.metricCode).toUpperCase()));
-        li.appendChild(node('span', 'v2__pos-value num', `${groupDigits(i.value)} ${i.unit === 'CONTRACTS' ? 'contrats' : label(i.unit)}`));
+        li.appendChild(node('span', 'v2__pos-value num', i.value === null ? 'masquée (inconnue au cutoff)'
+          : `${groupDigits(i.value)} ${i.unit === 'CONTRACTS' ? 'contrats' : label(i.unit)}`));
         list.appendChild(li);
       }
       wrap.appendChild(list);

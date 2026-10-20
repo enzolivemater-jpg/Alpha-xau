@@ -27,7 +27,7 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.7.0' as const;
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.8.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -398,7 +398,8 @@ export interface TerminalPositioningEvidenceRow {
   readonly datasetCode: string;
   readonly instrumentCode: string;
   readonly metricCode: string;
-  readonly value: number;
+  /** 4.8.0: null when the row was published or received after the cutoff (never served before it is known). */
+  readonly value: number | null;
   readonly unit: string;
   readonly periodEnd: string;
   readonly publishedAt: string;
@@ -414,11 +415,15 @@ function positioningEvidenceRowsOf(
 ): TerminalPositioningEvidenceRow[] {
   const cutoffMs = parseStrictTimestamp(knowledgeCutoff);
   const after = (at: string) => { const ms = parseStrictTimestamp(at); return cutoffMs !== null && ms !== null && ms > cutoffMs; };
-  return evidence.slice(0, TERMINAL_POSITIONING_EVIDENCE_ROWS).map((e) => ({
-    sourceAuthority: e.sourceAuthority, datasetCode: e.datasetCode, instrumentCode: e.instrumentCode, metricCode: e.metricCode,
-    value: e.value, unit: e.unit, periodEnd: e.periodEnd, publishedAt: e.publishedAt, observedAt: e.observedAt,
-    afterCutoff: after(e.publishedAt) || after(e.observedAt),
-  }));
+  return evidence.slice(0, TERMINAL_POSITIONING_EVIDENCE_ROWS).map((e) => {
+    const afterCutoff = after(e.publishedAt) || after(e.observedAt);
+    // 4.8.0: a replay never reveals a value it could not know; the row stays, with why it is set aside.
+    return {
+      sourceAuthority: e.sourceAuthority, datasetCode: e.datasetCode, instrumentCode: e.instrumentCode, metricCode: e.metricCode,
+      value: afterCutoff ? null : e.value, unit: e.unit, periodEnd: e.periodEnd, publishedAt: e.publishedAt, observedAt: e.observedAt,
+      afterCutoff,
+    };
+  });
 }
 
 export interface TerminalPositioningFreshness {
