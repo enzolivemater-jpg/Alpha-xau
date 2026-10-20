@@ -7,7 +7,7 @@
 export const PROXY_KIND = 'DXY_PROXY_RECONSTRUCTED_ECB_DAILY';
 export const REQUIRED_CURRENCIES = Object.freeze(['USD','JPY','GBP','CAD','SEK','CHF']);
 export const ECB_SERIES_URL = 'https://data-api.ecb.europa.eu/service/data/EXR/D.USD+JPY+GBP+CAD+SEK+CHF.EUR.SP00.A?format=csvdata';
-const DATE = /^\\d{4}-\\d{2}-\\d{2}$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function splitCsvLine(line) {
   const out=[]; let value=''; let quoted=false;
@@ -38,8 +38,8 @@ export function calculateDxyProxy(r) {
 export function parseEcbDailyCsv(csv, {sourceSha256}={}) {
   if (typeof csv!=='string'||!csv.trim()) throw new Error('ECB_CSV_EMPTY');
   if (!/^[a-f0-9]{64}$/.test(sourceSha256||'')) throw new Error('SOURCE_SHA256_REQUIRED');
-  const lines=csv.replace(/^\\uFEFF/,'').split(/\\r?\\n/).filter(x=>x.trim() && !x.startsWith('#'));
-  const head=splitCsvLine(lines.shift()||'').map(x=>x.trim().replace(/^\\uFEFF/,''));
+  const lines=csv.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim() && !x.startsWith('#'));
+  const head=splitCsvLine(lines.shift()||'').map(x=>x.trim().replace(/^\uFEFF/,''));
   const at=key=>head.indexOf(key);
   for (const k of ['TIME_PERIOD','OBS_VALUE','CURRENCY']) if(at(k)<0) throw new Error('ECB_COLUMN_MISSING:'+k);
   if(at('CURRENCY_DENOM')<0) throw new Error('ECB_DENOMINATOR_NOT_DECLARED');
