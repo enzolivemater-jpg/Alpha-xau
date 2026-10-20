@@ -256,28 +256,24 @@ The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`.
 
 ### Launcher (Windows and WSL)
 
-- **Windows:** double-click `scripts/terminal/xau-terminal.cmd` (open it from
-  `\\wsl.localhost\<distribution>\…\scripts\terminal\` or copy it to the
-  desktop). From the repository it derives the WSL distribution and the
-  checkout from its own location; a copy uses the two values at its top. It
-  runs `wsl.exe -d <distribution> --cd <checkout> -- sh scripts/terminal/xau-terminal.sh`.
-  It changes no system setting and installs nothing.
-  Real tests on 2026-10-20: Brave and Edge show the terminal (`c817c85`), and
-  `wsl.exe -d xau-agent` works from PowerShell. But the `.cmd` (double-click,
-  or `cmd.exe /c` on its UNC path) printed `distribution xau-agent`, then
-  `WSL_E_DISTRO_NOT_FOUND`.
-  - **Cause addressed:** the only argument that differed from the working
-    command was the distribution name, given to wsl.exe in quotes
-    (`-d "xau-agent"`).
-  - **The launcher now:** passes `-d` and `--cd` without quotes, after
-    `findstr` has checked they hold only letters, digits, `.`, `_`, `-` (and
-    `/` for the directory). Any other value stops the launcher with a message
-    (exit 64), and is never quoted.
-  - **Removed:** the `7d7d51b` pre-check. Its `if errorlevel 1` could not see
-    wsl.exe's negative exit code.
-  - **Kept:** `Lanceur : …` shows the path read.
-  - `test_terminal_offline_finalisation` emulates the argument construction
-    from the file itself. Windows itself is still to confirm.
+- **Windows:** double-click `scripts/terminal/xau-terminal.cmd`, from the
+  repository (`\\wsl.localhost\<distribution>\…`) or from a copy (desktop).
+  It is minimal: two values at its top (`XAU_DISTRO=xau-agent`, `XAU_DIR` =
+  the `xau-terminal` checkout) and one call,
+  `wsl.exe -d %XAU_DISTRO% -- sh %XAU_DIR%/scripts/terminal/xau-terminal.sh --local-data %*`.
+  The script changes to its own checkout. There is no `--cd`, `FOR`, block,
+  label, `GOTO`, `findstr` or quoted argument, and no character cmd.exe
+  interprets apart from `%VAR%`. It pauses on a failure. It changes no system
+  setting and installs nothing.
+  - History (2026-10-20, real PC): the earlier launchers derived the
+    distribution and checkout from their own UNC path. `7d7d51b` and
+    `34c8726` failed with `WSL_E_DISTRO_NOT_FOUND`, and once with « 'arge' is
+    not recognized » (a piece of a line run as a command). Meanwhile
+    `wsl.exe -d xau-agent`, quoted or not, works.
+  - The root cause inside cmd.exe is not proved here: there is no cmd.exe on
+    Linux. The minimal launcher removes every construct involved. The Linux
+    half of its command is tested for real; the Windows half still has to be
+    confirmed on the PC.
 - **WSL / Linux:** `npm run terminal` (or `sh scripts/terminal/xau-terminal.sh`).
 - `xau-terminal.sh` finds Node.js on `PATH`, else the newest version installed
   by nvm (`$NVM_DIR` or `~/.nvm`), without a pinned version path, and runs
