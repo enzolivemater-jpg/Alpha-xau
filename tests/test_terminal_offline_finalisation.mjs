@@ -314,6 +314,38 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
   assert.doesNotMatch(cmd, /v\d+\.\d+\.\d+/, 'no pinned Node version');
   assert.doesNotMatch(cmd, /--force|reg add|setx|netsh|Set-ExecutionPolicy/i, 'no system configuration change');
   assert.ok(cmd.includes('\r\n'), 'CRLF line endings for cmd.exe');
+  assert.ok(cmd.split('\r\n').every((line, i, all) => i === all.length - 1 || !line.includes('\n')), 'no bare LF line');
+  // B6 (Windows double-click from \\wsl.localhost\<distro>\…: UNC warning, then WSL_E_DISTRO_NOT_FOUND).
+  // The launcher names what it read, keeps the configured name when only the case differs, and checks the
+  // distribution with wsl.exe before launching; an unknown one is said, then the configured one is used.
+  const lines = cmd.split('\r\n');
+  const at = (re) => lines.findIndex((l) => re.test(l));
+  assert.ok(at(/^set "XAU_DEFAULT_DISTRO=xau-agent"$/) >= 0 && at(/^set "XAU_DISTRO=%XAU_DEFAULT_DISTRO%"$/) >= 0);
+  assert.ok(at(/^set "XAU_HERE=%~dp0"$/) >= 0 && at(/^echo Lanceur : %XAU_HERE%$/) >= 0, 'the path read is shown');
+  assert.ok(at(/^if \/i "%XAU_DISTRO%"=="%XAU_DEFAULT_DISTRO%" set "XAU_DISTRO=%XAU_DEFAULT_DISTRO%"$/) >= 0, 'case-only difference: configured name');
+  const check = at(/^wsl\.exe -d "%XAU_DISTRO%" -- true >nul 2>&1$/);
+  const launch = at(/^wsl\.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts\/terminal\/xau-terminal\.sh --local-data %\*$/);
+  assert.ok(check > 0 && launch > check, 'the distribution is checked before the launch');
+  assert.match(lines[check + 1], /^if errorlevel 1 \($/);
+  assert.match(lines[check + 2], /^  echo Distribution "%XAU_DISTRO%" introuvable par wsl\.exe : essai de "%XAU_DEFAULT_DISTRO%"\.$/);
+  assert.match(lines[check + 3], /^  set "XAU_DISTRO=%XAU_DEFAULT_DISTRO%"$/);
+  assert.doesNotMatch(lines[launch], />nul/, 'launch errors stay visible');
+  // The derivation, emulated with cmd's documented rules (FOR /F skips leading delimiters; IF /I ignores case).
+  const derive = (here) => {
+    let distro = 'xau-agent';
+    let dir = '/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal';
+    const [a, b, ...rest] = here.split('\\').filter(Boolean);
+    let tail = null;
+    if (['wsl$', 'wsl.localhost'].includes(String(a).toLowerCase())) { distro = b; tail = `${rest.join('\\')}\\`; }
+    if (tail) dir = `/${tail.replace(/\\/g, '/').replace('scripts/terminal/', '')}`.replace(/\/$/, '');
+    if (distro.toLowerCase() === 'xau-agent') distro = 'xau-agent';
+    return { distro, dir };
+  };
+  assert.deepEqual(derive('\\\\wsl.localhost\\xau-agent\\home\\xauagent\\projects\\Alpha-xau\\.claude\\worktrees\\xau-terminal\\scripts\\terminal\\'),
+    { distro: 'xau-agent', dir: '/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal' });
+  assert.deepEqual(derive('\\\\WSL.LOCALHOST\\XAU-AGENT\\home\\xauagent\\x\\scripts\\terminal\\'), { distro: 'xau-agent', dir: '/home/xauagent/x' });
+  assert.deepEqual(derive('\\\\wsl$\\Ubuntu\\home\\u\\repo\\scripts\\terminal\\'), { distro: 'Ubuntu', dir: '/home/u/repo' });
+  assert.deepEqual(derive('C:\\Users\\Enzo\\Desktop\\'), { distro: 'xau-agent', dir: '/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal' });
   console.log('PASS xau-terminal.cmd: derives distro and checkout from its location, no pinned version, no system change');
 } finally {
   rmSync(SCRATCH, { recursive: true, force: true });
