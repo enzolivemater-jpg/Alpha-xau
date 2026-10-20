@@ -27,7 +27,7 @@ import type { PositioningEvidenceInput } from './evidence_contract.js';
 import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const CFTC_COT_ADAPTER_SCHEMA_VERSION = 'xau.positioning-cftc-cot-offline.v1' as const;
-export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.3.0' as const;
+export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.4.0' as const;
 export const CFTC_SOURCE_AUTHORITY = 'cftc' as const;
 /**
  * 1.1.0: the CFTC publishes the disaggregated report as Futures Only and as
@@ -73,8 +73,25 @@ const IDENTITY_COLUMNS = {
  * read; when both are present they must agree on every row.
  */
 export const CFTC_COT_DATE_COLUMNS = ['Report_Date_as_YYYY-MM-DD', 'As_of_Date_Form_YYYY-MM-DD'] as const;
-/** Documented field 191: which publication the row belongs to. Read and shown verbatim, never interpreted. */
+/**
+ * Documented field 191: which publication the row belongs to, shown verbatim.
+ * 1.4.0: a declaration the file contradicts is refused. `FutOnly` is the only
+ * value proved by a real file (2026 Futures Only, every row); any other
+ * non-empty value contradicts FUTURES_ONLY, and `FutOnly` contradicts
+ * FUTURES_AND_OPTIONS_COMBINED. The combined file's own value is not proved
+ * here, so it is kept verbatim, not checked. No column or an empty cell: the
+ * declaration alone.
+ */
 export const CFTC_COT_DATASET_MARKER_COLUMN = 'FutOnly_or_Combined' as const;
+export const CFTC_COT_FUTURES_ONLY_MARKER = 'FutOnly' as const;
+/**
+ * 1.4.0: positions as of a report day cannot be published before that day has
+ * ended in US Eastern time (the CFTC's). Checked conservatively without a
+ * time-zone table: not before 05:00Z the next day, midnight EST, the later of
+ * the two Eastern offsets (an instant between 04:00Z and 05:00Z in summer is
+ * refused too; no CFTC release happens then).
+ */
+const REPORT_DAY_END_UTC_HOUR = 5;
 
 export type CftcCotReasonCode =
   | 'INVALID_REQUEST'
@@ -91,7 +108,8 @@ export type CftcCotReasonCode =
   | 'REPORT_DATE_MISMATCH'
   | 'INVALID_POSITION_VALUE'
   | 'PUBLISHED_BEFORE_REPORT_DATE'
-  | 'RECEIVED_BEFORE_PUBLISHED';
+  | 'RECEIVED_BEFORE_PUBLISHED'
+  | 'DATASET_MARKER_CONTRADICTION';
 
 export interface CftcCotRequest {
   /** The file's text, unchanged. */
@@ -369,12 +387,19 @@ export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion
   } else {
     return reject(['MULTIPLE_REPORT_DATES'], `${availableReportDates.length} rapports : choisir la date (chacun a sa propre publication)`, { availableReportDates });
   }
-  // A report as of a date cannot have been published before that date began (UTC).
-  if (publishedMs < Date.parse(`${reportDate}T00:00:00.000Z`)) {
-    return reject(['PUBLISHED_BEFORE_REPORT_DATE'], `publication déclarée avant le ${reportDate}`, { availableReportDates });
+  // A report as of a day cannot have been published before that day ended (US Eastern, conservative bound).
+  const dayEnd = Date.parse(`${reportDate}T00:00:00.000Z`) + (24 + REPORT_DAY_END_UTC_HOUR) * 3_600_000;
+  if (publishedMs < dayEnd) {
+    return reject(['PUBLISHED_BEFORE_REPORT_DATE'],
+      `publication déclarée avant la fin du ${reportDate} (heure de l'Est ; au plus tôt ${new Date(dayEnd).toISOString()})`, { availableReportDates });
   }
 
   const { row } = byDate.get(reportDate) as { row: string[] };
+  const marker = index.has(CFTC_COT_DATASET_MARKER_COLUMN) ? cell(row, CFTC_COT_DATASET_MARKER_COLUMN) : '';
+  if (marker !== '' && (dataset === 'FUTURES_ONLY') !== (marker === CFTC_COT_FUTURES_ONLY_MARKER)) {
+    return reject(['DATASET_MARKER_CONTRADICTION'],
+      `le fichier indique ${CFTC_COT_DATASET_MARKER_COLUMN} = ${marker}, la déclaration ${dataset}`, { availableReportDates });
+  }
   const evidence: PositioningEvidenceInput[] = [];
   for (const [metricCode, column] of CFTC_COT_METRIC_COLUMNS) {
     const raw = cell(row, column);

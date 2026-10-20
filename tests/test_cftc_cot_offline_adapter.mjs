@@ -19,7 +19,7 @@ const RECEIVED = '2026-10-02T19:45:00.000Z';
 const base = { text, artifactId, publishedAt: PUBLISHED, receivedAt: RECEIVED, dataset: 'FUTURES_ONLY' };
 
 assert.equal(cot.CFTC_COT_ADAPTER_SCHEMA_VERSION, 'xau.positioning-cftc-cot-offline.v1');
-assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.3.0');
+assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.4.0');
 
 // --- CSV reader: quotes, escaped quotes, CRLF; unterminated or stray quotes are refused.
 assert.deepEqual(cot.parseCsv('a,"b, c","d ""e"""\r\n1,2,3\n'), [['a', 'b, c', 'd "e"'], ['1', '2', '3']]);
@@ -89,6 +89,9 @@ const cases = [
   ['implicit-zone publication', { publishedAt: '2026-10-02T19:30:00' }, 'INVALID_REQUEST'],
   ['received before published', { receivedAt: '2026-10-02T19:00:00.000Z' }, 'RECEIVED_BEFORE_PUBLISHED'],
   ['published before the report date', { publishedAt: '2026-09-28T23:59:59.000Z', receivedAt: '2026-09-29T00:10:00.000Z' }, 'PUBLISHED_BEFORE_REPORT_DATE'],
+  // D2 (1.4.0): positions as of the report day cannot be published before that day has ended in US Eastern time.
+  ['published during the report day', { publishedAt: '2026-09-29T20:00:00.000Z', receivedAt: '2026-09-29T20:10:00.000Z' }, 'PUBLISHED_BEFORE_REPORT_DATE'],
+  ['published 1 ms before the conservative day end', { publishedAt: '2026-09-30T04:59:59.999Z', receivedAt: '2026-09-30T05:10:00.000Z' }, 'PUBLISHED_BEFORE_REPORT_DATE'],
   ['unknown report date', { reportDate: '2026-09-15' }, 'REPORT_DATE_NOT_FOUND'],
   ['impossible report date asked', { reportDate: '2026-02-30' }, 'INVALID_REQUEST'],
   ['other market', { contractMarketCode: '999999' }, 'MARKET_NOT_FOUND'],
@@ -169,8 +172,19 @@ assert.equal(doc.fileDatasetMarker, 'FutOnly', 'shown verbatim, never interprete
 assert.equal(doc.reportDate, '2026-09-29');
 assert.equal(doc.evidence.find((e) => e.metricCode === 'managed_money_long').value, 1000 + official.indexOf('M_Money_Positions_Long_All'));
 assert.equal(doc.evidence.find((e) => e.metricCode === 'swap_dealer_short').value, 1000 + official.indexOf('Swap__Positions_Short_All'));
-// The marker never decides: a declaration that says otherwise is still the operator's (shown side by side).
-assert.equal(cot.convertCftcCotReport({ ...base, text: officialText, dataset: 'FUTURES_AND_OPTIONS_COMBINED' }).status, 'EXTRACTED');
+// D3 (1.4.0): a declaration the file contradicts is refused. FutOnly is the only value proved by a real file;
+// another value is a contradiction for FUTURES_ONLY, and is kept verbatim (unproved) for FUTURES_AND_OPTIONS_COMBINED.
+const combinedOnFutOnly = cot.convertCftcCotReport({ ...base, text: officialText, dataset: 'FUTURES_AND_OPTIONS_COMBINED' });
+assert.deepEqual([combinedOnFutOnly.status, combinedOnFutOnly.reasonCodes], ['REJECTED', ['DATASET_MARKER_CONTRADICTION']]);
+assert.match(combinedOnFutOnly.detail, /FutOnly_or_Combined = FutOnly.*FUTURES_AND_OPTIONS_COMBINED/);
+const otherMarker = officialText.replace(/,FutOnly\r\n/g, ',Combined\r\n');
+assert.notEqual(otherMarker, officialText);
+const futOnlyOnOther = cot.convertCftcCotReport({ ...base, text: otherMarker });
+assert.deepEqual([futOnlyOnOther.status, futOnlyOnOther.reasonCodes], ['REJECTED', ['DATASET_MARKER_CONTRADICTION']]);
+const combinedOnOther = cot.convertCftcCotReport({ ...base, text: otherMarker, dataset: 'FUTURES_AND_OPTIONS_COMBINED' });
+assert.deepEqual([combinedOnOther.status, combinedOnOther.fileDatasetMarker], ['EXTRACTED', 'Combined']);
+// The day-end bound itself is accepted.
+assert.equal(cot.convertCftcCotReport({ ...base, reportDate: '2026-09-29', publishedAt: '2026-09-30T05:00:00.000Z', receivedAt: '2026-09-30T05:10:00.000Z' }).status, 'EXTRACTED');
 // Both date columns: must agree on every row of the market.
 const both = (d1, d2) => `${text.split('\r\n')[0]},As_of_Date_Form_YYYY-MM-DD\r\n${text.split('\r\n').slice(1).filter(Boolean)
   .map((l) => `${l},${l.includes('088691') && l.includes('2026-09-29') ? d2 : d1}`).join('\r\n')}\r\n`;

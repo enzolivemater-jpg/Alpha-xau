@@ -100,7 +100,7 @@ proved and does not change P-0's deliberate `UNAVAILABLE` positioning state.
 
 `backend/positioning_engine/cftc_cot_offline_adapter.ts`
 (`xau.positioning-cftc-cot-offline.v1` /
-`cftc-cot-disaggregated-offline-adapter-1.3.0`) converts a CFTC
+`cftc-cot-disaggregated-offline-adapter-1.4.0`) converts a CFTC
 Commitments of Traders file **already on the operator's disk**
 (Disaggregated, comma-separated text) into P-0 tuples. The CFTC publishes it
 as Futures Only and as Futures-and-Options Combined with the same columns, so
@@ -134,8 +134,20 @@ pure: no network, clock, process or file access; the caller hashes the bytes.
 - 1.3.0: the report date is read from `As_of_Date_Form_YYYY-MM-DD` (the CFTC
   variable list's name) or `Report_Date_as_YYYY-MM-DD`; both present must
   agree. `FutOnly_or_Combined`, when present, is returned verbatim
-  (`fileDatasetMarker`) and never decides. `inspectCftcCotFile` reports what a
-  header offers without converting. See `docs/XAU_V2_DATA_REAL.md`.
+  (`fileDatasetMarker`). `inspectCftcCotFile` reports what a header offers
+  without converting. See `docs/XAU_V2_DATA_REAL.md`.
+- 1.4.0 (D2, D3 of the cloud audit):
+  - **End of the report day.** Positions as of a day cannot be published before
+    that day has ended in US Eastern time. The check is conservative and needs
+    no time-zone table: a publication before 05:00Z the next day (midnight EST)
+    is `PUBLISHED_BEFORE_REPORT_DATE`. 1.3.0 accepted any instant from 00:00Z
+    of the report day.
+  - **Marker against the declaration.** A declaration the file contradicts is
+    `DATASET_MARKER_CONTRADICTION`: `FutOnly` with `FUTURES_AND_OPTIONS_COMBINED`,
+    or any other non-empty value with `FUTURES_ONLY`. `FutOnly` is the only
+    value proved by a real file; the combined file's value is not, so with
+    `FUTURES_AND_OPTIONS_COMBINED` another value is kept verbatim, not checked.
+    Without the column, or with an empty cell, the declaration alone.
 - `sourceApproval` is always `NOT_APPROVED`. The column names follow the
   CFTC disaggregated text layout; they are **not verified against a retained
   real CFTC file** in this repository (the test fixture is synthetic and says
