@@ -53,7 +53,7 @@ writeFileSync(path.join(noArchive, 'evidence', 'raw-only', 'fred.json'), body);
 const missing = await checkData(noArchive);
 assert.deepEqual(missing.problems, ['note : CAPTURE_LOG_WITHOUT_ARCHIVE:evidence/raw-only', 'note : POSITIONING_DIR_ABSENT']);
 assert.ok(missing.lines.some((l) => /^  - merged:evidence : 1 enregistrement/.test(l)), 'the other log is still merged');
-assert.match(text, /cot:gold\.csv : lu, rapport du 2026-09-22, 14 mesures, publié 2026-09-25T19:30:00\.000Z \(base : déclaration seule\), reçu 2026-09-25T19:45:00\.000Z, connu à partir de 2026-09-25T19:45:00\.000Z ; le fichier contient 2 rapport\(s\)/);
+assert.match(text, /cot:gold\.csv : lu, rapport du 2026-09-22, 14 mesures, publié 2026-09-25T19:30:00\.000Z \(base : déclaration seule\), reçu 2026-09-25T19:45:00\.000Z, connu à partir de 2026-09-25T19:45:00\.000Z ; déclaration NON liée aux octets \(sans empreinte\) : la refaire avec node scripts\/cot_declare\.mjs ; le fichier contient 2 rapport\(s\)/);
 assert.match(text, /événements macro official:local : 1 lue\(s\) sur 1/);
 assert.match(text, /Lisible ne veut pas dire approuvé : le terminal reste HOLD/);
 let cli = spawnSync(process.execPath, [SCRIPT, '--data-root', good], { encoding: 'utf8' });

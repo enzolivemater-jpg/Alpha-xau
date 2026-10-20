@@ -50,7 +50,7 @@ export async function checkData(dataRoot) {
   const knownFrom = (p) => (Date.parse(p.receivedAt) > Date.parse(p.publishedAt) ? p.receivedAt : p.publishedAt);
   lines.push(`positionnement CFTC : ${cot.length} fichier(s)`);
   for (const p of cot) {
-    lines.push(`  - ${p.id} : ${p.status === 'EXTRACTED' ? `lu, rapport du ${p.reportDate}, ${p.metrics} mesures, publié ${p.publishedAt} (base : ${p.publicationBasis ? p.publicationBasis.kind : 'déclaration seule'}), reçu ${p.receivedAt}, connu à partir de ${knownFrom(p)}`
+    lines.push(`  - ${p.id} : ${p.status === 'EXTRACTED' ? `lu, rapport du ${p.reportDate}, ${p.metrics} mesures, publié ${p.publishedAt} (base : ${p.publicationBasis ? p.publicationBasis.kind : 'déclaration seule'}), reçu ${p.receivedAt}, connu à partir de ${knownFrom(p)}${p.boundToBytes === false ? ' ; déclaration NON liée aux octets (sans empreinte) : la refaire avec node scripts/cot_declare.mjs' : ''}`
       : `REJETÉ — ${p.reasonCodes.join(', ')} : ${p.detail}`}${p.fileReports ? ` ; le fichier contient ${p.fileReports.count} rapport(s) ${p.fileReports.first} → ${p.fileReports.last}` : ''}`);
     if (p.status !== 'EXTRACTED') problems.push(`${p.id} : ${p.reasonCodes.join(', ')}`);
   }

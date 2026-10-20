@@ -148,6 +148,15 @@ pure: no network, clock, process or file access; the caller hashes the bytes.
     value proved by a real file; the combined file's value is not, so with
     `FUTURES_AND_OPTIONS_COMBINED` another value is kept verbatim, not checked.
     Without the column, or with an empty cell, the declaration alone.
+- Digest binding (reviewed 2026-10-20):
+  - The evidence `artifactId` is already mandatory: the adapter requires
+    `sha256:<64 hex>`, which the server computes from the bytes.
+  - In a declaration (`xau.cftc-cot-declaration.v1`) `artifactId` stays
+    optional, because making it required would break v1 and hand-written
+    declarations. But `cot_declare` always writes it, a mismatch is
+    `DECLARATION_DIGEST_MISMATCH`, the page shows « Liée aux octets », and
+    `terminal:check-data` flags an unbound declaration to redo.
+  - Requiring it is a v2 schema decision.
 - `sourceApproval` is always `NOT_APPROVED`. The column names follow the
   CFTC disaggregated text layout; they are **not verified against a retained
   real CFTC file** in this repository (the test fixture is synthetic and says
