@@ -262,19 +262,22 @@ The input file has the CHAIN-0 shape `{ knowledgeCutoff, input }`.
   checkout from its own location; a copy uses the two values at its top. It
   runs `wsl.exe -d <distribution> --cd <checkout> -- sh scripts/terminal/xau-terminal.sh`.
   It changes no system setting and installs nothing.
-  Real test on 2026-10-20: Brave and Edge show the terminal (`c817c85`), and
-  `wsl.exe -d xau-agent` works. But a double-click from
-  `\\wsl.localhost\xau-agent\…` gave cmd's UNC warning, then
-  `WSL_E_DISTRO_NOT_FOUND`. The root cause is not proved here (no cmd.exe).
-  The launcher now:
-  - prints the path it read (`Lanceur : …`);
-  - keeps the configured name (`xau-agent`) when the name read differs only
-    in case;
-  - checks the distribution with `wsl.exe -d … -- true` before launching. An
-    unknown one is named, then the configured one is used.
-
-  The UNC warning itself is cmd's and harmless: nothing relies on the current
-  directory.
+  Real tests on 2026-10-20: Brave and Edge show the terminal (`c817c85`), and
+  `wsl.exe -d xau-agent` works from PowerShell. But the `.cmd` (double-click,
+  or `cmd.exe /c` on its UNC path) printed `distribution xau-agent`, then
+  `WSL_E_DISTRO_NOT_FOUND`.
+  - **Cause addressed:** the only argument that differed from the working
+    command was the distribution name, given to wsl.exe in quotes
+    (`-d "xau-agent"`).
+  - **The launcher now:** passes `-d` and `--cd` without quotes, after
+    `findstr` has checked they hold only letters, digits, `.`, `_`, `-` (and
+    `/` for the directory). Any other value stops the launcher with a message
+    (exit 64), and is never quoted.
+  - **Removed:** the `7d7d51b` pre-check. Its `if errorlevel 1` could not see
+    wsl.exe's negative exit code.
+  - **Kept:** `Lanceur : …` shows the path read.
+  - `test_terminal_offline_finalisation` emulates the argument construction
+    from the file itself. Windows itself is still to confirm.
 - **WSL / Linux:** `npm run terminal` (or `sh scripts/terminal/xau-terminal.sh`).
 - `xau-terminal.sh` finds Node.js on `PATH`, else the newest version installed
   by nvm (`$NVM_DIR` or `~/.nvm`), without a pinned version path, and runs

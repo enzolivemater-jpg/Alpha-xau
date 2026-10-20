@@ -308,44 +308,65 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
   // B11. The Windows launcher (static check: Windows is not available here).
   const cmd = readFileSync(path.join(ROOT, 'scripts', 'terminal', 'xau-terminal.cmd'), 'utf8');
   // --local-data: the operator's local data (captures, declared CFTC files) is offered in the page, none selected.
-  assert.match(cmd, /wsl\.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts\/terminal\/xau-terminal\.sh --local-data %\*/);
+  assert.match(cmd, /wsl\.exe -d %XAU_DISTRO% --cd %XAU_DIR% -- sh scripts\/terminal\/xau-terminal\.sh --local-data %\*/);
   assert.match(cmd, /\\\\wsl\.localhost\\/i);
   assert.match(cmd, /\\\\wsl\$\\/i);
   assert.doesNotMatch(cmd, /v\d+\.\d+\.\d+/, 'no pinned Node version');
   assert.doesNotMatch(cmd, /--force|reg add|setx|netsh|Set-ExecutionPolicy/i, 'no system configuration change');
   assert.ok(cmd.includes('\r\n'), 'CRLF line endings for cmd.exe');
   assert.ok(cmd.split('\r\n').every((line, i, all) => i === all.length - 1 || !line.includes('\n')), 'no bare LF line');
-  // B6 (Windows double-click from \\wsl.localhost\<distro>\…: UNC warning, then WSL_E_DISTRO_NOT_FOUND).
-  // The launcher names what it read, keeps the configured name when only the case differs, and checks the
-  // distribution with wsl.exe before launching; an unknown one is said, then the configured one is used.
+  // B6 (real PC, 2026-10-20): from \\wsl.localhost\xau-agent\… the launcher printed « distribution xau-agent »,
+  // then WSL_E_DISTRO_NOT_FOUND, while `wsl.exe -d xau-agent` (no quotes) works. The launch now gives wsl.exe
+  // -d and --cd WITHOUT quotes, after checking the values hold only safe characters.
   const lines = cmd.split('\r\n');
-  const at = (re) => lines.findIndex((l) => re.test(l));
-  assert.ok(at(/^set "XAU_DEFAULT_DISTRO=xau-agent"$/) >= 0 && at(/^set "XAU_DISTRO=%XAU_DEFAULT_DISTRO%"$/) >= 0);
-  assert.ok(at(/^set "XAU_HERE=%~dp0"$/) >= 0 && at(/^echo Lanceur : %XAU_HERE%$/) >= 0, 'the path read is shown');
-  assert.ok(at(/^if \/i "%XAU_DISTRO%"=="%XAU_DEFAULT_DISTRO%" set "XAU_DISTRO=%XAU_DEFAULT_DISTRO%"$/) >= 0, 'case-only difference: configured name');
-  const check = at(/^wsl\.exe -d "%XAU_DISTRO%" -- true >nul 2>&1$/);
-  const launch = at(/^wsl\.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts\/terminal\/xau-terminal\.sh --local-data %\*$/);
-  assert.ok(check > 0 && launch > check, 'the distribution is checked before the launch');
-  assert.match(lines[check + 1], /^if errorlevel 1 \($/);
-  assert.match(lines[check + 2], /^  echo Distribution "%XAU_DISTRO%" introuvable par wsl\.exe : essai de "%XAU_DEFAULT_DISTRO%"\.$/);
-  assert.match(lines[check + 3], /^  set "XAU_DISTRO=%XAU_DEFAULT_DISTRO%"$/);
-  assert.doesNotMatch(lines[launch], />nul/, 'launch errors stay visible');
-  // The derivation, emulated with cmd's documented rules (FOR /F skips leading delimiters; IF /I ignores case).
-  const derive = (here) => {
-    let distro = 'xau-agent';
-    let dir = '/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal';
+  const launchLine = lines.find((l) => /^wsl\.exe /.test(l));
+  assert.equal(launchLine, 'wsl.exe -d %XAU_DISTRO% --cd %XAU_DIR% -- sh scripts/terminal/xau-terminal.sh --local-data %*');
+  assert.equal(lines.filter((l) => /^\s*wsl\.exe /.test(l)).length, 1, 'one wsl.exe call: no pre-check, no fallback');
+  assert.ok(lines.includes('echo(%XAU_DISTRO%| findstr /r /x "[A-Za-z0-9._-][A-Za-z0-9._-]*" >nul || goto :bad'));
+  assert.ok(lines.includes('echo(%XAU_DIR%| findstr /r /x "/[A-Za-z0-9._/-]*" >nul || goto :bad'));
+  assert.ok(lines.indexOf(':bad') > lines.indexOf(launchLine) && lines.includes('endlocal & exit /b 64'));
+  assert.ok(lines.includes('endlocal & exit /b %RC%'), 'the exit code survives endlocal');
+  assert.doesNotMatch(cmd, /if errorlevel 1/, 'wsl.exe fails with a negative code, which IF ERRORLEVEL 1 misses');
+  // Emulation of what cmd.exe builds from this very file (its set lines, the UNC derivation, %VAR% expansion,
+  // the findstr checks), then the argv wsl.exe gets under the Windows command-line rules (CommandLineToArgvW).
+  const defaults = Object.fromEntries(lines.map((l) => /^set "([A-Z_]+)=([^%"]*)"$/.exec(l)).filter(Boolean).map((m) => [m[1], m[2]]));
+  const build = (here, args = '') => {
+    let distro = defaults.XAU_DEFAULT_DISTRO ?? defaults.XAU_DISTRO;
+    let dir = defaults.XAU_DIR;
     const [a, b, ...rest] = here.split('\\').filter(Boolean);
-    let tail = null;
-    if (['wsl$', 'wsl.localhost'].includes(String(a).toLowerCase())) { distro = b; tail = `${rest.join('\\')}\\`; }
-    if (tail) dir = `/${tail.replace(/\\/g, '/').replace('scripts/terminal/', '')}`.replace(/\/$/, '');
-    if (distro.toLowerCase() === 'xau-agent') distro = 'xau-agent';
-    return { distro, dir };
+    if (['wsl$', 'wsl.localhost'].includes(String(a).toLowerCase())) {
+      distro = b;
+      dir = `/${`${rest.join('\\')}\\`.replace(/\\/g, '/').replace('scripts/terminal/', '')}`.replace(/\/$/, '');
+    }
+    const ok = /^[A-Za-z0-9._-]+$/.test(distro) && /^\/[A-Za-z0-9._/-]*$/.test(dir);
+    if (!ok) return { refused: true, distro, dir };
+    const commandLine = launchLine.replace('%XAU_DISTRO%', distro).replace('%XAU_DIR%', dir).replace('%*', args).trimEnd();
+    return { refused: false, commandLine, argv: argvOf(commandLine) };
   };
-  assert.deepEqual(derive('\\\\wsl.localhost\\xau-agent\\home\\xauagent\\projects\\Alpha-xau\\.claude\\worktrees\\xau-terminal\\scripts\\terminal\\'),
-    { distro: 'xau-agent', dir: '/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal' });
-  assert.deepEqual(derive('\\\\WSL.LOCALHOST\\XAU-AGENT\\home\\xauagent\\x\\scripts\\terminal\\'), { distro: 'xau-agent', dir: '/home/xauagent/x' });
-  assert.deepEqual(derive('\\\\wsl$\\Ubuntu\\home\\u\\repo\\scripts\\terminal\\'), { distro: 'Ubuntu', dir: '/home/u/repo' });
-  assert.deepEqual(derive('C:\\Users\\Enzo\\Desktop\\'), { distro: 'xau-agent', dir: '/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal' });
+  const argvOf = (line) => {
+    const out = []; let cur = ''; let quoted = false; let any = false;
+    for (let k = 0; k < line.length; k += 1) {
+      const c = line[k];
+      if (c === '"') { quoted = !quoted; any = true; } else if (!quoted && (c === ' ' || c === '\t')) { if (cur || any) out.push(cur); cur = ''; any = false; } else { cur += c; }
+    }
+    if (cur || any) out.push(cur);
+    return out;
+  };
+  const unc = '\\\\wsl.localhost\\xau-agent\\home\\xauagent\\projects\\Alpha-xau\\.claude\\worktrees\\xau-terminal\\scripts\\terminal\\';
+  const built = build(unc);
+  assert.equal(built.commandLine, 'wsl.exe -d xau-agent --cd /home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal -- sh scripts/terminal/xau-terminal.sh --local-data');
+  assert.ok(!built.commandLine.includes('"'), 'no quote reaches wsl.exe');
+  assert.deepEqual(built.argv.slice(0, 5), ['wsl.exe', '-d', 'xau-agent', '--cd', '/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal']);
+  assert.deepEqual(Buffer.from(built.argv[2]), Buffer.from('xau-agent', 'ascii'), 'the distribution name, byte for byte');
+  // The working PowerShell command has the same leading arguments.
+  assert.deepEqual(argvOf('wsl.exe -d xau-agent -- echo WSL_OK').slice(0, 3), built.argv.slice(0, 3));
+  assert.equal(build('\\\\wsl$\\Ubuntu\\home\\u\\repo\\scripts\\terminal\\').argv[2], 'Ubuntu');
+  assert.equal(build('C:\\Users\\Enzo\\Desktop\\').argv[2], 'xau-agent', 'a desktop copy uses the values at its top');
+  assert.equal(build(unc, '--no-browser').argv.at(-1), '--no-browser');
+  for (const hostile of ['\\\\wsl.localhost\\my distro\\home\\x\\scripts\\terminal\\', '\\\\wsl.localhost\\xau-agent\\home\\my dir\\scripts\\terminal\\',
+    '\\\\wsl.localhost\\a&b\\home\\x\\scripts\\terminal\\']) {
+    assert.equal(build(hostile).refused, true, `refused, never quoted: ${hostile}`);
+  }
   console.log('PASS xau-terminal.cmd: derives distro and checkout from its location, no pinned version, no system change');
 } finally {
   rmSync(SCRATCH, { recursive: true, force: true });

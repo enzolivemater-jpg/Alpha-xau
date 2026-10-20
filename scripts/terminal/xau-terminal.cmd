@@ -22,17 +22,13 @@ if defined REST (
 if "%XAU_DIR:~-1%"=="/" set "XAU_DIR=%XAU_DIR:~0,-1%"
 title XAU V2 terminal OFFLINE - HOLD, execution interdite
 echo Lanceur : %XAU_HERE%
-rem Le nom lu dans le chemin UNC peut differer du nom WSL enregistre (casse) : le nom configure fait foi.
-if /i "%XAU_DISTRO%"=="%XAU_DEFAULT_DISTRO%" set "XAU_DISTRO=%XAU_DEFAULT_DISTRO%"
-rem Verifier la distribution avant de lancer : introuvable, le dire puis prendre la distribution configuree.
-wsl.exe -d "%XAU_DISTRO%" -- true >nul 2>&1
-if errorlevel 1 (
-  echo Distribution "%XAU_DISTRO%" introuvable par wsl.exe : essai de "%XAU_DEFAULT_DISTRO%".
-  set "XAU_DISTRO=%XAU_DEFAULT_DISTRO%"
-)
+rem wsl.exe recoit -d et --cd SANS guillemets : entre guillemets, le nom arrivait tel quel ("xau-agent")
+rem et wsl.exe repondait WSL_E_DISTRO_NOT_FOUND. Les valeurs sont donc limitees a des caracteres surs.
+echo(%XAU_DISTRO%| findstr /r /x "[A-Za-z0-9._-][A-Za-z0-9._-]*" >nul || goto :bad
+echo(%XAU_DIR%| findstr /r /x "/[A-Za-z0-9._/-]*" >nul || goto :bad
 echo Terminal XAU V2 OFFLINE - distribution %XAU_DISTRO%, dossier %XAU_DIR%
 echo Fermer cette fenetre ou Ctrl+C pour arreter le terminal.
-wsl.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts/terminal/xau-terminal.sh --local-data %*
+wsl.exe -d %XAU_DISTRO% --cd %XAU_DIR% -- sh scripts/terminal/xau-terminal.sh --local-data %*
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" (
   echo.
@@ -41,4 +37,10 @@ if not "%RC%"=="0" (
   echo Commande manuelle dans Ubuntu/WSL : cd %XAU_DIR% puis npm run terminal:local
   pause
 )
-endlocal
+rem Sur une seule ligne : %RC% est lu avant que endlocal ne l'efface.
+endlocal & exit /b %RC%
+:bad
+echo Distribution ou dossier non pris en charge (lettres, chiffres, . _ - / seulement) : "%XAU_DISTRO%" "%XAU_DIR%".
+echo Lancer depuis \\wsl.localhost\^<distribution^>\... ou corriger XAU_DISTRO et XAU_DIR en haut de ce fichier.
+pause
+endlocal & exit /b 64
