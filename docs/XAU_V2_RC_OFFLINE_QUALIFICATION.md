@@ -115,8 +115,9 @@ broker and trading.
 
 ## Local commits after the published candidate (not CI-qualified)
 
-Last SHA qualified on GitHub: `0fd973dd72719e6571a2960666b4f982060d3373` (PR #161 head,
-run `39247558521`, 11/11; `adae6fa` + this file). The commits below are local only. Publishing
+Last SHA qualified on GitHub: `d7035b8c4ad3c5844df122bc28d9c93349aad7bd` (PR #161 head,
+run `39332138744`, 11/11). Earlier: `0fd973d` (run `39247558521`). Rows up to `d7035b8` are in it;
+the rows after it (`d37ea19`, `a5fb8f2`, `02c24f1`) are local only. The commits below are local only. Publishing
 them needs an authorization; their evidence is local until then.
 
 | Commit | Change | Local evidence |
@@ -132,6 +133,10 @@ them needs an authorization; their evidence is local until then.
 | `0a879a8` | `terminal:check-data` names the market fields each source never holds | real captures: bid, ask, dxy absent |
 | `0401518` | Test: releases after the cutoff shown « PAS ENCORE PUBLIÉE », excluded | mutant killed |
 | `9561d8f` | A CFTC report set aside at the cutoff says from when it is known | page test; real data: « connue à partir du 2026-10-18 21:44:42.077Z » |
+| `d7035b8` | Start line words the new note | published: PR #161 head, run `39332138744`, 11/11 |
+| `d37ea19` | Cloud audit D2 / D3: CFTC adapter 1.4.0 — no publication before the report day ends (conservative 05:00Z next day); `DATASET_MARKER_CONTRADICTION` | RED then GREEN; 3 mutants killed; real file: same-day publication and COMBINED declaration refused |
+| `a5fb8f2` | Cloud audit D1: view 4.8.0 — a CFTC value not yet known at the cutoff is never served (`value: null`, reason kept); page masks it and refuses a leaking view | RED then GREEN; real data: 0 occurrences of the values in the JSON at 2026-10-15T19:58Z |
+| `02c24f1` | Point 4: declaration digest binding reviewed; `check-data` flags an unbound declaration (non-breaking) | `test_terminal_data_check` |
 
 ## Capability matrix (candidate `adae6fa`, 2026-10-19)
 
