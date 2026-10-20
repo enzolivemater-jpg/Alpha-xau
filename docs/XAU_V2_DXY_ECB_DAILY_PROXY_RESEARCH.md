@@ -33,3 +33,20 @@ Formule et pondérations : ICE USDX methodology, https://www.ice.com/publicdocs/
 `node --test tests/test_dxy_ecb_daily_proxy.mjs`.
 
 L'intégration DATA-3 n'est **pas** activée. Pour autoriser un scénario de recherche explicitement séparé, il faudra définir un contrat de provenance/release-time propre, des tests de cutoff et des contrôles d'interface avant toute connexion au pipeline existant.
+
+## Commande locale de vérification
+
+Après téléchargement manuel du CSV BCE, depuis la racine du dépôt :
+
+```bash
+node scripts/dxy_ecb_proxy_check.mjs /chemin/vers/ecb.csv
+```
+
+La commande lit le fichier sans requête réseau, calcule elle-même le SHA-256 des octets lus, et écrit sur stdout un rapport JSON comportant dates, valeurs reconstruites et indisponibilités. Code de sortie : `0` pour toutes les dates complètes, `1` en présence de dates incomplètes ou de données invalides, `64` en cas d'usage incorrect. Ne rien importer automatiquement dans DATA-3, MP-0 ou le terminal.
+
+Tests ciblés (à exécuter localement) :
+```bash
+node --test tests/test_dxy_ecb_daily_proxy.mjs tests/test_dxy_ecb_proxy_cli.mjs
+```
+
+Les tests sont créés dans la branche, mais **leur exécution sur la machine du projet n'est pas encore attestée**. La version du parseur a été corrigée après l'implémentation initiale, notamment les expressions régulières et les fins de ligne CSV.
