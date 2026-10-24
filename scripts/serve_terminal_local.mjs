@@ -316,6 +316,8 @@ export async function readPositioningDir(dir) {
       if (keys === null || raw.schemaVersion !== 'xau.cftc-cot-declaration.v1'
           || keys.some((key) => !COT_DECLARATION_KEYS.includes(key))
           || (raw.sourceUrl !== undefined && (typeof raw.sourceUrl !== 'string' || !SOURCE_URL.test(raw.sourceUrl)))
+          // A declared market is a code; null or a number is not "gold by default".
+          || (raw.contractMarketCode !== undefined && typeof raw.contractMarketCode !== 'string')
           || (raw.publicationBasis !== undefined && !validPublicationBasis(raw.publicationBasis))) problem = 'DECLARATION_INVALID';
       // A declaration bound to other bytes says nothing about this file (changed after it was declared).
       else if (raw.artifactId !== undefined && raw.artifactId !== artifactId) problem = 'DECLARATION_DIGEST_MISMATCH';

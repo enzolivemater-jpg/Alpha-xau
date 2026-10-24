@@ -22,6 +22,10 @@ const args = ['--dataset', 'futures-only', '--published-at', '2026-09-25T19:30:0
 assert.equal(parseArgs([file]), null, 'dataset and both instants are required');
 assert.equal(parseArgs([file, '--dataset', 'legacy', ...args.slice(2)]), null);
 assert.equal(parseArgs([file, ...args]).dataset, 'FUTURES_ONLY');
+// --contract is a CFTC market code or nothing: an empty or malformed one is a usage error, never gold by default.
+assert.equal(parseArgs([file, ...args, '--contract', '']), null);
+assert.equal(parseArgs([file, ...args, '--contract', '88691']), null);
+assert.equal(parseArgs([file, ...args, '--contract', '084691']).contract, '084691');
 assert.equal(declarationPathOf('/x/y/gold.csv'), '/x/y/gold.declaration.json');
 
 // Two reports in the file: refused, the dates listed, nothing written.

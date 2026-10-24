@@ -46,7 +46,7 @@ export function parseArgs(argv) {
     else if (flag === '--published-at') options.publishedAt = value;
     else if (flag === '--received-at') options.receivedAt = value;
     else if (flag === '--report-date') options.reportDate = value;
-    else if (flag === '--contract') options.contract = value;
+    else if (flag === '--contract' && /^[0-9A-Z]{6}$/.test(value)) options.contract = value;
     else if (flag === '--source-url' && /^https:\/\/[A-Za-z0-9.-]+(\/[A-Za-z0-9._~%\/-]*)?$/.test(value)) options.sourceUrl = value;
     else if (flag === '--publication-basis' && (value === 'explicit' || value === 'schedule-inferred')) {
       options.publicationBasis = value === 'explicit' ? 'EXPLICIT_OFFICIAL_MAPPING' : 'OFFICIAL_SCHEDULE_INFERRED';
@@ -73,7 +73,7 @@ export async function declare(options) {
   const conversion = adapter.convertCftcCotReport({
     text: bytes.toString('utf8'), artifactId: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
     publishedAt: options.publishedAt, receivedAt: options.receivedAt, reportDate: options.reportDate, dataset: options.dataset,
-    ...(options.contract ? { contractMarketCode: options.contract } : {}),
+    ...(options.contract !== null ? { contractMarketCode: options.contract } : {}),
   });
   if (conversion.status !== 'EXTRACTED') {
     const dates = conversion.availableReportDates.length ? ` ; rapports présents : ${conversion.availableReportDates.join(', ')}` : '';
@@ -90,7 +90,7 @@ export async function declare(options) {
     receivedAt: options.receivedAt,
     // The report converted, so the terminal reads the same one even if the file holds several.
     reportDate: conversion.reportDate,
-    ...(options.contract ? { contractMarketCode: options.contract } : {}),
+    ...(options.contract !== null ? { contractMarketCode: options.contract } : {}),
   };
   const target = declarationPathOf(options.file);
   try {

@@ -19,7 +19,7 @@ const RECEIVED = '2026-10-02T19:45:00.000Z';
 const base = { text, artifactId, publishedAt: PUBLISHED, receivedAt: RECEIVED, dataset: 'FUTURES_ONLY' };
 
 assert.equal(cot.CFTC_COT_ADAPTER_SCHEMA_VERSION, 'xau.positioning-cftc-cot-offline.v1');
-assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.4.0');
+assert.equal(cot.CFTC_COT_ADAPTER_ALGORITHM_VERSION, 'cftc-cot-disaggregated-offline-adapter-1.4.1');
 
 // --- CSV reader: quotes, escaped quotes, CRLF; unterminated or stray quotes are refused.
 assert.deepEqual(cot.parseCsv('a,"b, c","d ""e"""\r\n1,2,3\n'), [['a', 'b, c', 'd "e"'], ['1', '2', '3']]);
@@ -95,6 +95,10 @@ const cases = [
   ['unknown report date', { reportDate: '2026-09-15' }, 'REPORT_DATE_NOT_FOUND'],
   ['impossible report date asked', { reportDate: '2026-02-30' }, 'INVALID_REQUEST'],
   ['other market', { contractMarketCode: '999999' }, 'MARKET_NOT_FOUND'],
+  // 1.4.1: only an absent code means gold; a declared null, empty or numeric code never falls back to it.
+  ['null market code', { contractMarketCode: null }, 'INVALID_REQUEST'],
+  ['empty market code', { contractMarketCode: '' }, 'INVALID_REQUEST'],
+  ['numeric market code', { contractMarketCode: 88691 }, 'INVALID_REQUEST'],
   ['renamed column', { text: text.replace('M_Money_Positions_Short_All', 'MM_Short') }, 'MISSING_COLUMN'],
   ['duplicate column', { text: text.replace('CFTC_Market_Code', 'Open_Interest_All') }, 'DUPLICATE_COLUMN'],
   ['unterminated quote', { text: text.replace('"SYNTHETIC SILVER', 'SYNTHETIC SILVER"x') }, 'MALFORMED_CSV'],

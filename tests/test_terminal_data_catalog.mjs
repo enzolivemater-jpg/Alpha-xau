@@ -65,6 +65,11 @@ copyFileSync(COT, path.join(ROOT, 'positioning', 'bad-declaration.csv'));
 put('positioning/bad-declaration.declaration.json', JSON.stringify({ schemaVersion: 'xau.cftc-cot-declaration.v1', dataset: 'FUTURES_ONLY',
   publishedAt: '2026-09-25T19:30:00.000Z', receivedAt: '2026-09-25T19:45:00.000Z', approved: true }));
 copyFileSync(COT, path.join(ROOT, 'positioning', 'odd name.csv'));
+// contractMarketCode: a declared null is no market at all, never "gold by default"; a declared code selects that market.
+copyFileSync(COT, path.join(ROOT, 'positioning', 'null-market.csv'));
+declare('null-market', { contractMarketCode: null });
+copyFileSync(COT, path.join(ROOT, 'positioning', 'silver.csv'));
+declare('silver', { contractMarketCode: '084691', reportDate: '2026-09-29', publishedAt: '2026-10-02T19:30:00.000Z', receivedAt: '2026-10-02T19:45:00.000Z' });
 
 // ---- Catalog: every source with its period, provenance, validation and reasons; nothing selected by default.
 const view = await buildLocalView({ dataRoot: ROOT });
@@ -86,7 +91,10 @@ assert.deepEqual([fred.validation.at, fred.validation.nature], ['2026-10-01T06:0
 assert.ok(['VERIFIED', 'INCOMPLETE'].includes(fred.validation.status) && Array.isArray(fred.validation.reasonCodes));
 assert.deepEqual([m['log:evidence:broken-log'].validation.status, m['log:evidence:broken-log'].problems], ['INVALID', ['SOURCE_UNREADABLE']]);
 const p = Object.fromEntries(catalog.positioning.map((x) => [x.id, x]));
-assert.deepEqual(Object.keys(p), ['input', 'cot:bad-declaration.csv', 'cot:f_disagg.zip', 'cot:gold.csv', 'cot:legacy.txt', 'cot:undeclared.csv']);
+assert.deepEqual(Object.keys(p), ['input', 'cot:bad-declaration.csv', 'cot:f_disagg.zip', 'cot:gold.csv', 'cot:legacy.txt', 'cot:null-market.csv', 'cot:silver.csv', 'cot:undeclared.csv']);
+assert.deepEqual([p['cot:null-market.csv'].status, p['cot:null-market.csv'].reasonCodes], ['REJECTED', ['DECLARATION_INVALID']], 'null market code is not gold');
+assert.equal(p['cot:silver.csv'].status, 'EXTRACTED');
+assert.match((await readPositioningDir(path.join(ROOT, 'positioning'))).entries.find((e) => e.name === 'silver.csv').conversion.marketName, /SILVER/);
 assert.deepEqual([p['cot:gold.csv'].status, p['cot:gold.csv'].metrics, p['cot:gold.csv'].dataset, p['cot:gold.csv'].reportDate, p['cot:gold.csv'].sourceApproval],
   ['EXTRACTED', 14, 'FUTURES_ONLY', '2026-09-22', 'NOT_APPROVED']);
 assert.deepEqual(p['cot:undeclared.csv'].reasonCodes, ['DECLARATION_MISSING']);
