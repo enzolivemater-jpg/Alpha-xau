@@ -39,3 +39,18 @@ for (const field of ['target', 'invalidation', 'probability']) {
 assert.deepEqual(failures, [], `baseline failures:\n${failures.join('\n')}`);
 assert.equal(await run(baselineWith((s) => { delete s.H2; })), null, 'a missing horizon makes the baseline unavailable');
 console.log('PASS committee baseline: a null, empty or non-decimal stored figure makes the baseline unavailable, never 0');
+
+// Confidence and probability are stored in [0,1]: a missing confidence is not 0, and a
+// figure outside the unit interval (a percentage written by mistake) is not a baseline.
+const rangeFailures = [];
+for (const field of ['probability', 'confidence']) {
+  for (const value of [null, '', [], true, 'abc', undefined, NaN, Infinity, -0.1, 1.01, 50, '50']) {
+    const result = await run(baselineWith((s) => { s.H4[field] = value; }));
+    if (result !== null) rangeFailures.push(`${field} = ${JSON.stringify(value)} gave a baseline (${field} ${result.H4[field]})`);
+  }
+  for (const edge of [0, 1, '0', '1', '0.5']) {
+    assert.ok(await run(baselineWith((s) => { s.H4[field] = edge; })) !== null, `${field} = ${edge} is a valid stored figure`);
+  }
+}
+assert.deepEqual(rangeFailures, [], `baseline range failures:\n${rangeFailures.join('\n')}`);
+console.log('PASS committee baseline: probability and confidence must be present and within [0,1]');
