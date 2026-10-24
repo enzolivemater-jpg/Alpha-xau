@@ -25,13 +25,18 @@ function dateValid(day) {
   return DATE.test(day) && !Number.isNaN(Date.parse(day+'T00:00:00Z'))
     && new Date(day+'T00:00:00Z').toISOString().slice(0,10)===day;
 }
-export function calculateDxyProxy(r) {
+/** The six USDX pairs, quoted as ICE quotes them, from ECB rates (C units per 1 EUR). */
+export function ecbRatesToUsdxPairs(r) {
   if (!r || REQUIRED_CURRENCIES.some(k=>typeof r[k]!=='number'||!Number.isFinite(r[k])||r[k]<=0)) throw new Error('FX_INPUT_INVALID');
   // ECB quotes C EUR=1. USDJPY = EURJPY/EURUSD, GBPUSD=EURUSD/EURGBP.
   const [u,j,g,c,s,h]=REQUIRED_CURRENCIES.map(k=>r[k]);
-  const value=50.14348112 * Math.pow(u,-0.576) * Math.pow(j/u,0.136)
-    * Math.pow(u/g,-0.119) * Math.pow(c/u,0.091)
-    * Math.pow(s/u,0.042) * Math.pow(h/u,0.036);
+  return Object.freeze({EURUSD:u, USDJPY:j/u, GBPUSD:u/g, USDCAD:c/u, USDSEK:s/u, USDCHF:h/u});
+}
+export function calculateDxyProxy(r) {
+  const p=ecbRatesToUsdxPairs(r);
+  const value=50.14348112 * Math.pow(p.EURUSD,-0.576) * Math.pow(p.USDJPY,0.136)
+    * Math.pow(p.GBPUSD,-0.119) * Math.pow(p.USDCAD,0.091)
+    * Math.pow(p.USDSEK,0.042) * Math.pow(p.USDCHF,0.036);
   if (!Number.isFinite(value)||value<=0) throw new Error('INDEX_CALCULATION_INVALID');
   return value;
 }
@@ -41,7 +46,7 @@ export function parseEcbDailyCsv(csv, {sourceSha256}={}) {
   const lines=csv.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim() && !x.startsWith('#'));
   const head=splitCsvLine(lines.shift()||'').map(x=>x.trim().replace(/^\uFEFF/,''));
   const at=key=>head.indexOf(key);
-  for (const k of ['TIME_PERIOD','OBS_VALUE','CURRENCY']) if(at(k)<0) throw new Error('ECB_COLUMN_MISSING:'+k);
+  for (const k of ['KEY','TIME_PERIOD','OBS_VALUE','CURRENCY']) if(at(k)<0) throw new Error('ECB_COLUMN_MISSING:'+k);
   if(at('CURRENCY_DENOM')<0) throw new Error('ECB_DENOMINATOR_NOT_DECLARED');
   const rows=new Map();
   for (const line of lines) {
@@ -51,6 +56,11 @@ export function parseEcbDailyCsv(csv, {sourceSha256}={}) {
     if (!dateValid(day)) throw new Error('ECB_DATE_INVALID');
     if (!REQUIRED_CURRENCIES.includes(currency)) continue;
     if (cells[at('CURRENCY_DENOM')]!=='EUR') throw new Error('ECB_DENOMINATOR_INVALID');
+    // Only the daily reference-rate series (D, SP00, A); a monthly or end-of-period series is another number.
+    if (cells[at('KEY')]!==`EXR.D.${currency}.EUR.SP00.A`) throw new Error('ECB_SERIES_KEY_INVALID');
+    for (const [k,v] of [['FREQ','D'],['EXR_TYPE','SP00'],['EXR_SUFFIX','A']]) if(at(k)>=0&&cells[at(k)]!==v) throw new Error('ECB_SERIES_KEY_INVALID');
+    // 'A' is a normal value; provisional, estimated or missing-flagged observations are not used.
+    if (at('OBS_STATUS')>=0&&cells[at('OBS_STATUS')]!=='A') throw new Error('ECB_OBS_STATUS_NOT_NORMAL');
     const rate=Number(cells[at('OBS_VALUE')]);
     if (!cells[at('OBS_VALUE')].trim()||!Number.isFinite(rate)||rate<=0) throw new Error('ECB_RATE_INVALID');
     if(!rows.has(day))rows.set(day,{});
