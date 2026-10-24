@@ -404,3 +404,18 @@ console.log('PASS the replay reaches no provider, network, clock, randomness or 
   assert.deepEqual(context.buildSnapshot([]).dxy, (await replay(fixture)).marketSnapshot.dxy, 'DXY unavailable on both paths');
   console.log(`PASS replay freshness equals the runtime market driver at ${checked} threshold edges`);
 }
+
+// --- The terminal page keeps its own copy of the reasons that forbid VERIFIED (it cannot import the engine).
+// It must equal the engine's blocking and incompleteness reasons, or a new replay code would let the page
+// show « REJEU VÉRIFIÉ » for a replay that objects to itself.
+{
+  const page = readFileSync(new URL('../frontend/js/dashboard.js', import.meta.url), 'utf8');
+  const literal = page.match(/const V2_NOT_VERIFIED_REASONS = \[([^\]]*)\];/);
+  assert.ok(literal, 'V2_NOT_VERIFIED_REASONS literal found in the page');
+  const pageReasons = [...literal[1].matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...pageReasons].sort(),
+    [...ev.MARKET_EVIDENCE_BLOCKING_REASONS, ...ev.MARKET_EVIDENCE_INCOMPLETENESS_REASONS].sort(),
+    'page and engine disagree on which reasons forbid VERIFIED');
+  assert.ok(Object.isFrozen(ev.MARKET_EVIDENCE_BLOCKING_REASONS) && Object.isFrozen(ev.MARKET_EVIDENCE_INCOMPLETENESS_REASONS));
+  console.log('PASS the page refuses VERIFIED on exactly the engine\'s blocking and incompleteness reasons');
+}
