@@ -100,7 +100,7 @@ proved and does not change P-0's deliberate `UNAVAILABLE` positioning state.
 
 `backend/positioning_engine/cftc_cot_offline_adapter.ts`
 (`xau.positioning-cftc-cot-offline.v1` /
-`cftc-cot-disaggregated-offline-adapter-1.4.0`) converts a CFTC
+`cftc-cot-disaggregated-offline-adapter-1.4.1`) converts a CFTC
 Commitments of Traders file **already on the operator's disk**
 (Disaggregated, comma-separated text) into P-0 tuples. The CFTC publishes it
 as Futures Only and as Futures-and-Options Combined with the same columns, so

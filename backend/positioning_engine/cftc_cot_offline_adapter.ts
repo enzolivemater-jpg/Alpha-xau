@@ -27,7 +27,7 @@ import type { PositioningEvidenceInput } from './evidence_contract.js';
 import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 
 export const CFTC_COT_ADAPTER_SCHEMA_VERSION = 'xau.positioning-cftc-cot-offline.v1' as const;
-export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.4.0' as const;
+export const CFTC_COT_ADAPTER_ALGORITHM_VERSION = 'cftc-cot-disaggregated-offline-adapter-1.4.1' as const;
 export const CFTC_SOURCE_AUTHORITY = 'cftc' as const;
 /**
  * 1.1.0: the CFTC publishes the disaggregated report as Futures Only and as
@@ -118,7 +118,7 @@ export interface CftcCotRequest {
   readonly artifactId: string;
   readonly publishedAt: string;
   readonly receivedAt: string;
-  /** Default: COMEX gold. */
+  /** Default (absent only): COMEX gold. null or any non-code value rejects; it never falls back to gold. */
   readonly contractMarketCode?: string;
   /** Required when the file holds more than one report of that market. */
   readonly reportDate?: string | null;
@@ -318,7 +318,8 @@ const reject = (
 export function convertCftcCotReport(request: CftcCotRequest): CftcCotConversion {
   if (typeof request !== 'object' || request === null) return reject(['INVALID_REQUEST'], 'requête absente');
   const { text, artifactId, publishedAt, receivedAt } = request;
-  const contractCode = request.contractMarketCode ?? CFTC_GOLD_CONTRACT_MARKET_CODE;
+  // Only an absent code means gold: `??` would also turn a declared null into gold and convert the wrong intent.
+  const contractCode = request.contractMarketCode === undefined ? CFTC_GOLD_CONTRACT_MARKET_CODE : request.contractMarketCode;
   const selected = request.reportDate ?? null;
   if (typeof text !== 'string' || text.length === 0 || text.length > MAX_TEXT_LENGTH) return reject(['INVALID_REQUEST'], 'texte du fichier absent ou trop grand');
   if (typeof artifactId !== 'string' || !ARTIFACT.test(artifactId)) return reject(['INVALID_REQUEST'], 'artifactId doit être sha256:<64 hex>');
