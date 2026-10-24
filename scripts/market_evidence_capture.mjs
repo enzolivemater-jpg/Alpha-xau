@@ -14,7 +14,8 @@
  * provider by the operator, unmodified; it requires `--attest-captured`. The
  * script cannot check that claim, which is why a replay of a CAPTURED log is
  * HISTORICAL_VERIFIED only when its bytes re-read to the recorded values and
- * its coverage is complete. `--ingested-at` is the time the body was
+ * its coverage is complete. `init` declares only the capturable fields, so
+ * while no series provides dxy, bid and ask a log replays INCOMPLETE. `--ingested-at` is the time the body was
  * received, never the file's modification time.
  */
 
@@ -26,7 +27,6 @@ import { pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
 
-const FIELDS = ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti'];
 
 function parse(argv) {
   const [command, ...rest] = argv;
@@ -117,7 +117,8 @@ async function execute(argv) {
     if (cls !== 'CAPTURED' && cls !== 'SYNTHETIC_FIXTURE') return fail('--class must be SYNTHETIC_FIXTURE or CAPTURED');
     if (!o.id || !o['created-at'] || !o.statement) return fail('init needs --id, --created-at and --statement');
     const archive = cap.createEvidenceArchive({
-      archiveId: o.id, provenanceClass: cls, createdAt: o['created-at'], fields: FIELDS, statement: o.statement,
+      // Only what a capture series can provide: declaring dxy, bid or ask would claim coverage no capture can fill.
+      archiveId: o.id, provenanceClass: cls, createdAt: o['created-at'], fields: cap.CAPTURABLE_FIELDS, statement: o.statement,
     });
     writeArchive(file, archive);
     out({ created: file, provenanceClass: cls });

@@ -199,7 +199,9 @@ for (const bad of ['nope', '..%2Fgolden', '', 'GOLDEN']) {
 }
 // DATA-1 archive scenarios: the market snapshot comes from a replay, the manifest travels with the view.
 const archiveView = await scenarioView('archive-synthetic');
-assert.equal(archiveView.marketEvidence.status, 'VERIFIED');
+// DATA-3 L1 (replay 1.1.0): the synthetic fixture declares dxy and holds no DXY value: INCOMPLETE, still usable.
+assert.equal(archiveView.marketEvidence.status, 'INCOMPLETE');
+assert.equal(archiveView.marketEvidence.reproducible, false);
 assert.equal(archiveView.marketEvidence.nature, 'SIMULATION');
 assert.equal(archiveView.market.fields.find((f) => f.field === 'wti').value, 66.4);
 const afterCorrection = await scenarioView('archive-after-correction');
@@ -273,8 +275,8 @@ console.log('PASS local input files: malformed, mis-shaped and stale inputs all 
   try {
     writeFileSync(path.join(scratch, 'broken.json'), '{not json');
     for (const [name, options, status, mp0] of [
-      ['pinned', { archiveFile, archiveDigest: pinned }, 'VERIFIED', 'DEGRADED'],
-      ['unpinned', { archiveFile }, 'VERIFIED', 'DEGRADED'],
+      ['pinned', { archiveFile, archiveDigest: pinned }, 'INCOMPLETE', 'DEGRADED'],
+      ['unpinned', { archiveFile }, 'INCOMPLETE', 'DEGRADED'],
       ['wrong pin', { archiveFile, archiveDigest: `sha256:${'0'.repeat(64)}` }, 'INVALID', 'ABSTAIN'],
       ['broken file', { archiveFile: path.join(scratch, 'broken.json') }, 'INVALID', 'ABSTAIN'],
       // Four days on, the spot has expired: INCOMPLETE replay and MP-0 abstains.
@@ -510,9 +512,9 @@ dom = boot(LOCAL, serveView(archiveView));
 await settle();
 d = dom.window.document;
 assert.equal(d.getElementById('v2-mev').hidden, false);
-assert.equal(text(d, 'v2-mev-status'), 'REJEU VÉRIFIÉ · ARCHIVE SYNTHÉTIQUE · reproductible');
+assert.equal(text(d, 'v2-mev-status'), 'REJEU INCOMPLET · ARCHIVE SYNTHÉTIQUE · non reproductible');
 assert.equal(text(d, 'mode-v2-val'), 'ARCHIVE SYNTHÉTIQUE · DRY RUN');
-assert.match(text(d, 'v2-nav-nature'), /^SIMULATION — SCÉNARIO ARCHIVE-SYNTHETIC · ARCHIVE SYNTHÉTIQUE · REJEU VÉRIFIÉ · .* · PAS UNE ANALYSE RÉELLE$/);
+assert.match(text(d, 'v2-nav-nature'), /^SIMULATION — SCÉNARIO ARCHIVE-SYNTHETIC · ARCHIVE SYNTHÉTIQUE · REJEU INCOMPLET · .* · PAS UNE ANALYSE RÉELLE$/);
 assert.match(text(d, 'v2-mev-archive'), /^fixture-data1-2026-10-01 · SYNTHETIC_FIXTURE · 10 enregistrement\(s\)$/);
 assert.match(text(d, 'v2-mev-digest'), /^sha256:[0-9a-f]{64} \(non épinglée\)$/);
 assert.equal(text(d, 'v2-mev-replay'), archiveView.marketEvidence.replayDigest);
@@ -535,7 +537,8 @@ assert.equal(dom.window.document.getElementById('v2-mev').hidden, true, 'no mani
 dom.window.close();
 // A captured, fully re-read archive is HISTORIQUE VÉRIFIÉ, and still a dry run, still not LIVE.
 const historical = structuredClone(archiveView);
-Object.assign(historical.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED' });
+// A hypothetical view: no archive reaches it today (DATA-3 L1), the page must still render it coherently.
+Object.assign(historical.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED', status: 'VERIFIED', reproducible: true });
 for (const o of historical.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
 // B4: a coherent captured view also names the archive as the market's source.
 Object.assign(historical.inputProvenance[0], { source: 'CAPTURED_ARCHIVE', detail: 'archive capturée localement (test)' });
@@ -553,7 +556,7 @@ for (const [name, mutate] of [
     Object.assign(v.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED', status: 'INCOMPLETE', reproducible: false });
     for (const o of v.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
   }],
-  ['reproducible but incomplete', (v) => { v.marketEvidence.status = 'INCOMPLETE'; }],
+  ['incomplete but called reproducible', (v) => { v.marketEvidence.reproducible = true; }],
   ['synthetic archive called captured', (v) => { v.marketEvidence.provenanceClass = 'CAPTURED'; }],
   ['captured archive called simulation', (v) => { v.marketEvidence.nature = 'HISTORICAL_UNVERIFIED'; }],
   ['LIVE market nature', (v) => { v.marketEvidence.nature = 'LIVE'; }],

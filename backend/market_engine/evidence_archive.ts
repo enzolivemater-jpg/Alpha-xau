@@ -37,7 +37,7 @@ import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestam
 /** Input format of an archive (not an output contract version). */
 export const MARKET_EVIDENCE_ARCHIVE_FORMAT = 'xau.market-evidence-archive.v1' as const;
 export const MARKET_EVIDENCE_REPLAY_SCHEMA_VERSION = 'xau.market-evidence-replay.v1' as const;
-export const MARKET_EVIDENCE_REPLAY_ALGORITHM_VERSION = 'market-evidence-replay-1.0.0' as const;
+export const MARKET_EVIDENCE_REPLAY_ALGORITHM_VERSION = 'market-evidence-replay-1.1.0' as const;
 
 export type EvidenceInstrument = 'XAUUSD' | 'DXY' | 'US10Y' | 'US10YR' | 'VIX' | 'WTI';
 export type EvidenceUnit = 'USD_PER_TROY_OUNCE' | 'INDEX_POINTS' | 'PERCENT' | 'USD_PER_BARREL';
@@ -142,6 +142,8 @@ export type MarketEvidenceReasonCode =
   | 'COVERAGE_NOT_DECLARED'
   | 'CUTOFF_OUTSIDE_COVERAGE'
   | 'FIELDS_NOT_COVERED'
+  // 1.1.0: a covered field with no observation usable at the cutoff; coverage is a claim, not data.
+  | 'DECLARED_FIELD_NOT_OBSERVED'
   | 'PROVENANCE_INCOMPLETE'
   | 'FRESHNESS_RULE_UNAVAILABLE';
 
@@ -153,7 +155,7 @@ const BLOCKING: readonly MarketEvidenceReasonCode[] = [
 ];
 const REASON_ORDER: readonly MarketEvidenceReasonCode[] = [
   ...BLOCKING, 'EXACT_DUPLICATE_IGNORED', 'COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE',
-  'FIELDS_NOT_COVERED', 'PROVENANCE_INCOMPLETE', 'FRESHNESS_RULE_UNAVAILABLE',
+  'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED', 'PROVENANCE_INCOMPLETE', 'FRESHNESS_RULE_UNAVAILABLE',
 ];
 
 export interface MarketEvidenceFinding {
@@ -190,8 +192,8 @@ export interface ReplayedObservation {
 }
 
 /**
- * VERIFIED: valid archive, complete declared coverage of the cutoff, pinned
- * digest matched when given. INCOMPLETE: valid but completeness not
+ * VERIFIED: valid archive, complete declared coverage of the cutoff, every
+ * covered field observed at the cutoff (1.1.0), pinned digest matched when given. INCOMPLETE: valid but completeness not
  * established. INVALID: a blocking finding; nothing from it is usable.
  */
 export type MarketEvidenceReplayStatus = 'VERIFIED' | 'INCOMPLETE' | 'INVALID';
@@ -539,10 +541,17 @@ export async function replayMarketEvidence(
     }
   }
 
+  // A declared field is covered only if the archive actually holds a value of it at the cutoff:
+  // otherwise "complete coverage" would rest on the declaration alone (DATA-3 L1).
+  const declared = shapeOk ? archive.coverage : null;
+  if (selection !== null && declared !== null
+      && declared.fields.some((field) => observations[field as MarketPricingAsOfFieldName] === null)) {
+    add('DECLARED_FIELD_NOT_OBSERVED');
+  }
   const finalCodes = new Set(findings.map((f) => f.code));
   const selectionInvalid = selection !== null && !selection.replay.reproducible;
   const status: MarketEvidenceReplayStatus = invalid || selectionInvalid || selection === null ? 'INVALID'
-    : ['COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE', 'FIELDS_NOT_COVERED']
+    : ['COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE', 'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED']
       .some((code) => finalCodes.has(code as MarketEvidenceReasonCode)) ? 'INCOMPLETE' : 'VERIFIED';
   const captured = shapeOk && archive.provenanceClass === 'CAPTURED';
   const selected = Object.values(observations).filter((o): o is ReplayedObservation => o !== null);

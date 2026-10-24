@@ -95,7 +95,15 @@ export interface CaptureResult {
   readonly replayReasons: readonly MarketEvidenceReasonCode[];
 }
 
-/** A new, empty archive whose declared coverage starts at `createdAt`. */
+/** The fields a capture log can ever hold: those of the configured capture series. */
+export const CAPTURABLE_FIELDS: readonly MarketPricingAsOfFieldName[] = Object.freeze(
+  [...new Set(CAPTURE_SERIES.map((s) => s.field))]);
+
+/**
+ * A new, empty archive whose declared coverage starts at `createdAt`. Its
+ * fields must be capturable: declaring coverage of a field no capture series
+ * provides (dxy, bid, ask today) is refused, never recorded (DATA-3 L1).
+ */
 export function createEvidenceArchive(options: {
   readonly archiveId: string;
   readonly provenanceClass: MarketEvidenceProvenanceClass;
@@ -105,6 +113,9 @@ export function createEvidenceArchive(options: {
 }): MarketEvidenceArchive {
   const created = parseStrictTimestamp(options.createdAt);
   if (created === null) throw new Error('createdAt must be a strict timestamp');
+  if (!Array.isArray(options.fields)) throw new Error('fields must be a list');
+  const impossible = (options.fields as readonly unknown[]).filter((f) => !CAPTURABLE_FIELDS.includes(f as MarketPricingAsOfFieldName));
+  if (impossible.length) throw new Error(`COVERAGE_FIELD_NOT_CAPTURABLE: ${impossible.join(', ')} (no capture series provides it)`);
   const at = new Date(created).toISOString();
   return {
     schemaVersion: MARKET_EVIDENCE_ARCHIVE_FORMAT,
