@@ -129,6 +129,12 @@ January 6 report on January 16.
   without per-report evidence (or an explicit approval to accept this
   basis), and a declaration that uses them must say so
   (`--publication-basis schedule-inferred`).
+- A declaration that names a basis (either kind) must give the release
+  instant the basis rests on: 3:30 p.m. America/New_York, to the second, with
+  an explicit zone (19:30Z in EDT, 20:30Z in EST). Otherwise `cot_declare`
+  declares nothing and the terminal refuses the file
+  (`DECLARATION_BASIS_CONTRADICTED`), so no CFTC value is served before the
+  instant the cited rule gives. A declaration without a basis is unchanged.
 - The 2026-10-13 report already declared locally rests on this inferred basis,
   corroborated by the server `Last-Modified` (2026-10-16 19:28:01 GMT); its
   declaration names no basis, and the terminal shows "non indiquée

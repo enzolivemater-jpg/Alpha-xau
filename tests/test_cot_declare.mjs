@@ -113,6 +113,49 @@ assert.equal(spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' }).status,
   assert.match(z.stderr, /archive ZIP.*non compatible en l'état/s);
   assert.equal(existsSync(declarationPathOf(zip)), false);
 }
+// A cited official basis means the CFTC's 3:30 p.m. Eastern release: an instant that contradicts it is neither
+// declared nor served (it would show CFTC values before they were published).
+{
+  const { isCftcReleaseInstant } = await import('../scripts/lib/cftc_release_instant.mjs');
+  for (const ok of ['2026-09-25T19:30:00.000Z', '2026-09-25T19:30:00Z', '2026-01-16T20:30:00.000Z', '2026-09-25T15:30:00-04:00',
+    '2026-03-06T20:30:00Z', '2026-03-13T19:30:00Z', '2026-10-30T19:30:00Z', '2026-11-06T20:30:00Z']) {
+    assert.equal(isCftcReleaseInstant(ok), true, ok);
+  }
+  for (const bad of ['2026-09-25T12:00:00.000Z', '2026-09-25T20:30:00.000Z', '2026-01-16T19:30:00.000Z', '2026-09-25T19:30:00.001Z',
+    '2026-09-25T19:30:01Z', '2026-09-25T19:30:00', '2026-09-25', null, 7, '', '2026-02-30T19:30:00Z']) {
+    assert.equal(isCftcReleaseInstant(bad), false, String(bad));
+  }
+  // Without a zone, the host's local time would decide: the very instant of the release, written in this host's
+  // local time without an offset, is still refused.
+  const release = new Date('2026-09-25T19:30:00Z');
+  const pad = (n) => String(n).padStart(2, '0');
+  const hostLocal = `${release.getFullYear()}-${pad(release.getMonth() + 1)}-${pad(release.getDate())}T${pad(release.getHours())}:${pad(release.getMinutes())}:00`;
+  assert.equal(Date.parse(hostLocal), release.getTime(), 'same instant on this host');
+  assert.equal(isCftcReleaseInstant(hostLocal), false, 'an instant without an explicit zone is not a declared instant');
+  const PR = 'https://www.cftc.gov/PressRoom/PressReleases/9138-25';
+  const early = path.join(ROOT, 'positioning', 'gold-early.csv');
+  copyFileSync(new URL('./fixtures/cftc_cot_disaggregated_synthetic.csv', import.meta.url), early);
+  const morning = ['--dataset', 'futures-only', '--published-at', '2026-09-25T12:00:00.000Z', '--received-at', '2026-09-25T12:05:00.000Z',
+    '--report-date', '2026-09-22', '--publication-basis', 'explicit', '--publication-reference', PR];
+  const refused = await declare({ ...parseArgs([early, ...morning]) });
+  assert.equal(refused.ok, false);
+  assert.match(refused.message, /n'est pas 15 h 30 heure de l'Est/);
+  assert.equal(existsSync(declarationPathOf(early)), false, 'nothing declared');
+  // The same instant without a basis stays the operator's bare declaration (older declarations keep working).
+  assert.equal((await declare({ ...parseArgs([early, ...morning.slice(0, 8)]) })).ok, true);
+  const bare = JSON.parse(readFileSync(declarationPathOf(early), 'utf8'));
+  const entry = async () => (await buildLocalView({ dataRoot: ROOT })).catalog().positioning.find((p) => p.id === 'cot:gold-early.csv');
+  assert.equal((await entry()).status, 'EXTRACTED');
+  // A hand-written basis on that morning instant: the terminal refuses it, says why, serves nothing.
+  writeFileSync(declarationPathOf(early), JSON.stringify({ ...bare, publicationBasis: { kind: 'EXPLICIT_OFFICIAL_MAPPING', reference: PR } }));
+  const contradicted = await entry();
+  assert.deepEqual([contradicted.status, contradicted.reasonCodes, contradicted.metrics], ['REJECTED', ['DECLARATION_BASIS_CONTRADICTED'], 0]);
+  assert.match(contradicted.detail, /pas 15 h 30 heure de l'Est/);
+  // At 3:30 p.m. EDT (19:30Z) the same basis is accepted.
+  writeFileSync(declarationPathOf(early), JSON.stringify({ ...bare, publishedAt: '2026-09-25T19:30:00.000Z', receivedAt: '2026-09-25T19:45:00.000Z',
+    publicationBasis: { kind: 'OFFICIAL_SCHEDULE_INFERRED', reference: PR } }));
+  assert.equal((await entry()).status, 'EXTRACTED');
+}
 const source = readFileSync(SCRIPT, 'utf8');
 // The declared source URL is recorded, never called: no network API, no clock.
 assert.doesNotMatch(source, /\bfetch\(|node:https?|node:net|node:dgram|Date\.now\(|new Date\(\)/, 'no network, no clock');

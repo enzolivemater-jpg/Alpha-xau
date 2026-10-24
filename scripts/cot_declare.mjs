@@ -30,6 +30,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
+import { isCftcReleaseInstant } from './lib/cftc_release_instant.mjs';
 
 const DATASETS = { 'futures-only': 'FUTURES_ONLY', 'futures-and-options': 'FUTURES_AND_OPTIONS_COMBINED' };
 
@@ -63,6 +64,10 @@ export function parseArgs(argv) {
 export const declarationPathOf = (file) => path.join(path.dirname(file), `${path.basename(file).replace(/\.[^.]*$/, '')}.declaration.json`);
 
 export async function declare(options) {
+  // A basis names the CFTC's 3:30 p.m. ET release: an instant it contradicts is not declared (the terminal would refuse it).
+  if (options.publicationBasis && !isCftcReleaseInstant(options.publishedAt)) {
+    return { ok: false, message: `--published-at ${options.publishedAt} n'est pas 15 h 30 heure de l'Est : il contredit la base de publication citée ; rien n'est déclaré` };
+  }
   const adapter = await loadBackendModule('positioning_engine/cftc_cot_offline_adapter.ts');
   let bytes;
   try {

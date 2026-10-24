@@ -37,6 +37,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
+import { isCftcReleaseInstant } from './lib/cftc_release_instant.mjs';
 import { codeIdentity, describeCode } from './lib/code_identity.mjs';
 import { aggregateOfficialReleasesAt, officialReleaseFiles, readOfficialReleases } from './lib/official_events.mjs';
 import { TERMINAL_SCENARIOS, findTerminalScenario } from './lib/terminal_scenarios.mjs';
@@ -321,6 +322,8 @@ export async function readPositioningDir(dir) {
           || (raw.publicationBasis !== undefined && !validPublicationBasis(raw.publicationBasis))) problem = 'DECLARATION_INVALID';
       // A declaration bound to other bytes says nothing about this file (changed after it was declared).
       else if (raw.artifactId !== undefined && raw.artifactId !== artifactId) problem = 'DECLARATION_DIGEST_MISMATCH';
+      // A cited official basis means the 3:30 p.m. ET release: an instant it contradicts is never served.
+      else if (raw.publicationBasis !== undefined && !isCftcReleaseInstant(raw.publishedAt)) problem = 'DECLARATION_BASIS_CONTRADICTED';
       else declaration = raw;
     } catch (error) {
       problem = error.code === 'ENOENT' ? 'DECLARATION_MISSING' : 'DECLARATION_INVALID';
@@ -619,6 +622,8 @@ export async function buildLocalView({
       detail: source.conversion ? source.conversion.detail
         : source.problem === 'DECLARATION_DIGEST_MISMATCH'
           ? `le fichier a changé depuis sa déclaration (empreinte différente) : la déclarer à nouveau après vérification`
+          : source.problem === 'DECLARATION_BASIS_CONTRADICTED'
+            ? `l'instant de publication déclaré n'est pas 15 h 30 heure de l'Est, alors que la déclaration cite la base officielle de la CFTC`
           : `${source.problem === 'DECLARATION_MISSING' ? 'déclaration absente' : 'déclaration invalide'} : ${source.label.replace(/\.[^.]*$/, '')}.declaration.json requis`
           + `${source.formatProblem ? ` ; ${source.formatProblem}` : ''}`,
       declaredBy: source.declaredBy,
