@@ -314,3 +314,16 @@ This is a reading, not a run.
 5. Open design question, not changed: the SQL key derivation (`chr(31)` join) stays
    ambiguous in the database; only the application boundary refuses U+001F. A SQL
    `CHECK` or a length-prefixed key is a schema decision for the migration gate.
+
+## Cloud session 2026-10-24 (branch `claude/keen-keller-sa9xu5`)
+
+Base: `origin/rc/offline-qualification-adae6fa` (c817c85, PR #161) plus a clean merge of the
+three open draft PRs of the day — #162 (CFTC 1.4.1), #163 (ECB DXY proxy, research only),
+#164 (DATA-3 L1). Baseline on that integration: typecheck clean, 160/160 test files.
+
+| Change | Defect (demonstrated) | Fix |
+|---|---|---|
+| `fetchBaselineScenarios` | A missing stored `confidence` became 0; a probability or confidence outside [0,1] (e.g. `"50"`) gave 5000 % | Both must be present and within [0,1], otherwise no baseline (test red before, green after) |
+
+Not touched: main, production, DXY_ICE_OFFICIAL contract. Next P3 candidates:
+`backend/ingest.ts`, `backend/worker.ts`, shadow event orchestrators. After the change: 160/160.

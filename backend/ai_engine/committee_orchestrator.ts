@@ -1401,12 +1401,16 @@ export async function fetchBaselineScenarios(
     if (!raw) return null;
 
     // La base stocke des probabilités en [0,1], le contrat frontend en 0-100.
-    const probability = Math.round(asNumber(storedNumber(raw.probability), NaN) * 100);
+    const storedProbability = storedNumber(raw.probability);
+    const storedConfidence = storedNumber(raw.confidence);
     const target = storedNumber(raw.target);
     const invalidation = storedNumber(raw.invalidation);
-    if (!Number.isFinite(probability) || !Number.isFinite(target) || !Number.isFinite(invalidation)) {
-      return null;
-    }
+    if (!Number.isFinite(target) || !Number.isFinite(invalidation)) return null;
+    // Probabilité et confiance sont stockées dans [0,1] : une valeur absente ne devient
+    // pas 0, une valeur hors intervalle (pourcentage écrit par erreur) n'est pas une référence.
+    if (!(storedProbability >= 0 && storedProbability <= 1)) return null;
+    if (!(storedConfidence >= 0 && storedConfidence <= 1)) return null;
+    const probability = Math.round(storedProbability * 100);
 
     baseline[horizon] = {
       direction: asDirection(raw.direction),
@@ -1418,7 +1422,7 @@ export async function fetchBaselineScenarios(
         raw.activation_condition,
         'Condition d\'activation de référence non disponible.',
       ),
-      confidence: Math.round(asNumber(storedNumber(raw.confidence), 0) * 100),
+      confidence: Math.round(storedConfidence * 100),
       reasoning: asString(raw.reasoning, 'Scénario de référence conservé.'),
     };
   }
