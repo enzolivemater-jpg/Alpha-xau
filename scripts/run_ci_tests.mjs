@@ -188,6 +188,8 @@ const TEST_FILES = [
   'tests/test_us_treasury_collector.mjs',
   'tests/test_us_treasury_raw_adapter.mjs',
   'tests/test_us_treasury_raw_integration.mjs',
+  'tests/test_dxy_ecb_daily_proxy.mjs',
+  'tests/test_dxy_ecb_proxy_cli.mjs',
 ];
 
 let failed = 0;
