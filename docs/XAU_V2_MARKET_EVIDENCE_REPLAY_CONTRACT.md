@@ -15,7 +15,7 @@ Module: `backend/market_engine/evidence_archive.ts`. Bridge:
 ## Frozen versions
 
 - archive: `xau.market-evidence-archive.v1`;
-- replay: `xau.market-evidence-replay.v1` / `market-evidence-replay-1.0.0`.
+- replay: `xau.market-evidence-replay.v1` / `market-evidence-replay-1.1.0`.
 
 ## Evidence record
 
@@ -69,6 +69,10 @@ Not blocking, but reported:
 - exact duplicates (ignored);
 - incomplete provenance;
 - missing coverage;
+- a covered field with no value held at the cutoff
+  (`DECLARED_FIELD_NOT_OBSERVED`, 1.1.0, DATA-3 L1). It makes the replay
+  `INCOMPLETE`: a declaration alone never proves completeness, so the absence
+  of a value is no longer read as "nothing existed";
 - DXY, which has no freshness rule and therefore stays unavailable, as in
   CHAIN-0.
 
@@ -82,7 +86,8 @@ Not blocking, but reported:
   value becomes unavailable.
 - `status`:
   - `VERIFIED`: valid, the declared coverage includes the cutoff and every
-    field, and the pinned digest matches when given;
+    field, **every covered field has a value held at the cutoff** (1.1.0),
+    and the pinned digest matches when given;
   - `INCOMPLETE`: valid, but completeness is not established;
   - `INVALID`: a blocking finding.
 - `reproducible` is true only when the status is `VERIFIED`. The archive
@@ -229,6 +234,26 @@ tool not run in CI, checks:
 
 It writes `merged-archive.json` and `report.json` to `--out`, never next to a
 source. Real captures are never committed: they are third-party data.
+
+## DATA-3 L1: declared coverage is not evidence (replay 1.1.0)
+
+Before 1.1.0, a log that declared all eight fields replayed `VERIFIED` (and,
+`CAPTURED`, `HISTORICAL_VERIFIED`) while holding no `dxy`, `bid` or `ask`
+value: completeness rested on the declaration alone. Now:
+- `createEvidenceArchive` refuses coverage of a field no capture series
+  provides (`CAPTURABLE_FIELDS`: spot, us10y, realYield, vix, wti) with
+  `COVERAGE_FIELD_NOT_CAPTURABLE`; `market_evidence_capture.mjs init`
+  declares only those;
+- a replay marks a covered field with no value held at the cutoff
+  `DECLARED_FIELD_NOT_OBSERVED`, so `INCOMPLETE`.
+
+Consequences: a capture log is always `INCOMPLETE` (`FIELDS_NOT_COVERED`)
+while no series provides `dxy`, `bid` and `ask`, and `HISTORICAL_VERIFIED` is
+out of reach. Logs written by an older `init` need no migration: they keep
+their format, still append and replay, and are `INCOMPLETE`. The synthetic
+DATA-1 fixture declares `dxy` without a DXY value and is now `INCOMPLETE`
+(the terminal shows « REJEU INCOMPLET »); its VERIFIED paths are tested on a
+copy completed with a fictitious DXY value in the test.
 
 ## Remaining decisions (DATA-3 onward)
 
