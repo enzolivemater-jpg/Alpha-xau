@@ -49,6 +49,19 @@ export function latestIngestedAt(records) {
   return best ?? records.map((r) => r.ingestedAt).sort().at(-1);
 }
 
+/**
+ * What a replay's own labels must not overstate. VERIFIED only when every
+ * MP-0 field is held at the cutoff (DATA-3 L1), reproducible exactly when
+ * VERIFIED, HISTORICAL_VERIFIED only on a VERIFIED replay. Returns the problems.
+ */
+export function verifiedClaimProblems(r) {
+  const problems = [];
+  if (r.status === 'VERIFIED' && Object.values(r.observations).some((o) => o === null)) problems.push('VERIFIED_WITH_FIELD_NOT_HELD');
+  if (r.reproducible !== (r.status === 'VERIFIED')) problems.push('REPRODUCIBLE_STATUS_MISMATCH');
+  if (r.nature === 'HISTORICAL_VERIFIED' && r.status !== 'VERIFIED') problems.push('HISTORICAL_VERIFIED_WITHOUT_VERIFIED');
+  return problems;
+}
+
 export async function validate(files, outDir) {
   const ev = await loadBackendModule('market_engine/evidence_archive.ts');
   const cap = await loadBackendModule('market_engine/evidence_capture.ts');
@@ -75,7 +88,9 @@ export async function validate(files, outDir) {
     }
     check(`source ${archive.archiveId}: every selected value re-read from its bytes`,
       Object.values(r.observations).filter(Boolean).every((o) => o.raw === 'RAW_VERIFIED'));
-    check(`source ${archive.archiveId}: never reproducible without complete coverage`, r.status !== 'VERIFIED' || r.reproducible);
+    // This used to read `status !== 'VERIFIED' || reproducible`, which the replay makes true by construction.
+    const claims = verifiedClaimProblems(r);
+    check(`source ${archive.archiveId}: VERIFIED and reproducible only on data held for every field`, claims.length === 0, claims.join(','));
   }
 
   // 2. Merge, twice and in reverse order: same archive.

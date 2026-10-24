@@ -225,3 +225,22 @@ Branche `fix/data-3-l1-coverage`, commit `6a224d7`, sur `dae07da`.
 | Après correctif | GREEN ; `tsc` PASS ; suite 158/158 |
 | Mutants (règle de replay retirée, code non compté, `some`→`every`, test de nullité, contrôle de création retiré, dxy rendu capturable, `init` à 8 champs) | 7/7 tués |
 | Validateur DATA-3 sur les journaux réels anciens | 115/115, sources inchangées |
+
+## 11. Défaut suivant — contrôle vide du validateur DATA-3
+
+`scripts/validate_evidence_captures.mjs` comptait parmi ses « 115/115 » le
+contrôle « never reproducible without complete coverage », écrit
+`status !== 'VERIFIED' || reproducible`. Le replay pose
+`reproducible = (status === 'VERIFIED')` : ce contrôle ne pouvait jamais
+échouer, et il aurait laissé passer un replay VERIFIED sans DXY (le cas L1).
+
+Remplacé par `verifiedClaimProblems` : VERIFIED seulement si chaque champ MP-0
+est détenu au cutoff ; `reproducible` égal à VERIFIED ; `HISTORICAL_VERIFIED`
+seulement sur un replay VERIFIED. Tests unitaires, dont la preuve que l'ancienne
+expression acceptait le cas L1 ; 4/4 mutants tués ; suite complète 158/158 ;
+`tsc` PASS. Captures réelles : toujours 115/115, sources inchangées. Ce
+contrôle passe désormais parce qu'aucune source ne se dit VERIFIED, et non plus
+par construction.
+
+Écarté après vérification : `raw_news.ts` `ingestQualityState ?? 'VALID'`
+n'est pas atteignable avec `null` (rejeté plus haut, ligne 365).
