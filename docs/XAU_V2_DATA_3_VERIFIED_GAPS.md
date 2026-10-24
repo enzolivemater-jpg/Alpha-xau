@@ -81,7 +81,9 @@ une migration, non autorisée.
 - **DÉCISION** (décision DATA-3 n° 2) : extension de table ou nouvelle table
   `market_provider_responses`.
 
-### L1 — Faille : sur-déclaration de couverture (à trancher avant toute capture réelle)
+### L1 — Faille : sur-déclaration de couverture — **CORRIGÉE** (replay 1.1.0, branche `fix/data-3-l1-coverage`)
+
+Correction : couverture impossible refusée à la création, champ couvert non observé → `INCOMPLETE` ; voir `XAU_V2_MARKET_EVIDENCE_REPLAY_CONTRACT.md` § DATA-3 L1. Constat d'origine :
 Sonde locale (non versionnée, données synthétiques) : un journal `CAPTURED`
 créé avec les huit champs déclarés mais ne contenant que les cinq séries
 capturables rend **`VERIFIED`, `HISTORICAL_VERIFIED`, `reproducible: true`**,
@@ -91,18 +93,13 @@ en dur, et des tests (`test_market_evidence_capture.mjs`) affirment ce
 comportement. VERIFIED y signifie « couverture déclarée complète », pas
 « données complètes ».
 
-Ce n'est pas corrigé ici, parce que cela change le sens de VERIFIED et des
-tests existants. Deux options, à choisir :
-- (a) refuser à `createEvidenceArchive` toute couverture `CAPTURED` d'un champ
-  sans série de capture : VERIFIED devient inatteignable tant que G1 n'est
-  pas levé ;
-- (b) garder la déclaration, mais faire rendre `INCOMPLETE` au replay quand
-  un champ déclaré n'a aucun enregistrement : nouveau code de raison, nouvelle
-  version d'algorithme.
-
-**DÉCISION** : (a), (b) ou statu quo documenté. Tant qu'elle n'est pas prise,
-une capture réelle initialisée avec `init` ne doit pas être présentée comme
-VERIFIED.
+Les deux options proposées ont été appliquées ensemble, à la demande
+explicite de l'opérateur (2026-10-24) : (a) une couverture qu'aucune série ne
+peut remplir est refusée à `createEvidenceArchive` ; (b) un champ couvert sans
+valeur détenue au cutoff rend le replay `INCOMPLETE`
+(`DECLARED_FIELD_NOT_OBSERVED`). VERIFIED reste donc inatteignable pour un
+journal de capture tant que G1 et G2 ne sont pas levés : c'est l'état honnête,
+pas une régression.
 
 ### Non bloquant pour VERIFIED, mais à garder en vue
 - `publishedAt` absent partout : `PROVENANCE_INCOMPLETE` est signalé, pas
@@ -119,7 +116,7 @@ quiconque l'autorise à faire confiance à un replay, ces critères devraient
 être vérifiés, chacun par un test rouge puis vert :
 
 1. G1, G2, G3 levés **ou** VERIFIED redéfini par décision écrite ;
-2. L1 tranché ;
+2. L1 : corrigé (replay 1.1.0) ;
 3. le replay est `VERIFIED` **et** `HISTORICAL_VERIFIED`, pas seulement
    `VERIFIED` ;
 4. une empreinte d'archive épinglée est fournie et vérifiée ;

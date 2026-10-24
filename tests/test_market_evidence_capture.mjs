@@ -26,7 +26,7 @@ const fredBody = (vintage, rows) => JSON.stringify({
 });
 const tdBody = (close, at) => JSON.stringify({ symbol: 'XAU/USD', close: String(close), last_quote_at: Date.parse(at) / 1000, is_market_open: true });
 const fresh = (cls = 'SYNTHETIC_FIXTURE') => cap.createEvidenceArchive({
-  archiveId: 'test-capture-log', provenanceClass: cls, createdAt: '2026-09-29T00:00:00Z', fields: ALL_FIELDS,
+  archiveId: 'test-capture-log', provenanceClass: cls, createdAt: '2026-09-29T00:00:00Z', fields: cap.CAPTURABLE_FIELDS,
   statement: 'Journal de capture de test : toute réponse capturée est dans ce fichier.',
 });
 const deepFreeze = (o) => { if (o && typeof o === 'object') { Object.freeze(o); Object.values(o).forEach(deepFreeze); } return o; };
@@ -153,13 +153,17 @@ assert.equal(beforeRevision.observations.us10y.raw, 'RAW_VERIFIED', 'an older ob
 assert.deepEqual(beforeRevision.audit.correctedAfterCutoff, ['us10y']);
 const afterRevision = await asOf(r3.archive, '2026-10-02T12:00:00Z');
 assert.equal(afterRevision.observations.us10y.value, 4.15, 'the newest observation once known');
-assert.equal((await asOf(r3.archive, '2026-10-03T06:00:00Z')).status, 'VERIFIED');
+// DATA-3 L1: a capture log covers only capturable fields, so it is never complete (no dxy, bid, ask series);
+// within its window it is INCOMPLETE for that reason only.
+const within = await asOf(r3.archive, '2026-10-03T06:00:00Z');
+assert.equal(within.status, 'INCOMPLETE');
+assert.ok(within.reasonCodes.includes('FIELDS_NOT_COVERED') && !within.reasonCodes.includes('CUTOFF_OUTSIDE_COVERAGE'));
 const sliced = await asOf(r1.archive, '2026-10-01T12:00:00Z');
 assert.deepEqual(beforeRevision.observations, sliced.observations, 'later captures change nothing before they were received');
 // Same values; only the reason differs (the shorter log's coverage ends before this cutoff).
 assert.deepEqual({ ...beforeRevision.marketSnapshot, reason: null }, { ...sliced.marketSnapshot, reason: null });
 assert.equal(sliced.status, 'INCOMPLETE');
-assert.equal((await asOf(r3.archive, '2026-10-03T06:00:00.001Z')).status, 'INCOMPLETE', 'nothing is claimed after the last capture');
+assert.ok((await asOf(r3.archive, '2026-10-03T06:00:00.001Z')).reasonCodes.includes('CUTOFF_OUTSIDE_COVERAGE'), 'nothing is claimed after the last capture');
 assert.equal(beforeRevision.nature, 'SIMULATION', 'test-written bodies in a synthetic log');
 // The old single-observation reader cannot re-read older observations: rejected, not trusted.
 assert.equal((await ev.replayMarketEvidence(r3.archive, '2026-10-01T12:00:00Z', { parsers: { fred: providers.parseFred } })).status, 'INVALID');
@@ -180,7 +184,10 @@ await step({ provider: 'twelve_data', symbol: 'XAUUSD', sourceRecordId: 'XAU/USD
 // Same quote time, another price: the provider corrected its quote.
 await step({ provider: 'twelve_data', symbol: 'XAUUSD', sourceRecordId: 'XAU/USD', body: tdBody(3900.6, '2026-10-01T14:14:00Z'), ingestedAt: '2026-10-01T14:15:00Z' });
 const replay = await asOf(log, '2026-10-01T14:15:00Z');
-assert.equal(replay.status, 'VERIFIED');
+// Every capturable series held and re-read, yet INCOMPLETE: dxy, bid and ask have no capture series (DATA-3 L1).
+assert.equal(replay.status, 'INCOMPLETE');
+assert.ok(replay.reasonCodes.includes('FIELDS_NOT_COVERED'));
+assert.ok(!replay.reasonCodes.includes('DECLARED_FIELD_NOT_OBSERVED'), 'every declared (capturable) field is observed');
 assert.equal(replay.observations.spot.value, 3900.6);
 assert.equal(replay.observations.spot.supersedes, `twelve_data:XAU/USD:2026-10-01T14:14:00.000Z:cap-${(await sha256Text(tdBody(3900, '2026-10-01T14:14:00Z'))).slice(7, 23)}`);
 assert.equal(replay.observations.bid, null, 'Twelve Data quotes carry no book: no bid is invented');
@@ -191,7 +198,7 @@ assert.equal(outcome.result.execution, 'FORBIDDEN');
 assert.equal(outcome.result.stages.marketPricing.fields.spot.value, 3900.6);
 assert.equal(outcome.result.stages.marketPricing.fields.bid.status, 'UNAVAILABLE');
 assert.equal(outcome.result.trace.find((t) => t.stage === 'ACTION').state, 'ABSTAIN');
-console.log('PASS a full capture log replays VERIFIED and feeds CHAIN-0, which holds; no book is invented');
+console.log('PASS a full capture log replays INCOMPLETE (no dxy/bid/ask series) and feeds CHAIN-0, which holds; no book is invented');
 
 // --- 7. What a CAPTURED log would be called: logic only, with test-written bodies.
 let captured = fresh('CAPTURED');
@@ -199,10 +206,41 @@ for (const c of [fred('DGS10', 'US10Y', fredBody('2026-10-01', [['2026-09-30', '
   { provider: 'twelve_data', symbol: 'XAUUSD', sourceRecordId: 'XAU/USD', body: tdBody(3900, '2026-10-01T14:14:00Z'), ingestedAt: '2026-10-01T14:14:03Z' }]) {
   captured = (await cap.appendProviderCapture(captured, c, PARSERS)).archive;
 }
-assert.equal((await asOf(captured, '2026-10-01T14:14:03Z')).nature, 'HISTORICAL_VERIFIED', 'at the last capture');
+// Before DATA-3 L1 this log (two series, all eight fields declared) was HISTORICAL_VERIFIED.
+const lastCapture = await asOf(captured, '2026-10-01T14:14:03Z');
+assert.deepEqual([lastCapture.status, lastCapture.nature], ['INCOMPLETE', 'HISTORICAL_UNVERIFIED'], 'two series are not verified history');
+assert.ok(lastCapture.reasonCodes.includes('DECLARED_FIELD_NOT_OBSERVED'), 'capturable fields declared but never captured');
+assert.ok(Object.values(lastCapture.observations).filter(Boolean).every((o) => o.raw === 'RAW_VERIFIED'), 'its bytes are still re-read');
 assert.equal((await asOf(captured, '2026-10-01T14:15:00Z')).nature, 'HISTORICAL_UNVERIFIED', 'after the last capture: incomplete');
 assert.equal((await ev.replayMarketEvidence(captured, '2026-10-01T14:14:03Z')).nature, 'HISTORICAL_UNVERIFIED', 'without re-reading');
-console.log('PASS a CAPTURED log is HISTORICAL_VERIFIED only when its bytes are re-read (logic test; no recorded data here)');
+console.log('PASS a CAPTURED log is never HISTORICAL_VERIFIED on declared coverage alone (logic test; no recorded data here)');
+
+// --- 7b. DATA-3 L1: impossible coverage is refused at creation; an older log that declares it is never complete.
+assert.deepEqual([...cap.CAPTURABLE_FIELDS].sort(), ['realYield', 'spot', 'us10y', 'vix', 'wti']);
+for (const extra of ['dxy', 'bid', 'ask']) {
+  assert.throws(() => cap.createEvidenceArchive({ archiveId: 'x', provenanceClass: 'CAPTURED', createdAt: '2026-09-29T00:00:00Z',
+    fields: [...cap.CAPTURABLE_FIELDS, extra], statement: 'x' }), new RegExp(`COVERAGE_FIELD_NOT_CAPTURABLE: ${extra}`), extra);
+  assert.throws(() => cap.createEvidenceArchive({ archiveId: 'x', provenanceClass: 'SYNTHETIC_FIXTURE', createdAt: '2026-09-29T00:00:00Z',
+    fields: [extra], statement: 'x' }), /COVERAGE_FIELD_NOT_CAPTURABLE/, `${extra}: synthetic logs too`);
+}
+assert.throws(() => cap.createEvidenceArchive({ archiveId: 'x', provenanceClass: 'CAPTURED', createdAt: '2026-09-29T00:00:00Z',
+  fields: ['gold'], statement: 'x' }), /COVERAGE_FIELD_NOT_CAPTURABLE: gold/);
+// A log written by an older `init` (format unchanged, all eight fields declared) still reads, appends and replays:
+// no migration, but it is INCOMPLETE and never verified history.
+let legacy = { ...fresh('CAPTURED'), coverage: { ...fresh('CAPTURED').coverage, fields: ALL_FIELDS } };
+for (const series of cap.CAPTURE_SERIES) {
+  const body = series.provider === 'fred' ? fredBody('2026-10-01', [['2026-09-30', { DGS10: '4.10', DFII10: '1.70', VIXCLS: '17.20', DCOILWTICO: '66.40' }[series.sourceRecordId]]])
+    : tdBody(3900, '2026-10-01T14:14:00Z');
+  const r = await cap.appendProviderCapture(legacy, { provider: series.provider, symbol: series.symbol, sourceRecordId: series.sourceRecordId,
+    body, ingestedAt: series.provider === 'fred' ? '2026-10-01T06:00:00Z' : '2026-10-01T14:14:03Z' }, PARSERS);
+  assert.equal(r.outcome, 'APPENDED', `${series.sourceRecordId}: ${r.rejection}`);
+  legacy = r.archive;
+}
+const legacyReplay = await asOf(legacy, '2026-10-01T14:14:03Z');
+assert.deepEqual([legacyReplay.status, legacyReplay.reproducible, legacyReplay.nature], ['INCOMPLETE', false, 'HISTORICAL_UNVERIFIED']);
+assert.ok(legacyReplay.reasonCodes.includes('DECLARED_FIELD_NOT_OBSERVED'));
+assert.ok(!legacyReplay.reasonCodes.includes('FIELDS_NOT_COVERED'), 'the old declaration still names every field');
+console.log('PASS DATA-3 L1: coverage of a field no series captures is refused; an older over-declared log replays INCOMPLETE, never verified');
 
 // --- 8. Purity.
 const closure = listBackendImportClosure('market_engine/evidence_capture.ts');
@@ -248,7 +286,8 @@ console.log('PASS capture reads no network, clock, environment or provider');
     r = run('replay', '--archive', log, '--cutoff', '2026-10-01T14:14:03Z');
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);
-    assert.deepEqual([out.status, out.nature, out.decision, out.execution], ['VERIFIED', 'SIMULATION', 'HOLD', 'FORBIDDEN']);
+    assert.deepEqual([out.status, out.nature, out.decision, out.execution], ['INCOMPLETE', 'SIMULATION', 'HOLD', 'FORBIDDEN']);
+    assert.deepEqual(JSON.parse(read(log, 'utf8')).coverage.fields, [...cap.CAPTURABLE_FIELDS], 'init declares only what can be captured');
     assert.equal(out.marketSnapshot.spot.value, 3900);
     r = run('replay', '--archive', log, '--cutoff', '2026-10-01T14:14:03Z', '--digest', `sha256:${'0'.repeat(64)}`);
     assert.equal(r.status, 1, 'a pinned digest that does not match');

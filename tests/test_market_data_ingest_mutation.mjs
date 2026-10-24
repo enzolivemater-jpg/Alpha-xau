@@ -39,7 +39,7 @@ const parsers = { fred: providers.parseFredObservations, twelve_data: providers.
 const fredBody = JSON.stringify({ realtime_start: '2026-10-01', realtime_end: '2026-10-01', observation_start: '2026-09-30', units: 'lin',
   file_type: 'json', observations: [{ realtime_start: '2026-10-01', realtime_end: '2026-10-01', date: '2026-09-30', value: '4.10' }] });
 const archive = capture.createEvidenceArchive({ archiveId: 'mutation-log', provenanceClass: 'SYNTHETIC_FIXTURE',
-  createdAt: '2026-09-29T00:00:00.000Z', fields: ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti'], statement: 'mutation sweep log' });
+  createdAt: '2026-09-29T00:00:00.000Z', fields: capture.CAPTURABLE_FIELDS, statement: 'mutation sweep log' });
 const providerCapture = { provider: 'fred', symbol: 'US10Y', sourceRecordId: 'DGS10', body: fredBody, ingestedAt: '2026-10-01T06:00:00.000Z' };
 const appended = await capture.appendProviderCapture(archive, providerCapture, parsers);
 assert.equal(appended.outcome, 'APPENDED');
