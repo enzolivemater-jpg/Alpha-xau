@@ -11,7 +11,8 @@ API BCE documentée :
 
 1. Télécharger volontairement ce CSV auprès de la BCE et conserver les octets du fichier.
 2. Calculer SHA-256 des octets **bruts** et consigner leur origine, date d'acquisition et conditions d'usage.
-3. Charger le texte CSV avec `parseEcbDailyCsv(csvText, {sourceSha256: hash})`. Le parseur attend `TIME_PERIOD`, `CURRENCY`, `CURRENCY_DENOM`, `OBS_VALUE`; six observations distinctes par jour, toutes libellées contre EUR.
+3. Charger le texte CSV avec `parseEcbDailyCsv(csvText, {sourceSha256: hash})`. Le parseur attend `KEY`, `TIME_PERIOD`, `CURRENCY`, `CURRENCY_DENOM`, `OBS_VALUE`; six observations distinctes par jour, toutes libellées contre EUR.
+   Seule la série de référence quotidienne est acceptée : `KEY` doit valoir `EXR.D.<devise>.EUR.SP00.A`, et `FREQ`, `EXR_TYPE`, `EXR_SUFFIX`, s'ils sont présents, doivent la confirmer (`D`, `SP00`, `A`), sinon `ECB_SERIES_KEY_INVALID`. Si `OBS_STATUS` est présent, toute valeur autre que `A` (valeur normale) rejette le fichier (`ECB_OBS_STATUS_NOT_NORMAL`).
 4. Une date manquante ou incomplète produit `UNAVAILABLE` (aucun remplissage); les observations invalides ou contradictoires sont rejetées.
 
 ## Construction
@@ -49,4 +50,9 @@ Tests ciblés (à exécuter localement) :
 node --test tests/test_dxy_ecb_daily_proxy.mjs tests/test_dxy_ecb_proxy_cli.mjs
 ```
 
-Les tests sont créés dans la branche, mais **leur exécution sur la machine du projet n'est pas encore attestée**. La version du parseur a été corrigée après l'implémentation initiale, notamment les expressions régulières et les fins de ligne CSV.
+Les deux fichiers sont enregistrés dans `scripts/run_ci_tests.mjs` (sans cela, `tests/test_ci_inventory.mjs` échouait et les tests ne tournaient jamais en CI). Exécutés localement par XAU V2 — LOCAL DEVELOPMENT (Node 22) : voir `docs/XAU_V2_RC_CONSOLIDATION_QUALIFICATION.md`.
+
+Couverture vérifiée par mutation : inversion de chaque paire, signe et poids, constante, contrôle de clé de série, statut d'observation, drapeaux `officialIceDxy` / `lookaheadSafeForReplay`, jour incomplet, doublon, nombre de colonnes, jeu de devises, `kind` remplacé par `DXY_ICE_OFFICIAL` : chaque mutation fait échouer au moins un test.
+
+## Contrôle sur un véritable CSV BCE
+Un CSV téléchargé depuis l'API documentée ci-dessus (`startPeriod=2026-09-01&endPeriod=2026-10-23`, 235 lignes, 32 colonnes `csvdata`) a été lu par la commande locale : 39 jours, 39 `CALCULATED`, 0 `UNAVAILABLE`, sortie 0. Le fichier n'est pas versionné. Ce contrôle prouve la lecture du format réel, pas l'exactitude du proxy face à l'ICE : aucune valeur ICE officielle n'est disponible localement pour comparer (service payant).
