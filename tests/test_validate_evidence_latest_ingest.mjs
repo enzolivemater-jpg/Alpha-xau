@@ -254,3 +254,134 @@ assert.deepEqual(uncoveredIntervals([[-5, -2]], 0, 0), [[0, 0]], 'a record expir
 }
 
 console.log('PASS DATA-3 continuity audit: per-series gaps, duplicates, order, freshness holes and cutoff; no hole found is never an attestation');
+
+// --- DATA-3 G3/G4 raw-storage contract (scripts/lib/capture_attestation.mjs): what a log proves per capture; never an attestation.
+// Synthetic capture log written in the providers' formats by this test.
+{
+  const { auditCaptureAttestation, attestationIntegrityProblems, ATTESTATION_MANIFEST_FORMAT } = await import('../scripts/lib/capture_attestation.mjs');
+  const { loadBackendModule: load } = await import('../scripts/lib/backend_module_loader.mjs');
+  const capm = await load('market_engine/evidence_capture.ts');
+  const prov = await load('market_engine/providers.ts');
+  const P = { fred: prov.parseFredObservations, twelve_data: prov.parseTwelveData };
+  const fredBody = (rows) => JSON.stringify({ realtime_start: '2026-10-01', realtime_end: '2026-10-01', observation_start: rows[0][0], units: 'lin', file_type: 'json',
+    observations: rows.map(([date, value]) => ({ realtime_start: '2026-10-01', realtime_end: '2026-10-01', date, value })) });
+  const tdBody = (close, at) => JSON.stringify({ symbol: 'XAU/USD', close: String(close), last_quote_at: Date.parse(at) / 1000, is_market_open: true });
+  let logA = capm.createEvidenceArchive({ archiveId: 'att-log', provenanceClass: 'CAPTURED', createdAt: '2026-10-01T06:00:00Z',
+    fields: ['us10y', 'spot'], statement: 'journal synthétique de test' });
+  for (const c of [
+    { provider: 'fred', symbol: 'US10Y', sourceRecordId: 'DGS10', body: fredBody([['2026-09-29', '4.12'], ['2026-09-30', '4.10']]), ingestedAt: '2026-10-01T06:00:00Z' },
+    { provider: 'twelve_data', symbol: 'XAUUSD', sourceRecordId: 'XAU/USD', body: tdBody(3900, '2026-10-01T14:14:00Z'), ingestedAt: '2026-10-01T14:14:03Z' },
+  ]) {
+    const res = await capm.appendProviderCapture(logA, c, P);
+    assert.equal(res.outcome, 'APPENDED', res.rejection);
+    logA = res.archive;
+  }
+  const SERIES = capm.CAPTURE_SERIES;
+  const audit = (a, manifest = null) => auditCaptureAttestation(a, { series: SERIES, manifest });
+  const codesOf = (rep) => rep.findings.map((f) => f.code);
+
+  // A log written by the capture code holds: bytes kept, digests match, known series, one instant, in order.
+  const ok = audit(logA);
+  assert.equal(ok.outcome, 'BYTES_CONSISTENT');
+  assert.deepEqual(ok.captures.map((c) => [c.provider, c.sourceRecordIds, c.records, c.receivedAt, c.bytes, c.digest, c.request]), [
+    ['fred', ['DGS10'], 2, '2026-10-01T06:00:00.000Z', 'KEPT', 'MATCH', 'KNOWN_SERIES'],
+    ['twelve_data', ['XAU/USD'], 1, '2026-10-01T14:14:03.000Z', 'KEPT', 'MATCH', 'KNOWN_SERIES']]);
+  // CAPTURED is the operator's word; collector and licence are not recorded anywhere: reported, never proved.
+  assert.deepEqual([ok.attestation, ok.upgradesReplay, ok.attestedBy, ok.collector, ok.licence],
+    ['NOT_PROVEN', false, 'OPERATOR_DECLARED', 'NOT_RECORDED', 'NOT_RECORDED']);
+  assert.deepEqual(codesOf(ok), ['COLLECTOR_IDENTITY_NOT_RECORDED', 'LICENCE_NOT_RECORDED']);
+  assert.deepEqual(attestationIntegrityProblems(ok), [], 'an operator-only attestation is incomplete, not broken');
+
+  // Negative cases: each breaks the contract and fails the validator check.
+  const digests = Object.keys(logA.rawPayloads);
+  const broken = (name, mutate, code) => {
+    const a = structuredClone(logA);
+    mutate(a);
+    const rep = audit(a);
+    assert.equal(rep.outcome, 'CONTRACT_BROKEN', name);
+    assert.ok(codesOf(rep).includes(code), `${name}: ${codesOf(rep)}`);
+    assert.ok(attestationIntegrityProblems(rep).includes(code), name);
+    assert.equal(rep.attestation, 'NOT_PROVEN', name);
+  };
+  broken('tampered bytes', (a) => { a.rawPayloads[digests[0]].body = a.rawPayloads[digests[0]].body.replace('4.10', '4.11'); }, 'RAW_PAYLOAD_DIGEST_MISMATCH');
+  broken('bytes dropped', (a) => { delete a.rawPayloads[digests[1]].body; }, 'RAW_BYTES_MISSING');
+  broken('record names no bytes', (a) => { a.records[0].rawPayloadDigest = null; }, 'RECORD_WITHOUT_RAW_PAYLOAD');
+  broken('record names bytes not kept', (a) => { a.records[2].rawPayloadDigest = `sha256:${'0'.repeat(64)}`; }, 'RAW_PAYLOAD_MISSING');
+  broken('kept bytes nobody names', (a) => { a.rawPayloads[`sha256:${'1'.repeat(64)}`] = { parser: 'fred', symbol: 'VIX', body: '{}' }; }, 'ORPHAN_RAW_PAYLOAD');
+  broken('captures reordered', (a) => { a.records = [a.records[2], a.records[0], a.records[1]]; }, 'CAPTURES_OUT_OF_ORDER');
+  broken('one capture received at two instants', (a) => { a.records[1].ingestedAt = '2026-10-01T06:00:01Z'; }, 'CAPTURE_RECEPTION_NOT_SINGLE');
+  broken('duplicate payload for two series', (a) => { a.records[1].sourceRecordId = 'DFII10'; }, 'PAYLOAD_SHARED_BY_SERIES');
+  broken('series no capture code knows', (a) => { for (const r of a.records.slice(0, 2)) r.sourceRecordId = 'T10YIE'; }, 'UNKNOWN_SERIES');
+  broken('bytes relabelled to another provider', (a) => { a.rawPayloads[digests[1]].parser = 'fred'; }, 'UNKNOWN_SERIES');
+  broken('bytes relabelled to another symbol', (a) => { a.rawPayloads[digests[1]].symbol = 'VIX'; }, 'UNKNOWN_SERIES');
+
+  // An attestation manifest: a second declaration. It can name a collector and a licence, contradict the log, never upgrade it.
+  const manifest = (over = {}) => ({ schemaVersion: ATTESTATION_MANIFEST_FORMAT, archiveId: 'att-log',
+    attestedBy: { kind: 'OPERATOR', name: 'opérateur de test' },
+    collector: { name: 'market_evidence_capture.mjs', version: 'test' },
+    licence: { termsReference: 'conditions du fournisseur (à relire)', redistribution: 'UNKNOWN', retention: 'non définie' },
+    captures: ok.captures.map((c) => ({ rawPayloadDigest: c.rawPayloadDigest, receivedAt: c.receivedAt })), ...over });
+  const declared = audit(logA, manifest());
+  assert.deepEqual([declared.outcome, declared.attestedBy, declared.collector, declared.licence, declared.attestation],
+    ['BYTES_CONSISTENT', 'OPERATOR_DECLARED', 'DECLARED_UNVERIFIED', 'DECLARED_UNVERIFIED', 'NOT_PROVEN']);
+  assert.deepEqual(codesOf(declared), []);
+  for (const [name, m, code] of [
+    ['collector attestation (needs a signature nothing checks)', manifest({ attestedBy: { kind: 'COLLECTOR', name: 'collecteur' } }), 'MANIFEST_CLAIM_EXCEEDS_PROOF'],
+    ['signature field', manifest({ attestedBy: { kind: 'OPERATOR', name: 'x', signature: 'abc' } }), 'MANIFEST_CLAIM_EXCEEDS_PROOF'],
+    ['self-described as verified', manifest({ licence: { termsReference: 'licence VERIFIED', redistribution: 'ALLOWED', retention: '1 an' } }), 'MANIFEST_CLAIM_EXCEEDS_PROOF'],
+    ['another archive', manifest({ archiveId: 'other' }), 'MANIFEST_ARCHIVE_MISMATCH'],
+    ['unknown key', manifest({ trusted: true }), 'MANIFEST_UNKNOWN_KEY'],
+    ['wrong format', manifest({ schemaVersion: 'v0' }), 'MANIFEST_FORMAT_UNKNOWN'],
+    ['licence without retention', manifest({ licence: { termsReference: 'x', redistribution: 'ALLOWED' } }), 'MANIFEST_LICENCE_INVALID'],
+    ['a capture left out', manifest({ captures: [{ rawPayloadDigest: digests[0], receivedAt: '2026-10-01T06:00:00Z' }] }), 'MANIFEST_CAPTURE_MISSING'],
+    ['another reception instant', manifest({ captures: ok.captures.map((c, i) => ({ rawPayloadDigest: c.rawPayloadDigest, receivedAt: i ? '2026-10-01T14:14:04Z' : c.receivedAt })) }), 'MANIFEST_RECEPTION_MISMATCH'],
+    ['a capture the log does not hold', manifest({ captures: [...manifest().captures, { rawPayloadDigest: `sha256:${'2'.repeat(64)}`, receivedAt: '2026-10-01T06:00:00Z' }] }), 'MANIFEST_CAPTURE_UNKNOWN'],
+    ['unreadable', 'UNREADABLE', 'MANIFEST_UNREADABLE'],
+  ]) {
+    const rep = audit(logA, m);
+    assert.ok(codesOf(rep).includes(code), `${name}: ${codesOf(rep)}`);
+    assert.ok(attestationIntegrityProblems(rep).includes(code), name);
+    assert.equal(rep.attestation, 'NOT_PROVEN', name);
+    assert.notEqual(rep.collector === 'DECLARED_UNVERIFIED' && !rep.manifest.usable, true, `${name}: a refused manifest declares nothing`);
+  }
+  // A synthetic log stays not captured, whatever a manifest says.
+  assert.equal(audit({ ...logA, provenanceClass: 'SYNTHETIC_FIXTURE' }, manifest()).attestedBy, 'NOT_CAPTURED');
+  // The report never overstates itself, and the validator refuses one that would.
+  assert.deepEqual(attestationIntegrityProblems({ ...ok, attestation: 'PROVEN' }), ['ATTESTATION_OVERSTATED']);
+  assert.deepEqual(attestationIntegrityProblems({ ...ok, upgradesReplay: true }), ['ATTESTATION_OVERSTATED']);
+  assert.equal(auditCaptureAttestation(null).outcome, 'NOT_EVALUATED');
+  // Report only: the replay of the same log is unchanged by the audit (same digest before and after).
+  const ev2 = await load('market_engine/evidence_archive.ts');
+  const before = await ev2.replayMarketEvidence(logA, '2026-10-01T14:14:03Z', { parsers: P });
+  audit(logA, manifest());
+  assert.equal((await ev2.replayMarketEvidence(logA, '2026-10-01T14:14:03Z', { parsers: P })).digest, before.digest);
+  assert.notEqual(before.status, 'VERIFIED');
+  // End to end: the validator reads attestation.json beside archive.json as a declaration; an overclaim fails it.
+  const { spawnSync } = await import('node:child_process');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const pathm = await import('node:path');
+  const dir = mkdtempSync(pathm.join(process.env.TMPDIR || tmpdir(), 'att-'));
+  const out = mkdtempSync(pathm.join(process.env.TMPDIR || tmpdir(), 'att-out-'));
+  try {
+    mkdirSync(pathm.join(dir, 'log'));
+    const file = pathm.join(dir, 'log', 'archive.json');
+    writeFileSync(file, JSON.stringify(logA));
+    const cli = new URL('../scripts/validate_evidence_captures.mjs', import.meta.url).pathname;
+    let run = spawnSync(process.execPath, [cli, '--out', out, file], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, /attestation att-log: BYTES_CONSISTENT, 2 capture\(s\), attested by OPERATOR_DECLARED, collector NOT_RECORDED, licence NOT_RECORDED; attestation NOT_PROVEN/);
+    writeFileSync(pathm.join(dir, 'log', 'attestation.json'), JSON.stringify(manifest({ attestedBy: { kind: 'COLLECTOR', name: 'collecteur' } })));
+    run = spawnSync(process.execPath, [cli, '--out', out, file], { encoding: 'utf8' });
+    assert.equal(run.status, 1);
+    assert.match(run.stdout, /FAIL source att-log: every capture keeps its exact bytes.* MANIFEST_CLAIM_EXCEEDS_PROOF/);
+    writeFileSync(pathm.join(dir, 'log', 'attestation.json'), JSON.stringify(manifest()));
+    run = spawnSync(process.execPath, [cli, '--out', out, file], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stdout);
+    assert.match(run.stdout, /collector DECLARED_UNVERIFIED, licence DECLARED_UNVERIFIED; attestation NOT_PROVEN/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+  }
+}
+console.log('PASS DATA-3 raw-storage contract: kept bytes, digest, series, reception and order checked per capture; manifests declare, never prove');

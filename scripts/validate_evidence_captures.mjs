@@ -18,7 +18,11 @@
  *  4. audits the continuity of each source's declared window and of the
  *     merge, per series (gaps, duplicates, order, freshness intervals; see
  *     lib/capture_continuity.mjs). The audit never attests continuity;
- *  5. writes merged-archive.json and report.json to --out.
+ *  5. audits each source against the raw-storage contract (kept bytes, digest,
+ *     request, reception, append order; an optional attestation.json beside
+ *     archive.json is read as a declaration, never as proof; see
+ *     lib/capture_attestation.mjs);
+ *  6. writes merged-archive.json and report.json to --out.
  * Exit 0 when every check passes, 1 otherwise, 2 when no source is found.
  */
 
@@ -29,6 +33,7 @@ import { pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
 import { auditCaptureContinuity, continuityOptions, declaredFieldHoles } from './lib/capture_continuity.mjs';
+import { attestationIntegrityProblems, auditCaptureAttestation } from './lib/capture_attestation.mjs';
 
 export { continuityOptions };
 
@@ -102,6 +107,7 @@ export async function validate(files, outDir) {
   // 1. Sources.
   const sources = [];
   const audits = [];
+  const attestations = [];
   for (const file of files) {
     const bytes = readFileSync(file, 'utf8');
     const archive = JSON.parse(bytes);
@@ -121,6 +127,13 @@ export async function validate(files, outDir) {
     audits.push(audit);
     const gaps = continuityClaimProblems(r, audit);
     check(`source ${archive.archiveId}: declared window never presented as continuous over a hole`, gaps.length === 0, gaps.join(','));
+    const manifestFile = path.join(path.dirname(file), 'attestation.json');
+    const manifest = existsSync(manifestFile) ? (() => { try { return JSON.parse(readFileSync(manifestFile, 'utf8')); } catch { return 'UNREADABLE'; } })() : null;
+    const attestation = auditCaptureAttestation(archive, { series: cap.CAPTURE_SERIES, manifest });
+    attestations.push(attestation);
+    const broken = attestationIntegrityProblems(attestation);
+    check(`source ${archive.archiveId}: every capture keeps its exact bytes, of a known series, received at one instant, in order; attestation not proven`,
+      broken.length === 0, broken.join(','));
   }
 
   // 2. Merge, twice and in reverse order: same archive.
@@ -178,6 +191,7 @@ export async function validate(files, outDir) {
 
   const report = {
     continuity: { sources: audits, merged: mergedAudit },
+    attestation: attestations,
     sources: sources.map((s) => ({ archiveId: s.archiveId, provenanceClass: s.provenanceClass, records: s.records.length,
       coverage: s.coverage && { from: s.coverage.from, to: s.coverage.to, fields: s.coverage.fields } })),
     merged: { archiveId, records: merge.archive.records.length, captures: merge.captures, revisions, coverage: null },
@@ -229,6 +243,9 @@ async function main() {
           process.stdout.write(`  gap ${s.series} ${g.from} → ${g.to} (${g.durationSeconds} s${g.missingDates ? `, ${g.missingWeekdays} weekday(s), ${g.missingSaturdaysSundays} Sat/Sun` : ''}; tolerance ${g.tolerance})\n`);
         }
       }
+    }
+    for (const a of report.attestation) {
+      process.stdout.write(`attestation ${a.archiveId}: ${a.outcome}, ${a.captures.length} capture(s), attested by ${a.attestedBy}, collector ${a.collector}, licence ${a.licence}; attestation ${a.attestation}\n`);
     }
     for (const s of report.scenarios) {
       const f = Object.entries(s.fields).map(([k, v]) => `${k}=${v ? `${v.value}(${v.freshness})` : '—'}`).join(' ');
