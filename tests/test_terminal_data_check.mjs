@@ -81,3 +81,43 @@ assert.deepEqual(r.problems, ['note : EVIDENCE_DIR_ABSENT', 'note : POSITIONING_
 assert.equal(parseArgs(['--bogus']), null);
 assert.equal(spawnSync(process.execPath, [SCRIPT, '--bogus'], { encoding: 'utf8' }).status, 64);
 console.log('PASS terminal_data_check: lists usable sources, names each problem (exit 1), never claims approval');
+
+// DATA-3 continuity in terminal:check-data: per field and per series, never "continuous", never a problem by itself.
+{
+  const { continuityLines, durationText } = await import('../scripts/terminal_data_check.mjs');
+  assert.deepEqual([durationText(0.454), durationText(59), durationText(60), durationText(3 * 86_400), durationText(4 * 86_400 + 2 * 3600 + 5)],
+    ['0.454 s', '59 s', '1 min', '3 j', '4 j 2 h 5 s']);
+  const g = await checkData(good);
+  const entry = g.catalog.market.find((m) => m.id === 'log:evidence:log-a');
+  const lines = continuityLines(entry.continuity);
+  assert.match(lines[0], /^    continuité, fenêtre déclarée 2026-10-01T06:00:00\.000Z → 2026-10-01T06:00:00\.000Z : aucun trou détecté ; continuité NON démontrée/);
+  assert.match(lines[1], /^    · us10y \[couvert\] : 1 série\(s\), observé 2026-09-30T00:00:00\.000Z → 2026-09-30T00:00:00\.000Z \(1 instant\(s\)\) ; aucun écart entre observations ; lacunes : aucune détectée → AUCUNE LACUNE DÉTECTÉE — continuité NON démontrée$/);
+  for (const l of g.lines) assert.doesNotMatch(l, /continuité démontrée/i);
+  assert.ok(g.lines.includes(lines[1]), 'printed under its source');
+  assert.deepEqual(g.problems, [], 'continuity findings are reported, not counted as problems');
+  // Holes, gaps and not-evaluated fields, from a hand-made summary: every line names its status.
+  const report = {
+    continuity: 'NOT_ATTESTED', outcome: 'GAPS_DETECTED', window: { from: 'A', to: 'B', basis: 'DECLARED_COVERAGE' },
+    fields: [
+      { field: 'spot', declared: true, series: ['s'], observationTimes: 2, observed: { first: 'a', last: 'b' }, observationGaps: 1, largestGapSeconds: 3600,
+        missingWeekdays: 0, missingSaturdaysSundays: 0, holes: [{ from: 'x', to: 'y', durationSeconds: 120, basis: 'RUNTIME_FRESHNESS_RULE' }], status: 'HOLES_DETECTED' },
+      { field: 'dxy', declared: true, series: ['d'], observationTimes: 1, observed: { first: 'a', last: 'a' }, observationGaps: 0, largestGapSeconds: null,
+        missingWeekdays: 0, missingSaturdaysSundays: 0, holes: null, status: 'NOT_EVALUATED' },
+      { field: 'wti', declared: true, series: [], observationTimes: 0, observed: null, observationGaps: 0, largestGapSeconds: null,
+        missingWeekdays: 0, missingSaturdaysSundays: 0, holes: [{ from: 'A', to: 'B', durationSeconds: 60, basis: 'NO_SERIES' }], status: 'NO_SERIES' },
+    ],
+    series: [{ series: 's', field: 'spot', observationGaps: [{ from: 'a', to: 'b', durationSeconds: 3600 }], duplicates: 1, lateObservations: 0 }],
+  };
+  const out = continuityLines(report);
+  assert.match(out[0], /écarts ou lacunes détectés ; continuité NON démontrée/);
+  assert.match(out[1], /spot \[couvert\].*1 écart\(s\) entre observations, le plus long 1 h ; lacunes : x → y \(2 min\) → LACUNES DÉTECTÉES$/);
+  assert.match(out[2], /série s : écarts a → b \(1 h\) ; 1 doublon\(s\)$/);
+  assert.match(out[3], /dxy \[couvert\].*lacunes non évaluées → NON ÉVALUÉ — aucune règle de fraîcheur approuvée$/);
+  assert.match(out[4], /wti \[couvert\] : 0 série\(s\) ; aucun écart entre observations ; lacunes : A → B \(1 min, aucune série\) → AUCUNE SÉRIE$/);
+  assert.deepEqual(continuityLines({ continuity: 'NOT_ATTESTED', outcome: 'NOT_EVALUATED', reason: 'NO_RECORD' }),
+    ['    continuité : NON ÉVALUÉE (NO_RECORD) — continuité NON démontrée']);
+  // Weekday and weekend dates missing between daily observations are counted; closure stays NOT_EVALUATED.
+  const daily = continuityLines({ ...report, fields: [{ ...report.fields[0], missingWeekdays: 1, missingSaturdaysSundays: 2, holes: [], status: 'NO_HOLE_DETECTED' }], series: [] });
+  assert.match(daily[1], /dates manquantes : 1 en semaine, 2 samedi\/dimanche ; fermeture ou jour férié NON ÉVALUÉ\) ; lacunes : aucune détectée → AUCUNE LACUNE DÉTECTÉE — continuité NON démontrée$/);
+}
+console.log('PASS terminal:check-data prints the DATA-3 continuity per field and per series; no hole found is never continuity demonstrated');

@@ -11,6 +11,11 @@
  * Exit: 0 every listed source is usable, 1 some source is rejected or
  * missing (each with its reason), 64 usage. Usable never means approved: the
  * terminal stays HOLD / FORBIDDEN whatever this prints.
+ *
+ * Each market source also gets its DATA-3 continuity report, per field and
+ * per series (lib/capture_continuity.mjs, the same summary the terminal
+ * catalog serves). A hole is reported, not counted as a problem; no hole
+ * found is never printed as continuity demonstrated.
  */
 
 import { homedir } from 'node:os';
@@ -29,6 +34,49 @@ export function parseArgs(argv) {
   return options;
 }
 
+const MAX_LISTED = 5;
+const STATUS_TEXT = {
+  HOLES_DETECTED: 'LACUNES DÉTECTÉES',
+  NO_HOLE_DETECTED: 'AUCUNE LACUNE DÉTECTÉE — continuité NON démontrée',
+  NOT_EVALUATED: 'NON ÉVALUÉ — aucune règle de fraîcheur approuvée',
+  NO_SERIES: 'AUCUNE SÉRIE',
+};
+
+/** A duration in plain words, exact to the second. */
+export function durationText(seconds) {
+  if (!Number.isFinite(seconds)) return '?';
+  const s = Math.round(seconds * 1000) / 1000;
+  if (s < 60) return `${s} s`;
+  const parts = [[Math.floor(s / 86_400), 'j'], [Math.floor((s % 86_400) / 3600), 'h'], [Math.floor((s % 3600) / 60), 'min'], [Math.round(s % 60), 's']];
+  return parts.filter(([n]) => n > 0).map(([n, u]) => `${n} ${u}`).join(' ');
+}
+
+const listed = (items, show) => `${items.slice(0, MAX_LISTED).map(show).join(', ')}${items.length > MAX_LISTED ? `, … ${items.length - MAX_LISTED} de plus (--json)` : ''}`;
+
+/** The continuity report of one market source, as indented lines. Never says "continuous". */
+export function continuityLines(c) {
+  if (!c) return [];
+  if (c.outcome === 'NOT_EVALUATED') return [`    continuité : NON ÉVALUÉE (${c.reason}) — continuité NON démontrée`];
+  const lines = [`    continuité, fenêtre ${c.window.basis === 'DECLARED_COVERAGE' ? 'déclarée' : 'des réceptions (aucune couverture déclarée)'} `
+    + `${c.window.from} → ${c.window.to} : ${c.outcome === 'GAPS_DETECTED' ? 'écarts ou lacunes détectés' : 'aucun trou détecté'} ; `
+    + 'continuité NON démontrée (aucun calendrier de marché ni tolérance d\'écart approuvés)'];
+  for (const f of c.fields) {
+    const gaps = f.observationGaps
+      ? `${f.observationGaps} écart(s) entre observations, le plus long ${durationText(f.largestGapSeconds)}`
+        + `${f.missingWeekdays + f.missingSaturdaysSundays ? ` (dates manquantes : ${f.missingWeekdays} en semaine, ${f.missingSaturdaysSundays} samedi/dimanche ; fermeture ou jour férié NON ÉVALUÉ)` : ''}`
+      : 'aucun écart entre observations';
+    const holes = f.holes === null ? 'lacunes non évaluées' : f.holes.length
+      ? `lacunes : ${listed(f.holes, (h) => `${h.from} → ${h.to} (${durationText(h.durationSeconds)}${h.basis === 'NO_SERIES' ? ', aucune série' : ''})`)}`
+      : 'lacunes : aucune détectée';
+    lines.push(`    · ${f.field}${f.declared ? ' [couvert]' : ''} : ${f.series.length} série(s)${f.observed ? `, observé ${f.observed.first} → ${f.observed.last} (${f.observationTimes} instant(s))` : ''} ; ${gaps} ; ${holes} → ${STATUS_TEXT[f.status] ?? f.status}`);
+    for (const s of c.series.filter((x) => x.field === f.field && x.observationGaps.length)) {
+      lines.push(`      série ${s.series} : écarts ${listed(s.observationGaps, (g) => `${g.from} → ${g.to} (${durationText(g.durationSeconds)})`)}`
+        + `${s.duplicates ? ` ; ${s.duplicates} doublon(s)` : ''}${s.lateObservations ? ` ; ${s.lateObservations} observation(s) reçue(s) en retard` : ''}`);
+    }
+  }
+  return lines;
+}
+
 /** The catalog of a data root, and the problems an operator must fix, in plain words. */
 export async function checkData(dataRoot) {
   const catalog = (await buildLocalView({ dataRoot })).catalog();
@@ -43,6 +91,7 @@ export async function checkData(dataRoot) {
     lines.push(`  - ${m.id} : ${m.records} enregistrement(s), champs ${m.fields.join(', ') || 'aucun'} (absents : ${absent.join(', ') || 'aucun'}), `
       + `observé ${m.observed ? `${m.observed.first} → ${m.observed.last}` : '—'}, rejeu ${v ? `${v.status}${v.nature ? `/${v.nature}` : ''}` : '—'}`
       + `${v && v.reasonCodes.length ? ` (${v.reasonCodes.join(', ')})` : ''}${m.problems.length ? ` ; problèmes : ${m.problems.join(', ')}` : ''}`);
+    lines.push(...continuityLines(m.continuity));
     if (m.problems.length || (v && v.status === 'INVALID')) problems.push(`${m.id} : ${m.problems.join(', ') || 'archive rejetée au rejeu'}`);
   }
   const cot = catalog.positioning.filter((p) => p.kind === 'CFTC_FILE');

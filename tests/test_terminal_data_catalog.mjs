@@ -382,3 +382,68 @@ dom.window.close();
   dom.window.close();
 }
 console.log('PASS the page lets the operator choose and inspect each source, keeps the choice in the anchor, and never upgrades it');
+
+// ---- DATA-3 continuity: engine, API (catalog) and page say the same thing; none of them ever says "continuous".
+{
+  const { auditCaptureContinuity, continuityOptions, summarizeContinuity } = await import('../scripts/lib/capture_continuity.mjs');
+  const opts = continuityOptions(await loadBackendModule('market_engine/evidence_archive.ts'), await loadBackendModule('market_engine/validate.ts'), cap);
+  for (const entry of catalog.market.filter((m) => m.kind === 'CAPTURE_LOG' && m.validation.status !== 'INVALID')) {
+    const name = entry.id.split(':').at(-1);
+    const archive = JSON.parse(readFileSync(path.join(ROOT, 'evidence', name, 'archive.json'), 'utf8'));
+    assert.deepEqual(entry.continuity, summarizeContinuity(auditCaptureContinuity(archive, opts)), `${entry.id}: catalog = engine`);
+  }
+  for (const entry of catalog.market) {
+    if (entry.kind === 'INPUT_DOCUMENT') { assert.equal(entry.continuity, null); continue; }
+    assert.equal(entry.continuity.continuity, 'NOT_ATTESTED', entry.id);
+    assert.ok(!JSON.stringify(entry.continuity).includes('CONTINUOUS'), entry.id);
+  }
+  const merged = catalog.market.find((m) => m.kind === 'CAPTURES_MERGED');
+  // Here the merge is refused (a hand-broken log sits beside): no merged archive, so nothing to audit.
+  assert.deepEqual([merged.problems.length > 0, merged.continuity.outcome, merged.continuity.window],
+    [true, 'NOT_EVALUATED', null], JSON.stringify(merged.continuity));
+  // The fred log: consecutive dates, value fresh across its one-instant window: no hole found, still not demonstrated.
+  const fred = catalog.market.find((m) => m.id === 'log:evidence:fred-log').continuity;
+  assert.equal(fred.outcome, 'NO_GAP_DETECTED');
+  assert.deepEqual(fred.fields.map((f) => [f.field, f.declared, f.status, f.observationGaps, f.holes]), [['us10y', true, 'NO_HOLE_DETECTED', 0, []]]);
+  // The continuity report is not a decision input: the view (chain, manifest) never carries or reads it.
+  const v1 = await view(null, { market: 'log:evidence:fred-log' });
+  assert.ok(!JSON.stringify(v1).includes('NOT_ATTESTED') && !JSON.stringify(v1).includes('capture-continuity'));
+  assert.deepEqual([v1.chain.chainState, v1.chain.execution], ['HOLD', 'FORBIDDEN']);
+  ({ dom, d } = await render('#chaine'));
+  change(dom, d.getElementById('v2-data-market'), 'log:evidence:fred-log');
+  await settle();
+  let card = d.getElementById('v2-data-card-market').textContent;
+  assert.match(card, /Continuitéaucun trou détecté · continuité NON démontrée \(ni calendrier ni tolérance approuvés\)/);
+  assert.match(card, /Par champUS10Y : AUCUNE LACUNE DÉTECTÉE/);
+  assert.doesNotMatch(card, /continuité démontrée|CONTINU\b/i);
+  dom.window.close();
+  // A spot log whose declared window outlives the spot's freshness: holes per field, shown by the page as by the API.
+  const spot = catalog.market.find((m) => m.id === 'log:evidence:spot-log').continuity;
+  ({ dom, d } = await render('#chaine'));
+  change(dom, d.getElementById('v2-data-market'), 'log:evidence:spot-log');
+  await settle();
+  card = d.getElementById('v2-data-card-market').textContent;
+  // Window of one instant (its creation = its only capture), spot 3 s old: held, no hole.
+  assert.deepEqual(spot.fields.map((f) => [f.field, f.status]), [['spot', 'NO_HOLE_DETECTED']]);
+  assert.match(card, /Par champSPOT : AUCUNE LACUNE DÉTECTÉE/);
+  dom.window.close();
+  // A catalog that claims continuity is refused by the page, never displayed as such.
+  const forged = structuredClone(catalog);
+  forged.market.find((m) => m.id === 'log:evidence:fred-log').continuity.continuity = 'CONTINUOUS';
+  ({ dom, d } = await render('#chaine', forged));
+  change(dom, d.getElementById('v2-data-market'), 'log:evidence:fred-log');
+  await settle();
+  card = d.getElementById('v2-data-card-market').textContent;
+  assert.match(card, /ContinuitéRAPPORT REFUSÉ : attestation non prévue/);
+  assert.doesNotMatch(card, /Par champ/);
+  dom.window.close();
+  // An unknown field status is shown as unknown, never as a clean one.
+  const odd = structuredClone(catalog);
+  odd.market.find((m) => m.id === 'log:evidence:fred-log').continuity.fields[0].status = 'CONTINUOUS';
+  ({ dom, d } = await render('#chaine', odd));
+  change(dom, d.getElementById('v2-data-market'), 'log:evidence:fred-log');
+  await settle();
+  assert.match(d.getElementById('v2-data-card-market').textContent, /US10Y : STATUT INCONNU/);
+  dom.window.close();
+}
+console.log('PASS DATA-3 continuity: catalog equals the engine, the page shows it per field, no hole found is never continuity demonstrated');

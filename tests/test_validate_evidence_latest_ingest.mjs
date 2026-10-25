@@ -180,7 +180,7 @@ assert.deepEqual(uncoveredIntervals([[-5, -2]], 0, 0), [[0, 0]], 'a record expir
     r('dxy', '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z', { source: 'synthetic', sourceRecordId: 'DXY' })],
   cover('2026-10-01T10:00:00Z', '2026-10-01T10:01:00Z', ['spot', 'dxy', 'wti'])), OPTS);
   assert.deepEqual(rep.declaredFieldsWithoutSeries, ['wti']);
-  assert.deepEqual(declaredFieldHoles(rep).map((h) => [h.field, h.basis]), [['wti', 'NO_SERIES'], ['dxy', 'FRESHNESS_RULE_UNAVAILABLE']]);
+  assert.deepEqual(declaredFieldHoles(rep).map((h) => [h.field, h.basis]), [['dxy', 'FRESHNESS_RULE_UNAVAILABLE'], ['wti', 'NO_SERIES']], 'in declared order');
   assert.ok(codes(rep).includes('FRESHNESS_RULE_UNAVAILABLE') && codes(rep).includes('DECLARED_FIELD_WITHOUT_OBSERVATION'));
 }
 
@@ -225,6 +225,32 @@ assert.deepEqual(uncoveredIntervals([[-5, -2]], 0, 0), [[0, 0]], 'a record expir
   assert.deepEqual([...new Set(declaredFieldHoles(audit).map((h) => h.field))].sort(), ['ask', 'bid', 'dxy', 'realYield', 'spot', 'us10y', 'vix', 'wti']);
   assert.ok(continuityClaimProblems(forged, audit)[0].startsWith('VERIFIED_OVER_DECLARED_WINDOW_WITH_HOLES:'));
   assert.deepEqual(continuityClaimProblems(late, audit), []);
+}
+
+// The summary shared by the catalog, terminal:check-data and the page: per field and per series, with a status.
+{
+  const { summarizeContinuity } = await import('../scripts/lib/capture_continuity.mjs');
+  const rep = auditCaptureContinuity(log([
+    r('spot', '2026-10-01T10:00:00Z', '2026-10-01T10:00:02Z'), r('spot', '2026-10-01T16:00:00Z', '2026-10-01T16:00:02Z'),
+    r('us10y', '2026-09-25T00:00:00Z', '2026-10-01T06:00:00Z'), r('us10y', '2026-09-28T00:00:00Z', '2026-10-01T06:00:00Z'),
+    r('dxy', '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z', { source: 'synthetic', sourceRecordId: 'DXY' }),
+  ], cover('2026-10-01T10:00:00Z', '2026-10-01T12:00:00Z', ['spot', 'dxy', 'us10y', 'wti'])), OPTS);
+  const sum = summarizeContinuity(rep);
+  assert.equal(sum.continuity, 'NOT_ATTESTED');
+  assert.deepEqual(sum.fields.map((f) => [f.field, f.declared, f.status, f.holes && f.holes.map((h) => [h.from, h.to, h.basis])]), [
+    ['spot', true, 'HOLES_DETECTED', [['2026-10-01T10:00:00.000Z', '2026-10-01T10:00:02.000Z', 'RUNTIME_FRESHNESS_RULE']]],
+    ['dxy', true, 'NOT_EVALUATED', null],
+    ['us10y', true, 'NO_HOLE_DETECTED', []],
+    ['wti', true, 'NO_SERIES', [['2026-10-01T10:00:00.000Z', '2026-10-01T12:00:00.000Z', 'NO_SERIES']]]]);
+  const us = sum.fields.find((f) => f.field === 'us10y');
+  assert.deepEqual([us.observationGaps, us.largestGapSeconds, us.missingWeekdays, us.missingSaturdaysSundays, us.observed],
+    [1, 259_200, 0, 2, { first: '2026-09-25T00:00:00.000Z', last: '2026-09-28T00:00:00.000Z' }]);
+  assert.deepEqual(sum.series.map((x) => [x.series, x.status]), [
+    ['dxy|synthetic|DXY', 'NOT_EVALUATED'], ['spot|twelve_data|XAU/USD', 'HOLES_DETECTED'], ['us10y|fred|DGS10', 'NO_HOLE_DETECTED']]);
+  assert.equal(sum.findings.DECLARED_FIELD_WITHOUT_OBSERVATION, 1);
+  assert.deepEqual(summarizeContinuity(auditCaptureContinuity(null, OPTS)), { reportVersion: 'capture-continuity-1.0.0', continuity: 'NOT_ATTESTED',
+    continuityBasis: ['NO_APPROVED_SOURCE_CALENDAR', 'NO_APPROVED_GAP_TOLERANCE'], outcome: 'NOT_EVALUATED', reason: 'ARCHIVE_UNREADABLE',
+    window: null, fields: [], series: [], findings: {} });
 }
 
 console.log('PASS DATA-3 continuity audit: per-series gaps, duplicates, order, freshness holes and cutoff; no hole found is never an attestation');

@@ -96,6 +96,18 @@ Le rapport porte toujours `continuity: NOT_ATTESTED`, même sans trou
 détecté. Le validateur échoue si un replay `VERIFIED` repose sur une fenêtre
 déclarée où un champ couvert est indisponible. Le replay n'est pas modifié.
 
+**Affichage (2026-10-25).** Le même résumé (`summarizeContinuity`) est servi
+par le catalogue du terminal (champ `continuity` de chaque source de marché),
+imprimé par `npm run terminal:check-data` et montré sur la fiche de la source
+dans la page : par champ (séries, période observée, écarts, dates manquantes,
+lacunes, statut) et par série (écarts datés, doublons, retards). Statuts :
+`HOLES_DETECTED`, `NO_HOLE_DETECTED`, `NOT_EVALUATED` (pas de règle de
+fraîcheur), `NO_SERIES`. `NO_HOLE_DETECTED` s'affiche toujours avec
+« continuité NON démontrée » ; la page refuse un rapport qui porterait une
+autre valeur que `continuity: NOT_ATTESTED`. Une lacune n'est pas un
+« problème » de `check-data` (code de sortie inchangé) et n'entre dans aucune
+décision : la vue et la chaîne ne lisent pas ce rapport.
+
 ### L1b — VERIFIED avec un champ trop ancien pour être tenu (corrigé : replay 1.2.0)
 Le replay 1.1.0 garde dans `observations` une valeur sélectionnée dont la
 fraîcheur au cutoff est `UNAVAILABLE` ; `DECLARED_FIELD_NOT_OBSERVED` ne se

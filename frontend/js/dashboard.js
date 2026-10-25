@@ -1932,6 +1932,23 @@ let pollTimer = null;
     return { market: market && market.id, positioning: cot && cot.id, events: events && events.id };
   }
 
+  /* DATA-3 : audit de continuité (même résumé que terminal:check-data). Aucun trou détecté n'est jamais une continuité démontrée. */
+  const V2_CONTINUITY_FIELD = {
+    HOLES_DETECTED: 'LACUNES DÉTECTÉES', NO_HOLE_DETECTED: 'AUCUNE LACUNE DÉTECTÉE', NOT_EVALUATED: 'NON ÉVALUÉ', NO_SERIES: 'AUCUNE SÉRIE',
+  };
+  function continuityRows(c) {
+    if (!c || typeof c !== 'object') return [];
+    // Une attestation de continuité n'existe dans aucun contrat : un rapport qui en porte une n'est pas affiché.
+    if (c.continuity !== 'NOT_ATTESTED') return [['Continuité', 'RAPPORT REFUSÉ : attestation non prévue']];
+    const outcome = c.outcome === 'GAPS_DETECTED' ? 'écarts ou lacunes détectés' : c.outcome === 'NO_GAP_DETECTED' ? 'aucun trou détecté' : 'non évaluée';
+    const rows = [['Continuité', `${outcome} · continuité NON démontrée (ni calendrier ni tolérance approuvés)`]];
+    if (isList(c.fields) && c.fields.length) {
+      rows.push(['Par champ', c.fields.map((f) => `${String(f && f.field).toUpperCase()} : ${V2_CONTINUITY_FIELD[f && f.status] || 'STATUT INCONNU'}`
+        + `${f && isList(f.holes) && f.holes.length ? ` (${f.holes.length} lacune(s))` : ''}${f && isNum(f.observationGaps) && f.observationGaps ? `, ${f.observationGaps} écart(s)` : ''}`).join(' · ')]);
+    }
+    return rows;
+  }
+
   /** Fiche d'une source : chaque ligne est un fait du catalogue, jamais un jugement. */
   function dataCard(target, title, rows) {
     const nodes = [node('dt', 'v2__data-card-title', title)];
@@ -1958,6 +1975,7 @@ let pollTimer = null;
           ['Couverture déclarée', m.coverage ? `${instant(m.coverage.from)} → ${instant(m.coverage.to)}` : 'NON DÉCLARÉE'],
           ['Validation', v ? `${V2_EVIDENCE_STATUS[v.status] || label(v.status)}${v.nature ? ` · ${V2_EVIDENCE_NATURE[v.nature] || label(v.nature)}` : ''}${v.at ? ` (rejeu au ${instant(v.at)})` : ''}` : '—'],
           ['Raisons', v && isList(v.reasonCodes) && v.reasonCodes.length ? v.reasonCodes.map(label).join(' · ') : 'aucune'],
+          ...continuityRows(m.continuity),
           ...(isList(m.problems) && m.problems.length ? [['Problèmes', m.problems.map(String).join(' · ')]] : []),
         ]);
     }
