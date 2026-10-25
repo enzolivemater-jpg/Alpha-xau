@@ -15,7 +15,10 @@
  *     checks no look-ahead, determinism, freshness, missing fields and
  *     HOLD / FORBIDDEN (CHAIN-0 runs with the golden fixture's non-market
  *     inputs, which are synthetic);
- *  4. writes merged-archive.json and report.json to --out.
+ *  4. audits the continuity of each source's declared window and of the
+ *     merge, per series (gaps, duplicates, order, freshness intervals; see
+ *     lib/capture_continuity.mjs). The audit never attests continuity;
+ *  5. writes merged-archive.json and report.json to --out.
  * Exit 0 when every check passes, 1 otherwise, 2 when no source is found.
  */
 
@@ -25,6 +28,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
+import { auditCaptureContinuity, declaredFieldHoles } from './lib/capture_continuity.mjs';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const DEFAULT_DIR = path.join(homedir(), '.local', 'share', 'xau-v2', 'evidence');
@@ -49,6 +53,28 @@ export function latestIngestedAt(records) {
   return best ?? records.map((r) => r.ingestedAt).sort().at(-1);
 }
 
+/** The replay's freshness rule and the capture cadence of each field, for the continuity audit. */
+export function continuityOptions(ev, validate, cap) {
+  const rules = {};
+  for (const [field, spec] of Object.entries(ev.MARKET_EVIDENCE_FIELD_SPEC)) {
+    rules[field] = spec.freshnessSymbol === null ? null : validate.SYMBOL_RULES[spec.freshnessSymbol];
+  }
+  const cadence = Object.fromEntries(cap.CAPTURE_SERIES.map((s) => [s.field, s.observationType === 'DAILY_VALUE' ? 'DAILY' : 'INTRADAY']));
+  return { rules, cadence };
+}
+
+/**
+ * A declared window is not continuous for a covered field the audit found
+ * unavailable inside it; a VERIFIED replay of that source would overstate it.
+ */
+export function continuityClaimProblems(replay, audit) {
+  const problems = [];
+  if (audit.continuity !== 'NOT_ATTESTED') problems.push('CONTINUITY_ATTESTED_BY_AUDIT');
+  const holes = declaredFieldHoles(audit);
+  if (replay.status === 'VERIFIED' && holes.length) problems.push(`VERIFIED_OVER_DECLARED_WINDOW_WITH_HOLES:${[...new Set(holes.map((h) => h.field))].join(',')}`);
+  return problems;
+}
+
 /**
  * What a replay's own labels must not overstate. VERIFIED only when every
  * MP-0 field is held at the cutoff (DATA-3 L1), reproducible exactly when
@@ -57,6 +83,8 @@ export function latestIngestedAt(records) {
 export function verifiedClaimProblems(r) {
   const problems = [];
   if (r.status === 'VERIFIED' && Object.values(r.observations).some((o) => o === null)) problems.push('VERIFIED_WITH_FIELD_NOT_HELD');
+  // A selected value too old for its freshness rule is not in the snapshot: the field is not held either.
+  if (r.status === 'VERIFIED' && Object.values(r.observations).some((o) => o !== null && o.freshnessAtCutoff === 'UNAVAILABLE')) problems.push('VERIFIED_WITH_FIELD_UNAVAILABLE');
   if (r.reproducible !== (r.status === 'VERIFIED')) problems.push('REPRODUCIBLE_STATUS_MISMATCH');
   if (r.nature === 'HISTORICAL_VERIFIED' && r.status !== 'VERIFIED') problems.push('HISTORICAL_VERIFIED_WITHOUT_VERIFIED');
   return problems;
@@ -65,6 +93,7 @@ export function verifiedClaimProblems(r) {
 export async function validate(files, outDir) {
   const ev = await loadBackendModule('market_engine/evidence_archive.ts');
   const cap = await loadBackendModule('market_engine/evidence_capture.ts');
+  const continuity = continuityOptions(ev, await loadBackendModule('market_engine/validate.ts'), cap);
   const bridge = await loadBackendModule('decision_chain/market_evidence_chain.ts');
   const providers = await loadBackendModule('market_engine/providers.ts');
   const { sha256Text } = await loadBackendModule('shared/canonical_json.ts');
@@ -76,6 +105,7 @@ export async function validate(files, outDir) {
 
   // 1. Sources.
   const sources = [];
+  const audits = [];
   for (const file of files) {
     const bytes = readFileSync(file, 'utf8');
     const archive = JSON.parse(bytes);
@@ -91,6 +121,10 @@ export async function validate(files, outDir) {
     // This used to read `status !== 'VERIFIED' || reproducible`, which the replay makes true by construction.
     const claims = verifiedClaimProblems(r);
     check(`source ${archive.archiveId}: VERIFIED and reproducible only on data held for every field`, claims.length === 0, claims.join(','));
+    const audit = auditCaptureContinuity(archive, continuity);
+    audits.push(audit);
+    const gaps = continuityClaimProblems(r, audit);
+    check(`source ${archive.archiveId}: declared window never presented as continuous over a hole`, gaps.length === 0, gaps.join(','));
   }
 
   // 2. Merge, twice and in reverse order: same archive.
@@ -143,7 +177,11 @@ export async function validate(files, outDir) {
     });
   }
 
+  const mergedAudit = auditCaptureContinuity(merge.archive, continuity);
+  check('merge: continuity audit attests nothing', mergedAudit.continuity === 'NOT_ATTESTED' && mergedAudit.window?.basis === 'RECEPTION_SPAN');
+
   const report = {
+    continuity: { sources: audits, merged: mergedAudit },
     sources: sources.map((s) => ({ archiveId: s.archiveId, provenanceClass: s.provenanceClass, records: s.records.length,
       coverage: s.coverage && { from: s.coverage.from, to: s.coverage.to, fields: s.coverage.fields } })),
     merged: { archiveId, records: merge.archive.records.length, captures: merge.captures, revisions, coverage: null },
@@ -185,6 +223,17 @@ async function main() {
   const failed = checks.filter((c) => !c.ok);
   for (const c of failed) process.stdout.write(`FAIL ${c.name} ${c.detail}\n`);
   if (report) {
+    for (const a of [...report.continuity.sources, report.continuity.merged]) {
+      process.stdout.write(`continuity ${a.archiveId}: ${a.outcome}, continuity ${a.continuity} (window ${a.window ? `${a.window.from} → ${a.window.to}, ${a.window.basis}` : a.reason})\n`);
+      for (const f of a.findings) {
+        process.stdout.write(`  ${f.code} ${f.series ?? f.field ?? ''}${f.from ? ` ${f.from} → ${f.to} (${f.durationSeconds} s)` : f.at ? ` at ${f.at}` : ''}\n`);
+      }
+      for (const s of a.series) {
+        for (const g of s.observationGaps) {
+          process.stdout.write(`  gap ${s.series} ${g.from} → ${g.to} (${g.durationSeconds} s${g.missingDates ? `, ${g.missingWeekdays} weekday(s), ${g.missingSaturdaysSundays} Sat/Sun` : ''}; tolerance ${g.tolerance})\n`);
+        }
+      }
+    }
     for (const s of report.scenarios) {
       const f = Object.entries(s.fields).map(([k, v]) => `${k}=${v ? `${v.value}(${v.freshness})` : '—'}`).join(' ');
       process.stdout.write(`${s.cutoff} ${s.status} mp1=${s.mp1} mp0=${s.mp0} ${f}\n`);
