@@ -15,7 +15,7 @@ Module: `backend/market_engine/evidence_archive.ts`. Bridge:
 ## Frozen versions
 
 - archive: `xau.market-evidence-archive.v1`;
-- replay: `xau.market-evidence-replay.v1` / `market-evidence-replay-1.1.0`.
+- replay: `xau.market-evidence-replay.v1` / `market-evidence-replay-1.2.0`.
 
 ## Evidence record
 
@@ -74,7 +74,11 @@ Not blocking, but reported:
   `INCOMPLETE`: a declaration alone never proves completeness, so the absence
   of a value is no longer read as "nothing existed";
 - DXY, which has no freshness rule and therefore stays unavailable, as in
-  CHAIN-0.
+  CHAIN-0;
+- a covered field whose held value is past its approved maximum age
+  (`DECLARED_FIELD_STALE`, 1.2.0) or whose freshness no approved rule can
+  establish (`DECLARED_FIELD_FRESHNESS_NOT_EVALUATED`, 1.2.0). Both make the
+  replay `INCOMPLETE` (DATA-3 L1b).
 
 ## Replay
 
@@ -86,9 +90,10 @@ Not blocking, but reported:
   value becomes unavailable.
 - `status`:
   - `VERIFIED`: valid, the declared coverage includes the cutoff and every
-    field, **every covered field has a value held at the cutoff** (1.1.0),
-    and the pinned digest matches when given;
-  - `INCOMPLETE`: valid, but completeness is not established;
+    field, **every covered field has a value held at the cutoff** (1.1.0)
+    **whose freshness is proved `FRESH`** (1.2.0), and the pinned digest
+    matches when given;
+  - `INCOMPLETE`: valid, but completeness or freshness is not established;
   - `INVALID`: a blocking finding.
 - `reproducible` is true only when the status is `VERIFIED`. The archive
   digest, every record digest and the replay digest are SHA-256 of canonical
@@ -254,6 +259,42 @@ their format, still append and replay, and are `INCOMPLETE`. The synthetic
 DATA-1 fixture declares `dxy` without a DXY value and is now `INCOMPLETE`
 (the terminal shows « REJEU INCOMPLET »); its VERIFIED paths are tested on a
 copy completed with a fictitious DXY value in the test.
+
+## DATA-3 L1b: a covered value must be proved fresh (replay 1.2.0)
+
+Under 1.1.0 a replay was `VERIFIED` and `reproducible` when every covered
+field had a selected value, even one too old to be served
+(`marketSnapshot.available: false` on a synthetic archive) or one no rule can
+date (DXY). 1.2.0 adds `freshnessProof` to every observation:
+
+| `freshnessProof` | Condition (approved `SYMBOL_RULES` only) | Runtime `freshnessAtCutoff` |
+| --- | --- | --- |
+| `FRESH` | age ≤ `staleMaxAgeS` | `LIVE` or `STALE` |
+| `STALE` | age > `staleMaxAgeS` (expired) | `UNAVAILABLE` |
+| `NOT_EVALUATED` | no rule for the instrument (DXY) | `UNAVAILABLE` |
+
+`STALE` here means expired; the runtime `STALE` class (old but usable) is
+`FRESH` here. `freshnessAtCutoff`, the selection and `marketSnapshot` are
+unchanged: the edge is the runtime's (`classifyFreshness`), no threshold,
+calendar or frequency is added. The proof is computed on the value selected at
+the cutoff, so nothing ingested later is used.
+
+A covered `STALE` value adds `DECLARED_FIELD_STALE`; a covered
+`NOT_EVALUATED` value adds `DECLARED_FIELD_FRESHNESS_NOT_EVALUATED`, never
+called stale. Either keeps the replay `INCOMPLETE`. Uncovered fields add
+nothing (they already make it `FIELDS_NOT_COVERED`). Coverage, freshness,
+provenance (`PROVENANCE_INCOMPLETE`, informational) and reproducibility stay
+separate reasons.
+
+Consequence: since DXY has no approved freshness rule (DATA-3 G2), **no
+replay can be `VERIFIED` today**, synthetic or captured. The synthetic
+fixture completed with a DXY value is `INCOMPLETE` for that single reason;
+tests check exactly that. Archives are unchanged (same format, same
+digests); replay digests change with the version. The terminal view moves to
+4.10.0 and refuses a `VERIFIED` manifest without `freshnessProof: FRESH` on
+every observation, including any 4.9.0 manifest. The DATA-3 validator
+refuses the same claim (`VERIFIED_WITHOUT_FRESHNESS_PROOF`) and still judges
+1.1.0 replays by their runtime class (`VERIFIED_WITH_FIELD_UNAVAILABLE`).
 
 ## Remaining decisions (DATA-3 onward)
 

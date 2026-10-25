@@ -96,7 +96,7 @@ Le rapport porte toujours `continuity: NOT_ATTESTED`, même sans trou
 détecté. Le validateur échoue si un replay `VERIFIED` repose sur une fenêtre
 déclarée où un champ couvert est indisponible. Le replay n'est pas modifié.
 
-### L1b — VERIFIED avec un champ trop ancien pour être tenu (constat, replay inchangé)
+### L1b — VERIFIED avec un champ trop ancien pour être tenu (corrigé : replay 1.2.0)
 Le replay 1.1.0 garde dans `observations` une valeur sélectionnée dont la
 fraîcheur au cutoff est `UNAVAILABLE` ; `DECLARED_FIELD_NOT_OBSERVED` ne se
 déclenche donc pas. Sur une archive synthétique déclarant les huit champs, un
@@ -104,8 +104,17 @@ cutoff où toutes les valeurs ont dépassé leur seuil rend `VERIFIED`,
 `reproducible: true` avec `marketSnapshot.available: false`. Inatteignable
 sur des captures réelles aujourd'hui (`FIELDS_NOT_COVERED`, L1). Le
 validateur le refuse désormais (`VERIFIED_WITH_FIELD_UNAVAILABLE`).
-- **DÉCISION** : faire rendre `INCOMPLETE` au replay dans ce cas (nouvelle
-  version d'algorithme), ou statu quo documenté.
+
+Corrigé par le replay 1.2.0 (voir le contrat du replay) : chaque observation
+porte `freshnessProof` (`FRESH`, `STALE`, `NOT_EVALUATED`) selon la seule règle
+approuvée ; un champ couvert `STALE` (`DECLARED_FIELD_STALE`) ou
+`NOT_EVALUATED` (`DECLARED_FIELD_FRESHNESS_NOT_EVALUATED`) rend `INCOMPLETE`.
+DXY n'ayant aucune règle (G2), **aucun replay ne peut être VERIFIED
+aujourd'hui**. Choix à confirmer : un champ `NOT_EVALUATED` bloque VERIFIED
+sans être déclaré périmé (« jamais VERIFIED sur une fraîcheur non
+démontrée ») ; l'autre lecture (seule une expiration démontrée bloque)
+rendrait de nouveau VERIFIED atteignable sur une archive synthétique, avec un
+DXY absent de l'instantané.
 
 ### G4 — Stockage brut côté runtime (bloquant pour une histoire continue)
 L'ingestion runtime jette les corps ; `official_source_artifacts` est limitée

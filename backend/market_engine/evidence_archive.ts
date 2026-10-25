@@ -37,7 +37,7 @@ import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestam
 /** Input format of an archive (not an output contract version). */
 export const MARKET_EVIDENCE_ARCHIVE_FORMAT = 'xau.market-evidence-archive.v1' as const;
 export const MARKET_EVIDENCE_REPLAY_SCHEMA_VERSION = 'xau.market-evidence-replay.v1' as const;
-export const MARKET_EVIDENCE_REPLAY_ALGORITHM_VERSION = 'market-evidence-replay-1.1.0' as const;
+export const MARKET_EVIDENCE_REPLAY_ALGORITHM_VERSION = 'market-evidence-replay-1.2.0' as const;
 
 export type EvidenceInstrument = 'XAUUSD' | 'DXY' | 'US10Y' | 'US10YR' | 'VIX' | 'WTI';
 export type EvidenceUnit = 'USD_PER_TROY_OUNCE' | 'INDEX_POINTS' | 'PERCENT' | 'USD_PER_BARREL';
@@ -144,6 +144,10 @@ export type MarketEvidenceReasonCode =
   | 'FIELDS_NOT_COVERED'
   // 1.1.0: a covered field with no observation usable at the cutoff; coverage is a claim, not data.
   | 'DECLARED_FIELD_NOT_OBSERVED'
+  // 1.2.0: a covered field whose held value is past the approved maximum age at the cutoff.
+  | 'DECLARED_FIELD_STALE'
+  // 1.2.0: a covered field whose freshness no approved rule can establish (DXY today); not called stale.
+  | 'DECLARED_FIELD_FRESHNESS_NOT_EVALUATED'
   | 'PROVENANCE_INCOMPLETE'
   | 'FRESHNESS_RULE_UNAVAILABLE';
 
@@ -155,14 +159,31 @@ export const MARKET_EVIDENCE_BLOCKING_REASONS: readonly MarketEvidenceReasonCode
   'REVISION_CHAIN_INVALID', 'UNLINKED_REVISION_CONFLICT', 'RAW_PAYLOAD_MISMATCH',
 ]);
 const BLOCKING = MARKET_EVIDENCE_BLOCKING_REASONS;
-/** Reasons that keep a valid replay INCOMPLETE: completeness not established (1.1.0 adds DECLARED_FIELD_NOT_OBSERVED). */
+/**
+ * Reasons that keep a valid replay INCOMPLETE: completeness not established (1.1.0 adds
+ * DECLARED_FIELD_NOT_OBSERVED; 1.2.0 adds DECLARED_FIELD_STALE and DECLARED_FIELD_FRESHNESS_NOT_EVALUATED).
+ */
 export const MARKET_EVIDENCE_INCOMPLETENESS_REASONS: readonly MarketEvidenceReasonCode[] = Object.freeze([
   'COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE', 'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED',
+  'DECLARED_FIELD_STALE', 'DECLARED_FIELD_FRESHNESS_NOT_EVALUATED',
 ]);
 const REASON_ORDER: readonly MarketEvidenceReasonCode[] = [
   ...BLOCKING, 'EXACT_DUPLICATE_IGNORED', 'COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE',
-  'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED', 'PROVENANCE_INCOMPLETE', 'FRESHNESS_RULE_UNAVAILABLE',
+  'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED', 'DECLARED_FIELD_STALE', 'DECLARED_FIELD_FRESHNESS_NOT_EVALUATED',
+  'PROVENANCE_INCOMPLETE', 'FRESHNESS_RULE_UNAVAILABLE',
 ];
+
+/**
+ * 1.2.0 — what the replay can prove about a held value's age at the cutoff,
+ * under the approved runtime freshness rule (`SYMBOL_RULES`), and nothing else:
+ * - FRESH: age at most the rule's staleMaxAgeS (the runtime LIVE or STALE
+ *   classes: the value is still usable);
+ * - STALE: age above staleMaxAgeS, so expired (the runtime UNAVAILABLE class);
+ * - NOT_EVALUATED: no approved rule for the instrument (DXY). Never inferred
+ *   to be fresh or stale.
+ * Not to be confused with `freshnessAtCutoff`, the runtime class, unchanged.
+ */
+export type MarketEvidenceFreshnessProof = 'FRESH' | 'STALE' | 'NOT_EVALUATED';
 
 export interface MarketEvidenceFinding {
   readonly code: MarketEvidenceReasonCode;
@@ -192,6 +213,8 @@ export interface ReplayedObservation {
   readonly recordDigest: string;
   readonly ageSecondsAtCutoff: number;
   readonly freshnessAtCutoff: Freshness;
+  /** 1.2.0: FRESH / STALE / NOT_EVALUATED, see MarketEvidenceFreshnessProof. */
+  readonly freshnessProof: MarketEvidenceFreshnessProof;
   readonly raw: RawEvidenceState;
   /** Names of the provenance fields this record leaves unknown. */
   readonly unknown: readonly ('sourceRecordId' | 'publishedAt' | 'rawPayloadDigest')[];
@@ -199,8 +222,9 @@ export interface ReplayedObservation {
 
 /**
  * VERIFIED: valid archive, complete declared coverage of the cutoff, every
- * covered field observed at the cutoff (1.1.0), pinned digest matched when given. INCOMPLETE: valid but completeness not
- * established. INVALID: a blocking finding; nothing from it is usable.
+ * covered field observed at the cutoff (1.1.0) and proved FRESH under an approved rule (1.2.0), pinned digest
+ * matched when given. INCOMPLETE: valid but completeness or freshness not established. INVALID: a blocking
+ * finding; nothing from it is usable.
  */
 export type MarketEvidenceReplayStatus = 'VERIFIED' | 'INCOMPLETE' | 'INVALID';
 
@@ -514,8 +538,13 @@ export async function replayMarketEvidence(
       const spec = MARKET_EVIDENCE_FIELD_SPEC[field];
       const ageSecondsAtCutoff = chosen.ageSeconds;
       let freshnessAtCutoff: Freshness = 'UNAVAILABLE';
+      let freshnessProof: MarketEvidenceFreshnessProof = 'NOT_EVALUATED';
       if (spec.freshnessSymbol === null) add('FRESHNESS_RULE_UNAVAILABLE');
-      else freshnessAtCutoff = classifyFreshness(ageSecondsAtCutoff, SYMBOL_RULES[spec.freshnessSymbol]);
+      else {
+        freshnessAtCutoff = classifyFreshness(ageSecondsAtCutoff, SYMBOL_RULES[spec.freshnessSymbol]);
+        // Same edge as classifyFreshness: expired only strictly beyond staleMaxAgeS.
+        freshnessProof = freshnessAtCutoff === 'UNAVAILABLE' ? 'STALE' : 'FRESH';
+      }
       const payload = record.rawPayloadDigest === null ? undefined : archive.rawPayloads[record.rawPayloadDigest];
       const raw: RawEvidenceState = record.rawPayloadDigest === null ? 'RAW_UNKNOWN'
         : payload && options.parsers?.[payload.parser] ? 'RAW_VERIFIED' : 'RAW_DIGEST_ONLY';
@@ -537,6 +566,7 @@ export async function replayMarketEvidence(
         recordDigest: recordDigests.get(record.evidenceId)!,
         ageSecondsAtCutoff,
         freshnessAtCutoff,
+        freshnessProof,
         raw,
         unknown: (['sourceRecordId', 'publishedAt', 'rawPayloadDigest'] as const).filter((key) => record[key] === null),
       };
@@ -553,6 +583,12 @@ export async function replayMarketEvidence(
   if (selection !== null && declared !== null
       && declared.fields.some((field) => observations[field as MarketPricingAsOfFieldName] === null)) {
     add('DECLARED_FIELD_NOT_OBSERVED');
+  }
+  // 1.2.0: a covered value too old under its approved rule is not held either; one no rule can date is not proved fresh.
+  if (selection !== null && declared !== null) {
+    const held = declared.fields.map((field) => observations[field as MarketPricingAsOfFieldName]).filter((o) => o !== null);
+    if (held.some((o) => o.freshnessProof === 'STALE')) add('DECLARED_FIELD_STALE');
+    if (held.some((o) => o.freshnessProof === 'NOT_EVALUATED')) add('DECLARED_FIELD_FRESHNESS_NOT_EVALUATED');
   }
   const finalCodes = new Set(findings.map((f) => f.code));
   const selectionInvalid = selection !== null && !selection.replay.reproducible;

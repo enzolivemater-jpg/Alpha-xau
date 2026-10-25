@@ -269,6 +269,7 @@ console.log('PASS local input files: malformed, mis-shaped and stale inputs all 
 
 // --- --archive: the server replays a local archive, optionally pinned to its digest.
 let verifiedSimView = null;
+let completeSimView = null;
 {
   const archiveFile = new URL('./fixtures/market_evidence_archive_synthetic.json', import.meta.url).pathname;
   const pinned = archiveView.marketEvidence.archiveDigest;
@@ -293,8 +294,8 @@ let verifiedSimView = null;
       assert.equal(v.chain.execution, 'FORBIDDEN', name);
       assert.equal(v.stages[0].state, mp0, name);
     }
-    // The same synthetic archive completed with the DXY value it declares (fictitious, written here):
-    // VERIFIED and reproducible, still SIMULATION, still HOLD / FORBIDDEN.
+    // The same synthetic archive completed with the DXY value it declares (fictitious, written here).
+    // Replay 1.2.0 (DATA-3 L1b): DXY has no approved freshness rule, so it stays INCOMPLETE, never VERIFIED.
     const complete = JSON.parse(readFileSync(archiveFile, 'utf8'));
     complete.records.push({ evidenceId: 'test-dxy-20260930', field: 'dxy', instrument: 'DXY', unit: 'INDEX_POINTS',
       observationType: 'DAILY_VALUE', value: 98.4, source: 'synthetic_fixture', sourceRecordId: null,
@@ -302,11 +303,19 @@ let verifiedSimView = null;
       revision: 'test-1', supersedes: null, rawPayloadDigest: null });
     writeFileSync(path.join(scratch, 'complete.json'), JSON.stringify(complete));
     const local = await listen({ archiveFile: path.join(scratch, 'complete.json') });
-    verifiedSimView = await (await fetch(`${local.base}${VIEW_PATH}`)).json();
+    completeSimView = await (await fetch(`${local.base}${VIEW_PATH}`)).json();
     await close(local.server);
-    assert.deepEqual([verifiedSimView.marketEvidence.status, verifiedSimView.marketEvidence.reproducible,
-      verifiedSimView.marketEvidence.nature, verifiedSimView.marketEvidence.provenanceClass], ['VERIFIED', true, 'SIMULATION', 'SYNTHETIC_FIXTURE']);
-    assert.deepEqual([verifiedSimView.chain.chainState, verifiedSimView.chain.execution], ['HOLD', 'FORBIDDEN']);
+    const mev = completeSimView.marketEvidence;
+    assert.deepEqual([mev.status, mev.reproducible, mev.nature, mev.provenanceClass], ['INCOMPLETE', false, 'SIMULATION', 'SYNTHETIC_FIXTURE']);
+    assert.ok(mev.reasonCodes.includes('DECLARED_FIELD_FRESHNESS_NOT_EVALUATED'));
+    assert.equal(mev.observations.find((o) => o.field === 'dxy').freshnessProof, 'NOT_EVALUATED');
+    assert.ok(mev.observations.filter((o) => o.field !== 'dxy').every((o) => o.freshnessProof === 'FRESH'));
+    assert.deepEqual([completeSimView.chain.chainState, completeSimView.chain.execution], ['HOLD', 'FORBIDDEN']);
+    // A hypothetical VERIFIED view, as if an approved DXY freshness rule proved the value fresh: no archive reaches it today.
+    verifiedSimView = structuredClone(completeSimView);
+    Object.assign(verifiedSimView.marketEvidence, { status: 'VERIFIED', reproducible: true,
+      reasonCodes: mev.reasonCodes.filter((c) => c !== 'DECLARED_FIELD_FRESHNESS_NOT_EVALUATED') });
+    verifiedSimView.marketEvidence.observations.find((o) => o.field === 'dxy').freshnessProof = 'FRESH';
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -540,7 +549,7 @@ const spotItem = Object.fromEntries([...mevItems[0].querySelectorAll('.mev__fact
   .map((row) => [row.querySelector('dt').textContent, row.querySelector('dd').textContent]));
 assert.deepEqual(spotItem, {
   'INSTRUMENT · TYPE': 'XAUUSD · LAST', 'SOURCE · ID SOURCE': 'twelve_data · XAU/USD', 'OBSERVÉ': '2026-10-01 14:14:00Z',
-  'PUBLIÉ': 'INCONNU', 'INGÉRÉ': '2026-10-01 14:14:03Z', 'RÉVISION': 'td-quote-2', 'FRAÎCHEUR AU CUTOFF': 'FRAIS AU CUTOFF · 60 s',
+  'PUBLIÉ': 'INCONNU', 'INGÉRÉ': '2026-10-01 14:14:03Z', 'RÉVISION': 'td-quote-2', 'FRAÎCHEUR AU CUTOFF': 'FRAIS AU CUTOFF · 60 s', 'PREUVE DE FRAÎCHEUR': 'FRAÎCHEUR PROUVÉE',
   'EMPREINTE': archiveView.marketEvidence.observations[0].recordDigest,
 });
 assert.equal(mevItems[0].querySelector('.mev__raw').textContent, 'BRUT INCONNU');
@@ -556,7 +565,7 @@ const historical = structuredClone(archiveView);
 Object.assign(historical.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED', status: 'VERIFIED', reproducible: true });
 // Coherent with VERIFIED: none of the replay's own incompleteness reasons left.
 historical.marketEvidence.reasonCodes = historical.marketEvidence.reasonCodes.filter((c) => c !== 'DECLARED_FIELD_NOT_OBSERVED');
-for (const o of historical.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
+for (const o of historical.marketEvidence.observations) Object.assign(o, { raw: 'RAW_VERIFIED', freshnessProof: 'FRESH' });
 // B4: a coherent captured view also names the archive as the market's source.
 Object.assign(historical.inputProvenance[0], { source: 'CAPTURED_ARCHIVE', detail: 'archive capturée localement (test)' });
 dom = boot(LOCAL, serveView(historical));
@@ -565,6 +574,18 @@ d = dom.window.document;
 assert.equal(text(d, 'mode-v2-val'), 'HISTORIQUE VÉRIFIÉ · DRY RUN');
 assert.match(text(d, 'v2-nav-nature'), /HISTORIQUE VÉRIFIÉ · REJEU VÉRIFIÉ · .* · PAS UNE ANALYSE RÉELLE$/);
 assert.doesNotMatch(d.getElementById('ws-chain').textContent + text(d, 'mode-v2-val'), /\bLIVE\b/);
+dom.window.close();
+// The complete synthetic archive, as replayed: REJEU INCOMPLET, DXY freshness shown as not evaluated, never as stale.
+dom = boot(LOCAL, serveView(completeSimView));
+await settle();
+d = dom.window.document;
+assert.match(text(d, 'v2-mev-status'), /^REJEU INCOMPLET · ARCHIVE SYNTHÉTIQUE/);
+{
+  const dxyItem = [...d.querySelectorAll('#v2-mev-obs li')].find((li) => li.querySelector('.mev__field').textContent === 'DXY');
+  assert.match(dxyItem.textContent, /PREUVE DE FRAÎCHEUR\s*FRAÎCHEUR NON ÉVALUÉE/);
+  assert.doesNotMatch(dxyItem.textContent, /PÉRIMÉE/);
+}
+assert.equal(text(d, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
 dom.window.close();
 // VERIFIED + SIMULATION: a reproducible replay of a synthetic archive is shown as a simulation, never as
 // verified history nor as an analysis or a validation; the chain still holds.
@@ -585,6 +606,23 @@ for (const [name, mutate] of [
     for (const o of v.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
   }],
   ['synthetic VERIFIED replay called captured history', (v) => { Object.assign(v.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED' }); }],
+]) {
+  const body = structuredClone(verifiedSimView);
+  mutate(body);
+  dom = boot(LOCAL, serveView(body));
+  await settle();
+  d = dom.window.document;
+  assert.equal(text(d, 'v2-state'), 'VUE V2 REFUSÉE', name);
+  assert.equal(d.getElementById('v2-mev').hidden, true, name);
+  dom.window.close();
+}
+// DATA-3 L1b: VERIFIED needs every value's freshness proved; a 4.9.0 manifest (no proof) is refused, not shown as before.
+for (const [name, mutate] of [
+  ['verified with a stale value', (v) => { v.marketEvidence.observations[0].freshnessProof = 'STALE'; }],
+  ['verified with a freshness not evaluated', (v) => { v.marketEvidence.observations.find((o) => o.field === 'dxy').freshnessProof = 'NOT_EVALUATED'; }],
+  ['verified manifest from before replay 1.2.0', (v) => { for (const o of v.marketEvidence.observations) delete o.freshnessProof; }],
+  ['verified despite its own stale reason', (v) => { v.marketEvidence.reasonCodes.push('DECLARED_FIELD_STALE'); }],
+  ['verified despite its own not-evaluated reason', (v) => { v.marketEvidence.reasonCodes.push('DECLARED_FIELD_FRESHNESS_NOT_EVALUATED'); }],
 ]) {
   const body = structuredClone(verifiedSimView);
   mutate(body);
@@ -621,6 +659,7 @@ for (const [name, mutate] of [
   ['captured archive called simulation', (v) => { v.marketEvidence.nature = 'HISTORICAL_UNVERIFIED'; }],
   ['LIVE market nature', (v) => { v.marketEvidence.nature = 'LIVE'; }],
   ['unknown raw state', (v) => { v.marketEvidence.observations[0].raw = 'TRUSTED'; }],
+  ['unknown freshness proof', (v) => { v.marketEvidence.observations[0].freshnessProof = 'PROBABLY_FRESH'; }],
   ['manifest missing', (v) => { delete v.marketEvidence; }],
 ]) {
   const body = structuredClone(archiveView);

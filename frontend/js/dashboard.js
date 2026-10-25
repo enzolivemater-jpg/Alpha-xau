@@ -1208,12 +1208,14 @@ let pollTimer = null;
   };
   const V2_EVIDENCE_STATUS = { VERIFIED: 'REJEU VÉRIFIÉ', INCOMPLETE: 'REJEU INCOMPLET', INVALID: 'ARCHIVE REJETÉE' };
   const V2_RAW_STATES = { RAW_VERIFIED: 'BRUT RELU', RAW_DIGEST_ONLY: 'EMPREINTE SEULE', RAW_UNKNOWN: 'BRUT INCONNU' };
-  // Raisons du rejeu (evidence_archive.ts) qui interdisent VERIFIED : rejet, ou complétude non établie (dont DATA-3 L1).
+  // Rejeu 1.2.0 : ce que la règle de fraîcheur approuvée prouve de l'âge d'une valeur au cutoff.
+  const V2_FRESHNESS_PROOF = { FRESH: 'FRAÎCHEUR PROUVÉE', STALE: 'PÉRIMÉE (RÈGLE APPROUVÉE)', NOT_EVALUATED: 'FRAÎCHEUR NON ÉVALUÉE' };
+  // Raisons du rejeu (evidence_archive.ts) qui interdisent VERIFIED : rejet, ou complétude non établie (dont DATA-3 L1, L1b).
   const V2_NOT_VERIFIED_REASONS = ['INVALID_KNOWLEDGE_CUTOFF', 'ARCHIVE_SHAPE_INVALID', 'ARCHIVE_DIGEST_MISMATCH',
     'RECORD_SHAPE_INVALID', 'INSTRUMENT_MISMATCH', 'UNIT_MISMATCH', 'OBSERVATION_TYPE_MISMATCH', 'VALUE_OUT_OF_DOMAIN',
     'CHRONOLOGY_INVALID', 'EVIDENCE_ID_CONFLICT', 'IDENTITY_REUSED_WITH_DIVERGENT_VALUE', 'REVISION_CHAIN_INVALID',
     'UNLINKED_REVISION_CONFLICT', 'RAW_PAYLOAD_MISMATCH', 'COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE',
-    'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED'];
+    'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED', 'DECLARED_FIELD_STALE', 'DECLARED_FIELD_FRESHNESS_NOT_EVALUATED'];
 
   /* B4 : provenance par entrée. Seul le marché peut venir d'une archive ; rien n'est dit observé ni validé. */
   const V2_INPUTS = ['MARKET', 'POSITIONING', 'EVENT_IMPACT', 'GOLD_TRANSMISSION', 'EVIDENCE_GRAPH', 'AUTHORIZATIONS'];
@@ -1304,12 +1306,15 @@ let pollTimer = null;
     if (mev === undefined) return 'preuves de marché absentes';
     if (mev !== null) {
       if (!has(V2_EVIDENCE_STATUS, mev.status) || !has(V2_EVIDENCE_NATURE, mev.nature) || !isList(mev.observations)
-          || !isList(mev.reasonCodes) || mev.observations.some((o) => !o || !has(V2_RAW_STATES, o.raw))) {
+          || !isList(mev.reasonCodes) || mev.observations.some((o) => !o || !has(V2_RAW_STATES, o.raw)
+            || (o.freshnessProof !== undefined && !has(V2_FRESHNESS_PROOF, o.freshnessProof)))) {
         return 'preuves de marché non conformes';
       }
       // Une affirmation forte doit porter toutes ses conditions.
       if (mev.reproducible !== (mev.status === 'VERIFIED')) return 'reproductibilité incohérente';
       if (mev.status === 'VERIFIED' && mev.reasonCodes.some((c) => V2_NOT_VERIFIED_REASONS.includes(c))) return 'rejeu vérifié contredit par ses raisons';
+      // DATA-3 L1b : VERIFIED exige une fraîcheur prouvée de chaque valeur ; une vue d'avant le rejeu 1.2.0 ne la porte pas.
+      if (mev.status === 'VERIFIED' && mev.observations.some((o) => o.freshnessProof !== 'FRESH')) return 'rejeu vérifié sans fraîcheur prouvée';
       // Une archive illisible ou mal formée n'a pas de classe : rejetée, rien retenu, présentée comme simulation.
       const unreadable = mev.status === 'INVALID' && mev.provenanceClass === null;
       if (unreadable && (mev.nature !== 'SIMULATION' || mev.observations.length > 0)) return 'archive rejetée incohérente';
@@ -1753,6 +1758,7 @@ let pollTimer = null;
           ['INGÉRÉ', shortTime(o.ingestedAt)],
           ['RÉVISION', `${known(o.revision)}${isText(o.supersedes) ? ` (corrige ${o.supersedes})` : ''}`],
           ['FRAÎCHEUR AU CUTOFF', `${o.freshnessAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF' : known(o.freshnessAtCutoff)} · ${fmtAge(o.ageSecondsAtCutoff)}`],
+          ['PREUVE DE FRAÎCHEUR', has(V2_FRESHNESS_PROOF, o.freshnessProof) ? V2_FRESHNESS_PROOF[o.freshnessProof] : 'NON FOURNIE'],
           ['EMPREINTE', known(o.recordDigest)],
         ]) {
           const row = node('div');

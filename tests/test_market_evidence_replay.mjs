@@ -34,6 +34,12 @@ const clone = (v) => structuredClone(v);
 const replay = (archive, cutoff = CUTOFF, options) => ev.replayMarketEvidence(archive, cutoff, options);
 const withRecords = (mutate) => { const a = clone(complete); mutate(a.records, a); return a; };
 const recordOf = (a, id) => a.records.find((r) => r.evidenceId === id);
+// 1.2.0 (DATA-3 L1b): DXY has no approved freshness rule, so its freshness is NOT_EVALUATED and `complete` never
+// reaches VERIFIED. Its strongest outcome is INCOMPLETE for that single reason; `strongest` checks exactly that,
+// so any other incompleteness still shows.
+const incompleteness = (r) => r.reasonCodes.filter((c) => ev.MARKET_EVIDENCE_INCOMPLETENESS_REASONS.includes(c));
+const strongest = (r) => r.status === 'INCOMPLETE' && r.reproducible === false
+  && JSON.stringify(incompleteness(r)) === JSON.stringify(['DECLARED_FIELD_FRESHNESS_NOT_EVALUATED']);
 const holds = (r, name) => {
   assert.equal(r.decision, 'HOLD', name);
   assert.equal(r.execution, 'FORBIDDEN', name);
@@ -41,20 +47,24 @@ const holds = (r, name) => {
 };
 
 // --- 1. The synthetic fixture replays INCOMPLETE (dxy covered, never observed), labelled SIMULATION;
-// completed with the DXY value it declares, it replays VERIFIED.
+// completed with the DXY value it declares, it is INCOMPLETE only because DXY freshness is NOT_EVALUATED (1.2.0).
 const base = await replay(fixture);
 holds(base, 'fixture');
 assert.equal(base.schemaVersion, 'xau.market-evidence-replay.v1');
-assert.equal(base.algorithmVersion, 'market-evidence-replay-1.1.0');
+assert.equal(base.algorithmVersion, 'market-evidence-replay-1.2.0');
 assert.equal(base.status, 'INCOMPLETE', 'coverage of dxy is declared, no DXY value is held');
 assert.equal(base.reproducible, false);
 const full = await replay(complete);
 holds(full, 'complete fixture');
-assert.deepEqual([full.status, full.reproducible, full.nature], ['VERIFIED', true, 'SIMULATION']);
-assert.deepEqual(full.reasonCodes, ['PROVENANCE_INCOMPLETE', 'FRESHNESS_RULE_UNAVAILABLE']);
+assert.deepEqual([full.status, full.reproducible, full.nature], ['INCOMPLETE', false, 'SIMULATION']);
+assert.deepEqual(full.reasonCodes, ['DECLARED_FIELD_FRESHNESS_NOT_EVALUATED', 'PROVENANCE_INCOMPLETE', 'FRESHNESS_RULE_UNAVAILABLE']);
+assert.ok(strongest(full));
 assert.equal(full.observations.dxy.freshnessAtCutoff, 'UNAVAILABLE', 'no DXY freshness rule: held, never served');
+assert.equal(full.observations.dxy.freshnessProof, 'NOT_EVALUATED', 'not called stale: no rule can date it');
+assert.deepEqual(Object.entries(full.observations).filter(([f]) => f !== 'dxy').map(([, o]) => o.freshnessProof),
+  ['FRESH', 'FRESH', 'FRESH', 'FRESH', 'FRESH', 'FRESH', 'FRESH']);
 assert.deepEqual(full.marketSnapshot.dxy, base.marketSnapshot.dxy);
-assert.equal(full.marketSnapshot.reason, null);
+assert.match(full.marketSnapshot.reason, /^market evidence replay INCOMPLETE .*DECLARED_FIELD_FRESHNESS_NOT_EVALUATED/);
 assert.equal(base.nature, 'SIMULATION', 'a synthetic archive is never historical evidence');
 assert.equal(base.archive.provenanceClass, 'SYNTHETIC_FIXTURE');
 assert.match(base.archive.digest, /^sha256:[0-9a-f]{64}$/);
@@ -69,7 +79,7 @@ assert.deepEqual(spot, {
   observedAt: '2026-10-01T14:14:00.000Z', publishedAt: null, ingestedAt: '2026-10-01T14:14:03.000Z',
   revision: 'td-quote-2', supersedes: null, rawPayloadDigest: null,
   recordDigest: await sha256Text(chain.canonicalJson(recordOf(fixture, 'td-xau-20261001-1414'))),
-  ageSecondsAtCutoff: 60, freshnessAtCutoff: 'LIVE', raw: 'RAW_UNKNOWN', unknown: ['publishedAt', 'rawPayloadDigest'],
+  ageSecondsAtCutoff: 60, freshnessAtCutoff: 'LIVE', freshnessProof: 'FRESH', raw: 'RAW_UNKNOWN', unknown: ['publishedAt', 'rawPayloadDigest'],
 });
 assert.equal(base.observations.dxy, null, 'no DXY record: missing, not invented');
 assert.deepEqual(base.marketSnapshot.dxy, { value: null, status: 'UNAVAILABLE', observedAt: null, ageSeconds: null, source: null });
@@ -77,7 +87,7 @@ assert.equal(base.marketSnapshot.us10y.status, 'STALE', 'a FRED value 38 h old a
 assert.equal(base.marketSnapshot.capturedAt, base.marketSnapshot.spot.observedAt);
 assert.equal(base.marketSnapshot.available, true, 'an INCOMPLETE replay stays usable');
 assert.match(base.marketSnapshot.reason, /^market evidence replay INCOMPLETE .*DECLARED_FIELD_NOT_OBSERVED/);
-console.log('PASS synthetic archive: INCOMPLETE without the DXY value it declares, VERIFIED with it; SIMULATION; full provenance per observation');
+console.log('PASS synthetic archive: INCOMPLETE without the DXY value it declares, and with it (DXY freshness NOT_EVALUATED); SIMULATION; full provenance per observation');
 
 // --- 2. Determinism.
 const again = await replay(clone(fixture));
@@ -135,7 +145,7 @@ const corrected = await replay(complete, DAY_AFTER);
 assert.equal(corrected.observations.wti.value, 66.9);
 assert.equal(corrected.observations.wti.supersedes, 'fred-dcoilwtico-20260930-v1');
 assert.deepEqual(corrected.audit.correctedAfterCutoff, []);
-assert.equal(corrected.status, 'VERIFIED');
+assert.ok(strongest(corrected), corrected.reasonCodes.join());
 console.log('PASS revisions: the original value before the correction is known, the correction after');
 
 // --- 5. Archive defects reject the whole archive; the chain gets no value.
@@ -190,15 +200,15 @@ assert.equal(contradicted.marketSnapshot.spot.value, null);
 const agreeing = await replay(withRecords((rs) => {
   rs.push({ ...recordOf({ records: rs }, 'td-xau-20261001-1414'), evidenceId: 'other-1414', source: 'other_feed' });
 }));
-assert.equal(agreeing.status, 'VERIFIED');
+assert.ok(strongest(agreeing), agreeing.reasonCodes.join());
 assert.equal(agreeing.marketSnapshot.spot.value, 3900);
 const exactDuplicate = await replay(withRecords((rs) => { rs.push(clone(rs[1])); }));
-assert.equal(exactDuplicate.status, 'VERIFIED');
+assert.ok(strongest(exactDuplicate), exactDuplicate.reasonCodes.join());
 assert.ok(exactDuplicate.reasonCodes.includes('EXACT_DUPLICATE_IGNORED'));
 const inverted = await replay(withRecords((rs) => { recordOf({ records: rs }, 'td-xau-ask-20261001-1414').value = 3899; }));
 // An inverted book is consistent evidence of an unusable market: the replay
 // is still verifiable, MP-1 abstains and nothing reaches the chain.
-assert.equal(inverted.status, 'VERIFIED');
+assert.ok(strongest(inverted), inverted.reasonCodes.join());
 assert.equal(inverted.selection.state, 'ABSTAIN');
 assert.ok(inverted.selection.reasonCodes.includes('BOOK_INVERTED'));
 assert.equal(inverted.marketSnapshot.available, false);
@@ -244,13 +254,67 @@ for (const [name, archive, cutoff, code] of [
   assert.ok(r.reasonCodes.includes(code), name);
   assert.match(r.marketSnapshot.reason ?? '', new RegExp(`INCOMPLETE.*${code}`), `${name}: the snapshot says why`);
 }
-assert.equal((await replay(withRecords((rs) => {
+assert.ok(strongest(await replay(withRecords((rs) => {
   Object.assign(recordOf({ records: rs }, 'test-dxy-20260930'), { ingestedAt: CUTOFF });
-}))).status, 'VERIFIED', 'ingested exactly at the cutoff is held at the cutoff');
+}))), 'ingested exactly at the cutoff is held at the cutoff');
 console.log('PASS completeness: no coverage, a cutoff outside it, an uncovered field or a covered field never observed make the replay INCOMPLETE');
 
+// --- 8b. DATA-3 L1b (1.2.0): freshness proof, from the approved rule only, at its exact edge.
+{
+  const { SYMBOL_RULES, classifyFreshness } = await loadBackendModule('market_engine/validate.ts');
+  const longer = { ...clone(complete), coverage: { ...complete.coverage, to: '2026-10-08T00:00:00.000Z' } };
+  // bid and ask were observed at 14:14:00 on 10-01; the XAUUSD rule expires them strictly beyond 3 days.
+  const edge = await replay(longer, '2026-10-04T14:14:00.000Z');
+  assert.equal(edge.observations.bid.ageSecondsAtCutoff, SYMBOL_RULES.XAUUSD.staleMaxAgeS);
+  assert.equal(edge.observations.bid.freshnessProof, 'FRESH', 'exactly at the threshold: still usable, so not stale');
+  assert.ok(strongest(edge), edge.reasonCodes.join());
+  const past = await replay(longer, '2026-10-04T14:14:01.000Z');
+  assert.deepEqual([past.observations.bid.freshnessProof, past.observations.ask.freshnessProof, past.observations.spot.freshnessProof],
+    ['STALE', 'STALE', 'FRESH'], 'one second beyond: bid and ask expired, the later spot not yet');
+  assert.deepEqual(incompleteness(past), ['DECLARED_FIELD_STALE', 'DECLARED_FIELD_FRESHNESS_NOT_EVALUATED']);
+  assert.equal(past.observations.bid.value, edge.observations.bid.value, 'the stale value is still reported, not erased');
+  assert.equal(past.marketSnapshot.bid.value, null, 'and never served');
+  assert.ok(!past.reasonCodes.includes('DECLARED_FIELD_NOT_OBSERVED'), 'stale is not unobserved');
+  // At every cutoff, the proof follows the runtime class exactly, and the reason follows the covered proofs.
+  for (let t = Date.parse('2026-10-01T06:00:00Z'); t <= Date.parse('2026-10-08T00:00:00Z'); t += 3 * 3_600_000 + 1_000) {
+    const r = await replay(longer, new Date(t).toISOString());
+    assert.notEqual(r.status, 'VERIFIED');
+    for (const o of Object.values(r.observations).filter(Boolean)) {
+      const symbol = ev.MARKET_EVIDENCE_FIELD_SPEC[o.field].freshnessSymbol;
+      const expected = symbol === null ? 'NOT_EVALUATED'
+        : classifyFreshness(o.ageSecondsAtCutoff, SYMBOL_RULES[symbol]) === 'UNAVAILABLE' ? 'STALE' : 'FRESH';
+      assert.equal(o.freshnessProof, expected, `${o.field} at ${r.knowledgeCutoff}`);
+    }
+    const covered = Object.values(r.observations).filter((o) => o && longer.coverage.fields.includes(o.field));
+    assert.equal(r.reasonCodes.includes('DECLARED_FIELD_STALE'), covered.some((o) => o.freshnessProof === 'STALE'), r.knowledgeCutoff);
+  }
+  // Only a covered field counts: an uncovered stale value adds no L1b reason (the field is already FIELDS_NOT_COVERED).
+  const uncovered = await replay({ ...longer, coverage: { ...longer.coverage, fields: longer.coverage.fields.filter((f) => f !== 'bid' && f !== 'ask') } },
+    '2026-10-04T14:14:01.000Z');
+  assert.equal(uncovered.observations.bid.freshnessProof, 'STALE');
+  assert.ok(!uncovered.reasonCodes.includes('DECLARED_FIELD_STALE'));
+  assert.ok(uncovered.reasonCodes.includes('FIELDS_NOT_COVERED'));
+  // No look-ahead: a fresher bid ingested after the cutoff neither changes the proof nor the replay.
+  const later = withRecords((rs) => {
+    rs.push({ ...recordOf({ records: rs }, 'td-xau-bid-20261001-1414'), evidenceId: 'later-bid', observedAt: '2026-10-04T14:14:00.000Z',
+      ingestedAt: '2026-10-04T14:14:01.001Z', revision: 'later-1' });
+  });
+  later.coverage = longer.coverage;
+  const withLater = await replay(later, '2026-10-04T14:14:01.000Z');
+  assert.equal(withLater.observations.bid.freshnessProof, 'STALE');
+  assert.deepEqual(withLater.observations, past.observations);
+  assert.equal(withLater.audit.recordsIngestedAfterCutoff, past.audit.recordsIngestedAfterCutoff + 1);
+  assert.equal((await replay(later, '2026-10-04T14:14:01.001Z')).observations.bid.freshnessProof, 'FRESH', 'once ingested, it is used');
+  // Coverage, freshness, provenance and reproducibility stay distinct: provenance gaps never make a replay incomplete.
+  assert.ok(!ev.MARKET_EVIDENCE_INCOMPLETENESS_REASONS.includes('PROVENANCE_INCOMPLETE'));
+  assert.ok(!ev.MARKET_EVIDENCE_INCOMPLETENESS_REASONS.includes('FRESHNESS_RULE_UNAVAILABLE'), 'the archive-level notice is unchanged');
+  assert.deepEqual(base.reasonCodes, ['DECLARED_FIELD_NOT_OBSERVED', 'PROVENANCE_INCOMPLETE'],
+    'the shipped fixture holds no DXY value: its 1.1.0 reasons are unchanged');
+}
+console.log('PASS DATA-3 L1b: STALE only strictly beyond the approved threshold, NOT_EVALUATED without a rule, no look-ahead; VERIFIED unreachable while DXY has no rule');
+
 // --- 9. Pinned digest.
-assert.equal((await replay(complete, CUTOFF, { pinnedArchiveDigest: full.archive.digest })).status, 'VERIFIED');
+assert.ok(strongest(await replay(complete, CUTOFF, { pinnedArchiveDigest: full.archive.digest })));
 const tampered = withRecords((rs) => { recordOf({ records: rs }, 'fred-vixcls-20260930').value = 17.3; });
 const pinnedTampered = await replay(tampered, CUTOFF, { pinnedArchiveDigest: full.archive.digest });
 assert.equal(pinnedTampered.status, 'INVALID');
