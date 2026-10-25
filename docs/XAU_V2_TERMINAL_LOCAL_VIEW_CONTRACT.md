@@ -10,7 +10,7 @@ the terminal renders it in two panels: **Chaîne décisionnelle V2** and
 Frozen versions:
 
 - `xau.terminal-local-view.v4`;
-- `terminal-local-view-4.10.0`.
+- `terminal-local-view-4.11.0`.
 
 Version 2 (TV-1) added `temporal` and `holdRationale`. Version 3 (TV-2) adds
 `summary`, a plain-French meaning (`plain`) on every reason, and `reasons`
@@ -103,6 +103,16 @@ page refuses a `VERIFIED` manifest in which any observation lacks
 `freshnessProof: FRESH`, which also refuses a 4.9.0 manifest claiming
 `VERIFIED` (it carries no proof), rather than showing it as before, and refuses
 an unknown `freshnessProof` value.
+
+Algorithm 4.11.0: a market field observed after the knowledge cutoff (an
+input document dated after the cutoff; MP-0 abstains with
+`OBSERVATION_AFTER_KNOWLEDGE_CUTOFF`) was copied into `market.fields` as is,
+and the page showed its value « FRAIS AU CUTOFF ». It is now
+`statusAtCutoff: OBSERVED_AFTER_CUTOFF` with `value` and
+`ageSecondsAtCutoff` null; its `observedAt` stays visible. The page labels
+it « POSTÉRIEUR AU CUTOFF » and refuses a view (an older one included)
+whose market field carries a value observed after its readable cutoff.
+MP-0, the chain and HOLD / FORBIDDEN are unchanged.
 
 Algorithm 4.8.0 (cloud audit D1): a positioning row published or received
 after the cutoff has `value: null`. Before, its value was served with

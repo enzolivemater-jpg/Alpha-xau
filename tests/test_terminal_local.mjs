@@ -1011,3 +1011,34 @@ console.log('PASS terminal against the real local server: golden HOLD chain, deg
   dom4.window.close();
 }
 console.log('PASS chain navigation: section links scroll without changing the address; folded state survives a refresh');
+
+// A market value observed after the cutoff was not known then (view 4.11.0): the page shows « POSTÉRIEUR AU CUTOFF »
+// without a value, and refuses any view (an older one included) that gives such a field a value.
+{
+  const cutoffMs = Date.parse(view.chain.knowledgeCutoff);
+  const future = new Date(cutoffMs + 3_600_000).toISOString();
+  const masked = structuredClone(view);
+  Object.assign(masked.market.fields.find((f) => f.field === 'spot'),
+    { value: null, statusAtCutoff: 'OBSERVED_AFTER_CUTOFF', observedAt: future, ageSecondsAtCutoff: null });
+  let dm = boot(LOCAL, serveView(masked));
+  await settle();
+  let dd = dm.window.document;
+  assert.equal(text(dd, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
+  const row = [...dd.querySelectorAll('#v2-market tr')].find((tr) => /^SPOT/.test(tr.textContent));
+  assert.match(row.textContent, /N\/A.*POSTÉRIEUR AU CUTOFF/);
+  dm.window.close();
+  const leaked = structuredClone(view);
+  Object.assign(leaked.market.fields.find((f) => f.field === 'spot'), { observedAt: future });
+  dm = boot(LOCAL, serveView(leaked));
+  await settle();
+  dd = dm.window.document;
+  assert.equal(text(dd, 'v2-state'), 'VUE V2 REFUSÉE', 'a value observed after the cutoff is never displayed');
+  dm.window.close();
+  const atCutoff = structuredClone(view);
+  Object.assign(atCutoff.market.fields.find((f) => f.field === 'spot'), { observedAt: view.chain.knowledgeCutoff });
+  dm = boot(LOCAL, serveView(atCutoff));
+  await settle();
+  assert.equal(text(dm.window.document, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE', 'observed exactly at the cutoff is known');
+  dm.window.close();
+}
+console.log('PASS market values observed after the cutoff are never displayed');

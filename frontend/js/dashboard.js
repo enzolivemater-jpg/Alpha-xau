@@ -1284,6 +1284,10 @@ let pollTimer = null;
         || !isList(view.horizons) || !view.acceptance || !isList(view.acceptance.evidence) || !view.observability) {
       return 'structure incomplète';
     }
+    // Une valeur de marché observée après le cutoff n'était pas connue à cette date : jamais affichée (vue 4.11.0).
+    const cutoffMs = Date.parse(chain.knowledgeCutoff);
+    if (Number.isFinite(cutoffMs) && view.market.fields.some((f) => f && f.value !== null && f.value !== undefined && typeof f.observedAt === 'string'
+        && !(Date.parse(f.observedAt) <= cutoffMs))) return 'valeur de marché postérieure au cutoff';
     const why = view.holdRationale;
     if (!why || !isList(why.rootCauses) || !isList(why.unclassifiedCodes)) return 'justification du HOLD absente';
     for (const c of why.rootCauses) {
@@ -1647,7 +1651,8 @@ let pollTimer = null;
         const tr = v2Row([
           node('td', 'v2__field', String(f.field || '?').toUpperCase()),
           node('td', 'ta-r num', isNum(f.value) ? String(f.value) : 'N/A'),
-          node('td', 'v2__state-cell', f.statusAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF' : f.statusAtCutoff),
+          node('td', 'v2__state-cell', f.statusAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF'
+            : f.statusAtCutoff === 'OBSERVED_AFTER_CUTOFF' ? 'POSTÉRIEUR AU CUTOFF' : f.statusAtCutoff),
           node('td', 'ta-r num', isNum(f.ageSecondsAtCutoff) ? fmtAge(f.ageSecondsAtCutoff) : 'N/A'),
           node('td', 'num', isText(f.observedAt) ? f.observedAt.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'N/A'),
           node('td', '', f.source || 'N/A'),

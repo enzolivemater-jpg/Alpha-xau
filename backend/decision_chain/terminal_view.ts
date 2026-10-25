@@ -19,7 +19,7 @@ import type {
   MarketEvidenceReplayStatus,
   ReplayedObservation,
 } from '../market_engine/evidence_archive.js';
-import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
 import {
   DECISION_CHAIN_STAGES,
   type DecisionChainOutcome,
@@ -31,7 +31,9 @@ export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as cons
 // INCOMPLETE (DECLARED_FIELD_NOT_OBSERVED); the same archive no longer yields the same view as under 4.8.0.
 // 4.10.0: replay 1.2.0 (DATA-3 L1b): each manifest observation carries `freshnessProof`, and a covered field that is
 // stale or whose freshness is not evaluated (DXY: no approved rule) makes the manifest INCOMPLETE.
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.10.0' as const;
+// 4.11.0: a market field observed after the knowledge cutoff (MP-0 OBSERVATION_AFTER_KNOWLEDGE_CUTOFF) was copied as
+// is, its value shown « FRAIS AU CUTOFF »; it is now OBSERVED_AFTER_CUTOFF with no value and no age.
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.11.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -252,6 +254,7 @@ export const BLOCKER_CATEGORY_PLAIN_FR: Readonly<Record<BlockerCategory, string>
 const MARKET_STATUS_PLAIN_FR: Readonly<Record<string, string>> = {
   UNAVAILABLE: 'indisponible au cutoff',
   STALE: 'périmé au cutoff',
+  OBSERVED_AFTER_CUTOFF: 'observé après le cutoff : inconnu à cette date, valeur non affichée',
 };
 
 /**
@@ -1031,15 +1034,20 @@ export function buildTerminalView(
   const pricing = result.stages.marketPricing;
   const positioning = result.stages.positioning;
   const holdRationale = holdRationaleOf(stages);
-  const fields: TerminalMarketFieldView[] = Object.entries(pricing.fields).map(([field, value]) => ({
-    field,
-    role: value.role,
-    value: value.value,
-    statusAtCutoff: value.status,
-    observedAt: value.observedAt,
-    ageSecondsAtCutoff: value.ageSeconds,
-    source: value.source,
-  }));
+  // MP-0 keeps the fields it abstains on, for audit. A value observed after the cutoff was not knowable then:
+  // the view shows when it was observed, never the value itself nor a freshness.
+  const fields: TerminalMarketFieldView[] = Object.entries(pricing.fields).map(([field, value]) => (
+    value.observedAt !== null && isStrictlyAfter(value.observedAt, result.knowledgeCutoff)
+      ? { field, role: value.role, value: null, statusAtCutoff: 'OBSERVED_AFTER_CUTOFF', observedAt: value.observedAt, ageSecondsAtCutoff: null, source: value.source }
+      : {
+        field,
+        role: value.role,
+        value: value.value,
+        statusAtCutoff: value.status,
+        observedAt: value.observedAt,
+        ageSecondsAtCutoff: value.ageSeconds,
+        source: value.source,
+      }));
   const evidence = Object.entries(result.stages.acceptance.evidence).map(([key, declared]) => ({ key, declared: declared === true }));
   return {
     ...base,
