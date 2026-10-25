@@ -106,3 +106,50 @@ assert.match(docs, /authorizes no provider selection, purchase, schema, migratio
 assert.match(board, /MP-1 no-lookahead selector/);
 assert.match(board, /production migration and runtime evidence ingestion\/read remain absent/i);
 console.log('PASS Market Pricing MP-1 selects deterministic as-of evidence without lookahead or runtime claims');
+
+// --- Engine qualification (Agent C): revisions, late data, ambiguity and fail-closed history, at exact edges.
+{
+  const sel = (cands, at) => mod.selectMarketPricingAsOf(cands, at);
+  const withRev = (id, value, ingestedAt, rev) => ({ ...candidate(id, 'vix', value, '2026-10-01T00:00:00Z', ingestedAt), evidenceRevision: rev });
+  const base = complete.filter((c) => c.field !== 'vix');
+  const v1 = withRev('vix-v1', 17.2, '2026-10-01T00:03:00Z', 'r1');
+  const v2 = withRev('vix-v2', 17.9, '2026-10-01T09:30:00Z', 'r2');
+  // A correction is used from its ingestion instant, never one millisecond before.
+  assert.equal(sel([...base, v1, v2], '2026-10-01T09:29:59.999Z').fields.vix.candidateId, 'vix-v1');
+  assert.equal(sel([...base, v1, v2], '2026-10-01T09:30:00.000Z').fields.vix.candidateId, 'vix-v2');
+  assert.equal(sel([...base, v2, v1], '2026-10-01T09:30:00.000Z').fields.vix.candidateId, 'vix-v2', 'history order does not matter');
+  // Late data: a newer observation received after the cutoff is excluded and counted; one received in time wins.
+  const late = candidate('spot-newer-late', 'spot', 3911, '2026-10-01T09:58:00Z', '2026-10-01T10:00:00.001Z');
+  const lateSel = sel([...complete, late], cutoff);
+  assert.equal(lateSel.fields.spot.candidateId, 'spot-current');
+  assert.equal(lateSel.evidence.excludedAfterCutoffCount, 2, 'the late correction and the late observation');
+  // An older observation arriving after a newer one never displaces it.
+  const backfill = candidate('spot-backfill', 'spot', 3801, '2026-10-01T09:50:00Z', '2026-10-01T09:59:00Z');
+  assert.equal(sel([...complete, backfill], cutoff).fields.spot.candidateId, 'spot-current');
+  // Two sources, same observation time, different values: ambiguity abstains the whole selection, even on an optional field.
+  const disagree = candidate('vix-other', 'vix', 18.4, '2026-10-01T00:00:00Z', '2026-10-01T00:04:00Z', 'source-b');
+  const amb = sel([...complete, disagree], cutoff);
+  assert.equal(amb.state, 'ABSTAIN');
+  assert.deepEqual([amb.fields.vix, amb.replay.reproducible], [null, false]);
+  assert.ok(amb.reasonCodes.includes('AMBIGUOUS_TOP_OBSERVATION'));
+  // Same value from two sources: not ambiguous, and the pick does not depend on history order.
+  const agree = candidate('vix-other', 'vix', 17.2, '2026-10-01T00:00:00Z', '2026-10-01T00:04:00Z', 'source-b');
+  assert.deepEqual(sel([...complete, agree], cutoff).fields.vix, sel([agree, ...complete], cutoff).fields.vix);
+  assert.equal(sel([...complete, agree], cutoff).state, 'AS_OF_AVAILABLE');
+  // A defective record known only later makes earlier cutoffs abstain (whole-history integrity): fail closed, never more data.
+  const defective = candidate('bad-chronology', 'wti', 66.1, '2026-10-02T00:00:00Z', '2026-10-01T23:00:00Z');
+  for (const at of ['2026-10-01T10:00:00.000Z', '2026-10-01T22:59:59.999Z']) {
+    const clean = sel(complete, at);
+    const poisoned = sel([...complete, defective], at);
+    assert.equal(poisoned.state, 'ABSTAIN', at);
+    assert.equal(poisoned.replay.reproducible, false, at);
+    for (const f of mod.MARKET_PRICING_AS_OF_FIELDS) {
+      assert.ok(poisoned.fields[f] === null || poisoned.fields[f].candidateId === clean.fields[f]?.candidateId, `${f} at ${at}: never a different value`);
+    }
+  }
+  // Ages are whole seconds, floored (current contract): 999 ms after a second boundary is still the earlier second.
+  const s = sel(complete, '2026-10-01T10:00:00.999Z');
+  assert.equal(s.fields.spot.ageSeconds, 300);
+  assert.equal(sel(complete, '2026-10-01T10:00:01.000Z').fields.spot.ageSeconds, 301);
+}
+console.log('PASS MP-1 qualification: revisions at their ingestion edge, late data excluded, ambiguity abstains, defective history fails closed');
