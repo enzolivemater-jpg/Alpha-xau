@@ -305,16 +305,52 @@ appendFileSync(${JSON.stringify(opened)}, JSON.stringify({ url, answered }) + '\
   assert.match(found.stderr, /Node\.js introuvable/);
   console.log('PASS xau-terminal.sh finds Node on PATH or the newest nvm version, else says so');
 
-  // B11. The Windows launcher (static check: Windows is not available here).
+  // B11. The Windows launcher. Real PC, 2026-10-20: `wsl.exe -d "xau-agent"` and `-d xau-agent` both work,
+  // yet the 7d7d51b / 34c8726 launchers failed (WSL_E_DISTRO_NOT_FOUND; « 'arge' is not recognized », a piece of
+  // a line run as a command). The launcher is now minimal: two set lines and one wsl.exe call running the
+  // script by its absolute path (it changes to its own checkout), with no --cd, FOR, block, label, GOTO,
+  // findstr or quoted argument, and no character cmd.exe interprets except the %VAR% it needs.
   const cmd = readFileSync(path.join(ROOT, 'scripts', 'terminal', 'xau-terminal.cmd'), 'utf8');
-  // --local-data: the operator's local data (captures, declared CFTC files) is offered in the page, none selected.
-  assert.match(cmd, /wsl\.exe -d "%XAU_DISTRO%" --cd "%XAU_DIR%" -- sh scripts\/terminal\/xau-terminal\.sh --local-data %\*/);
-  assert.match(cmd, /\\\\wsl\.localhost\\/i);
-  assert.match(cmd, /\\\\wsl\$\\/i);
+  assert.ok(/^[\x20-\x7e\r\n]*$/.test(cmd), 'printable ASCII only');
+  assert.ok(cmd.endsWith('\r\n') && cmd.split('\r\n').every((l) => !l.includes('\n')), 'CRLF only');
+  const lines = cmd.split('\r\n').slice(0, -1);
+  assert.deepEqual(lines.filter((l) => !/^rem /.test(l)), [
+    '@echo off',
+    'setlocal',
+    'set XAU_DISTRO=xau-agent',
+    'set XAU_DIR=/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal',
+    'title XAU V2 terminal OFFLINE - HOLD - execution interdite',
+    'echo Terminal XAU V2 OFFLINE - distribution %XAU_DISTRO% - dossier %XAU_DIR%',
+    'echo Fermer cette fenetre ou Ctrl+C pour arreter le terminal.',
+    'wsl.exe -d %XAU_DISTRO% -- sh %XAU_DIR%/scripts/terminal/xau-terminal.sh --local-data %*',
+    'if not "%ERRORLEVEL%"=="0" pause',
+    'endlocal',
+  ]);
+  for (const line of lines.filter((l) => l !== 'if not "%ERRORLEVEL%"=="0" pause')) {
+    assert.doesNotMatch(line, /[()&|<>^!"]/, `no character cmd.exe interprets: ${line}`);
+  }
+  assert.doesNotMatch(cmd, /--cd|\bfor\b|\bgoto\b|findstr|^:/im);
   assert.doesNotMatch(cmd, /v\d+\.\d+\.\d+/, 'no pinned Node version');
   assert.doesNotMatch(cmd, /--force|reg add|setx|netsh|Set-ExecutionPolicy/i, 'no system configuration change');
-  assert.ok(cmd.includes('\r\n'), 'CRLF line endings for cmd.exe');
-  console.log('PASS xau-terminal.cmd: derives distro and checkout from its location, no pinned version, no system change');
+  // What wsl.exe receives, from the file's own set lines (%VAR% expansion), then the Linux side actually run.
+  const vars = Object.fromEntries(lines.map((l) => /^set ([A-Z_]+)=(\S+)$/.exec(l)).filter(Boolean).map((m) => [m[1], m[2]]));
+  const launchLine = lines.find((l) => l.startsWith('wsl.exe '));
+  const expand = (line, args) => line.replace(/%([A-Z_]+)%/g, (_, k) => vars[k]).replace('%*', args).trimEnd();
+  const argv = expand(launchLine, '').split(' ');
+  assert.deepEqual(argv, ['wsl.exe', '-d', 'xau-agent', '--', 'sh',
+    '/home/xauagent/projects/Alpha-xau/.claude/worktrees/xau-terminal/scripts/terminal/xau-terminal.sh', '--local-data']);
+  assert.deepEqual(argv.slice(0, 3), 'wsl.exe -d xau-agent -- echo WSL_OK'.split(' ').slice(0, 3), 'as the command that works on the PC');
+  // The Linux part, as WSL runs it: from another working directory, the script by its absolute path (here, this
+  // checkout) reaches the launcher with --local-data and the options passed to the .cmd.
+  const linuxArgs = expand(launchLine, '--status --port 4593 --port-range 1').split(' ').slice(4);
+  linuxArgs[1] = path.join(ROOT, 'scripts', 'terminal', 'xau-terminal.sh');
+  const ran = spawnSync(linuxArgs[0], linuxArgs.slice(1), { cwd: '/', encoding: 'utf8', env: ENV });
+  assert.equal(ran.status, 1, ran.stdout + ran.stderr);
+  assert.ok(ran.stdout.includes(`aucun terminal lancé depuis ${ROOT} sur les ports 4593–4593`), ran.stdout + ran.stderr);
+  // The companion launcher only calls this one.
+  const captures = readFileSync(path.join(ROOT, 'scripts', 'terminal', 'xau-terminal-captures.cmd'), 'utf8');
+  assert.match(captures, /^call "%~dp0xau-terminal\.cmd" --captures-local %\*\r$/m);
+  console.log('PASS xau-terminal.cmd: minimal, ASCII/CRLF, one wsl.exe call with the arguments of the working command; Linux side run for real');
 } finally {
   rmSync(SCRATCH, { recursive: true, force: true });
 }
