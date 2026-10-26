@@ -74,6 +74,39 @@ RPC « complet ou erreur ») n'est pas branchée.
   capture ; journal écrit par le collecteur seulement, ou attestation de
   l'opérateur acceptée pour `CAPTURED`.
 
+**Audit de continuité (rapport seul, 2026-10-25).**
+`scripts/lib/capture_continuity.mjs`, appelé par
+`validate_evidence_captures.mjs` sur chaque journal source (fenêtre =
+couverture déclarée) et sur la fusion (fenêtre = étendue des réceptions,
+sans prétention). Par série (`champ|source|identifiant`), il produit :
+- les écarts entre temps d'observation consécutifs (début, fin, durée) ;
+  pour une série quotidienne, le nombre de dates UTC manquantes, réparties
+  en jours de semaine et samedis/dimanches ;
+- les intervalles où la série n'est tenue ni fraîche (`UNAVAILABLE`) ni
+  LIVE, selon la règle de fraîcheur runtime que le replay applique déjà
+  (`SYMBOL_RULES`), une valeur n'étant tenue qu'à partir de son ingestion ;
+- les doublons d'instant d'observation qui ne sont pas une révision liée,
+  les ajouts hors ordre de réception et les observations reçues après une
+  plus récente ;
+- avec `cutoff`, seulement ce qui était ingéré au cutoff.
+
+Rien n'est inventé : fermeture de marché, jour non ouvré et tolérance
+d'écart restent `NOT_EVALUATED` (aucun calendrier source ni seuil approuvé).
+Le rapport porte toujours `continuity: NOT_ATTESTED`, même sans trou
+détecté. Le validateur échoue si un replay `VERIFIED` repose sur une fenêtre
+déclarée où un champ couvert est indisponible. Le replay n'est pas modifié.
+
+### L1b — VERIFIED avec un champ trop ancien pour être tenu (constat, replay inchangé)
+Le replay 1.1.0 garde dans `observations` une valeur sélectionnée dont la
+fraîcheur au cutoff est `UNAVAILABLE` ; `DECLARED_FIELD_NOT_OBSERVED` ne se
+déclenche donc pas. Sur une archive synthétique déclarant les huit champs, un
+cutoff où toutes les valeurs ont dépassé leur seuil rend `VERIFIED`,
+`reproducible: true` avec `marketSnapshot.available: false`. Inatteignable
+sur des captures réelles aujourd'hui (`FIELDS_NOT_COVERED`, L1). Le
+validateur le refuse désormais (`VERIFIED_WITH_FIELD_UNAVAILABLE`).
+- **DÉCISION** : faire rendre `INCOMPLETE` au replay dans ce cas (nouvelle
+  version d'algorithme), ou statu quo documenté.
+
 ### G4 — Stockage brut côté runtime (bloquant pour une histoire continue)
 L'ingestion runtime jette les corps ; `official_source_artifacts` est limitée
 à BLS CPI par un CHECK. Les deux options sont des changements de schéma, donc
