@@ -1208,6 +1208,12 @@ let pollTimer = null;
   };
   const V2_EVIDENCE_STATUS = { VERIFIED: 'REJEU VÉRIFIÉ', INCOMPLETE: 'REJEU INCOMPLET', INVALID: 'ARCHIVE REJETÉE' };
   const V2_RAW_STATES = { RAW_VERIFIED: 'BRUT RELU', RAW_DIGEST_ONLY: 'EMPREINTE SEULE', RAW_UNKNOWN: 'BRUT INCONNU' };
+  // Raisons du rejeu (evidence_archive.ts) qui interdisent VERIFIED : rejet, ou complétude non établie (dont DATA-3 L1).
+  const V2_NOT_VERIFIED_REASONS = ['INVALID_KNOWLEDGE_CUTOFF', 'ARCHIVE_SHAPE_INVALID', 'ARCHIVE_DIGEST_MISMATCH',
+    'RECORD_SHAPE_INVALID', 'INSTRUMENT_MISMATCH', 'UNIT_MISMATCH', 'OBSERVATION_TYPE_MISMATCH', 'VALUE_OUT_OF_DOMAIN',
+    'CHRONOLOGY_INVALID', 'EVIDENCE_ID_CONFLICT', 'IDENTITY_REUSED_WITH_DIVERGENT_VALUE', 'REVISION_CHAIN_INVALID',
+    'UNLINKED_REVISION_CONFLICT', 'RAW_PAYLOAD_MISMATCH', 'COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE',
+    'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED'];
 
   /* B4 : provenance par entrée. Seul le marché peut venir d'une archive ; rien n'est dit observé ni validé. */
   const V2_INPUTS = ['MARKET', 'POSITIONING', 'EVENT_IMPACT', 'GOLD_TRANSMISSION', 'EVIDENCE_GRAPH', 'AUTHORIZATIONS'];
@@ -1303,6 +1309,7 @@ let pollTimer = null;
       }
       // Une affirmation forte doit porter toutes ses conditions.
       if (mev.reproducible !== (mev.status === 'VERIFIED')) return 'reproductibilité incohérente';
+      if (mev.status === 'VERIFIED' && mev.reasonCodes.some((c) => V2_NOT_VERIFIED_REASONS.includes(c))) return 'rejeu vérifié contredit par ses raisons';
       // Une archive illisible ou mal formée n'a pas de classe : rejetée, rien retenu, présentée comme simulation.
       const unreadable = mev.status === 'INVALID' && mev.provenanceClass === null;
       if (unreadable && (mev.nature !== 'SIMULATION' || mev.observations.length > 0)) return 'archive rejetée incohérente';

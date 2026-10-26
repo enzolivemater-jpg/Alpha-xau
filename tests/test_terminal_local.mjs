@@ -268,6 +268,7 @@ try {
 console.log('PASS local input files: malformed, mis-shaped and stale inputs all stay HOLD');
 
 // --- --archive: the server replays a local archive, optionally pinned to its digest.
+let verifiedSimView = null;
 {
   const archiveFile = new URL('./fixtures/market_evidence_archive_synthetic.json', import.meta.url).pathname;
   const pinned = archiveView.marketEvidence.archiveDigest;
@@ -292,6 +293,20 @@ console.log('PASS local input files: malformed, mis-shaped and stale inputs all 
       assert.equal(v.chain.execution, 'FORBIDDEN', name);
       assert.equal(v.stages[0].state, mp0, name);
     }
+    // The same synthetic archive completed with the DXY value it declares (fictitious, written here):
+    // VERIFIED and reproducible, still SIMULATION, still HOLD / FORBIDDEN.
+    const complete = JSON.parse(readFileSync(archiveFile, 'utf8'));
+    complete.records.push({ evidenceId: 'test-dxy-20260930', field: 'dxy', instrument: 'DXY', unit: 'INDEX_POINTS',
+      observationType: 'DAILY_VALUE', value: 98.4, source: 'synthetic_fixture', sourceRecordId: null,
+      observedAt: '2026-09-30T00:00:00.000Z', publishedAt: null, ingestedAt: '2026-10-01T06:00:00.000Z',
+      revision: 'test-1', supersedes: null, rawPayloadDigest: null });
+    writeFileSync(path.join(scratch, 'complete.json'), JSON.stringify(complete));
+    const local = await listen({ archiveFile: path.join(scratch, 'complete.json') });
+    verifiedSimView = await (await fetch(`${local.base}${VIEW_PATH}`)).json();
+    await close(local.server);
+    assert.deepEqual([verifiedSimView.marketEvidence.status, verifiedSimView.marketEvidence.reproducible,
+      verifiedSimView.marketEvidence.nature, verifiedSimView.marketEvidence.provenanceClass], ['VERIFIED', true, 'SIMULATION', 'SYNTHETIC_FIXTURE']);
+    assert.deepEqual([verifiedSimView.chain.chainState, verifiedSimView.chain.execution], ['HOLD', 'FORBIDDEN']);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -539,6 +554,8 @@ dom.window.close();
 const historical = structuredClone(archiveView);
 // A hypothetical view: no archive reaches it today (DATA-3 L1), the page must still render it coherently.
 Object.assign(historical.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED', status: 'VERIFIED', reproducible: true });
+// Coherent with VERIFIED: none of the replay's own incompleteness reasons left.
+historical.marketEvidence.reasonCodes = historical.marketEvidence.reasonCodes.filter((c) => c !== 'DECLARED_FIELD_NOT_OBSERVED');
 for (const o of historical.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
 // B4: a coherent captured view also names the archive as the market's source.
 Object.assign(historical.inputProvenance[0], { source: 'CAPTURED_ARCHIVE', detail: 'archive capturée localement (test)' });
@@ -549,8 +566,51 @@ assert.equal(text(d, 'mode-v2-val'), 'HISTORIQUE VÉRIFIÉ · DRY RUN');
 assert.match(text(d, 'v2-nav-nature'), /HISTORIQUE VÉRIFIÉ · REJEU VÉRIFIÉ · .* · PAS UNE ANALYSE RÉELLE$/);
 assert.doesNotMatch(d.getElementById('ws-chain').textContent + text(d, 'mode-v2-val'), /\bLIVE\b/);
 dom.window.close();
+// VERIFIED + SIMULATION: a reproducible replay of a synthetic archive is shown as a simulation, never as
+// verified history nor as an analysis or a validation; the chain still holds.
+dom = boot(LOCAL, serveView(verifiedSimView));
+await settle();
+d = dom.window.document;
+assert.equal(text(d, 'v2-mev-status'), 'REJEU VÉRIFIÉ · ARCHIVE SYNTHÉTIQUE · reproductible');
+assert.equal(text(d, 'mode-v2-val'), 'ARCHIVE SYNTHÉTIQUE · DRY RUN');
+// « HISTORIQUE » alone is the temporal mode (past cutoff, see the legend), never « HISTORIQUE VÉRIFIÉ ».
+assert.match(text(d, 'v2-nav-nature'), /^ARCHIVE DE MARCHÉ LOCALE · .*ARCHIVE SYNTHÉTIQUE · REJEU VÉRIFIÉ · .* · PAS UNE ANALYSE RÉELLE$/);
+assert.doesNotMatch(text(d, 'v2-nav-nature') + text(d, 'mode-v2-val') + text(d, 'v2-mev-status'), /HISTORIQUE VÉRIFIÉ|\bLIVE\b|VALID/);
+assert.equal(text(d, 'v2-state'), 'HOLD — EXÉCUTION INTERDITE');
+dom.window.close();
+for (const [name, mutate] of [
+  ['synthetic VERIFIED replay called verified history', (v) => { v.marketEvidence.nature = 'HISTORICAL_VERIFIED'; }],
+  ['synthetic VERIFIED replay called verified history, bytes claimed re-read', (v) => {
+    v.marketEvidence.nature = 'HISTORICAL_VERIFIED';
+    for (const o of v.marketEvidence.observations) o.raw = 'RAW_VERIFIED';
+  }],
+  ['synthetic VERIFIED replay called captured history', (v) => { Object.assign(v.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED' }); }],
+]) {
+  const body = structuredClone(verifiedSimView);
+  mutate(body);
+  dom = boot(LOCAL, serveView(body));
+  await settle();
+  d = dom.window.document;
+  assert.equal(text(d, 'v2-state'), 'VUE V2 REFUSÉE', name);
+  assert.equal(d.getElementById('v2-mev').hidden, true, name);
+  dom.window.close();
+}
 // Any overstated or inconsistent claim refuses the whole view.
 for (const [name, mutate] of [
+  // A VERIFIED status must not carry the replay's own reasons for incompleteness or rejection (DATA-3 L1).
+  ['verified despite a covered field never observed', (v) => { Object.assign(v.marketEvidence, { status: 'VERIFIED', reproducible: true }); }],
+  ['verified without declared coverage', (v) => {
+    Object.assign(v.marketEvidence, { status: 'VERIFIED', reproducible: true, reasonCodes: ['COVERAGE_NOT_DECLARED'] });
+  }],
+  ['verified with a field not covered', (v) => {
+    Object.assign(v.marketEvidence, { status: 'VERIFIED', reproducible: true, reasonCodes: ['FIELDS_NOT_COVERED'] });
+  }],
+  ['verified with a cutoff outside coverage', (v) => {
+    Object.assign(v.marketEvidence, { status: 'VERIFIED', reproducible: true, reasonCodes: ['CUTOFF_OUTSIDE_COVERAGE'] });
+  }],
+  ['verified with a blocking finding', (v) => {
+    Object.assign(v.marketEvidence, { status: 'VERIFIED', reproducible: true, reasonCodes: ['RAW_PAYLOAD_MISMATCH'] });
+  }],
   ['verified history without re-read bytes', (v) => { Object.assign(v.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED' }); }],
   ['verified history from an incomplete replay', (v) => {
     Object.assign(v.marketEvidence, { nature: 'HISTORICAL_VERIFIED', provenanceClass: 'CAPTURED', status: 'INCOMPLETE', reproducible: false });

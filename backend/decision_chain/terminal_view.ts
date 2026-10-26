@@ -27,7 +27,9 @@ import {
 } from './dry_run.js';
 
 export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as const;
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.8.0' as const;
+// 4.9.0: the market evidence manifest comes from replay 1.1.0 (DATA-3 L1): a covered field never observed makes it
+// INCOMPLETE (DECLARED_FIELD_NOT_OBSERVED); the same archive no longer yields the same view as under 4.8.0.
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.9.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE

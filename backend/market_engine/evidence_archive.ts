@@ -147,12 +147,18 @@ export type MarketEvidenceReasonCode =
   | 'PROVENANCE_INCOMPLETE'
   | 'FRESHNESS_RULE_UNAVAILABLE';
 
-const BLOCKING: readonly MarketEvidenceReasonCode[] = [
+/** Reasons that make a replay INVALID. Exported so the terminal page's copy can be checked against it. */
+export const MARKET_EVIDENCE_BLOCKING_REASONS: readonly MarketEvidenceReasonCode[] = Object.freeze([
   'INVALID_KNOWLEDGE_CUTOFF', 'ARCHIVE_SHAPE_INVALID', 'ARCHIVE_DIGEST_MISMATCH', 'RECORD_SHAPE_INVALID',
   'INSTRUMENT_MISMATCH', 'UNIT_MISMATCH', 'OBSERVATION_TYPE_MISMATCH', 'VALUE_OUT_OF_DOMAIN',
   'CHRONOLOGY_INVALID', 'EVIDENCE_ID_CONFLICT', 'IDENTITY_REUSED_WITH_DIVERGENT_VALUE',
   'REVISION_CHAIN_INVALID', 'UNLINKED_REVISION_CONFLICT', 'RAW_PAYLOAD_MISMATCH',
-];
+]);
+const BLOCKING = MARKET_EVIDENCE_BLOCKING_REASONS;
+/** Reasons that keep a valid replay INCOMPLETE: completeness not established (1.1.0 adds DECLARED_FIELD_NOT_OBSERVED). */
+export const MARKET_EVIDENCE_INCOMPLETENESS_REASONS: readonly MarketEvidenceReasonCode[] = Object.freeze([
+  'COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE', 'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED',
+]);
 const REASON_ORDER: readonly MarketEvidenceReasonCode[] = [
   ...BLOCKING, 'EXACT_DUPLICATE_IGNORED', 'COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE',
   'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED', 'PROVENANCE_INCOMPLETE', 'FRESHNESS_RULE_UNAVAILABLE',
@@ -551,8 +557,7 @@ export async function replayMarketEvidence(
   const finalCodes = new Set(findings.map((f) => f.code));
   const selectionInvalid = selection !== null && !selection.replay.reproducible;
   const status: MarketEvidenceReplayStatus = invalid || selectionInvalid || selection === null ? 'INVALID'
-    : ['COVERAGE_NOT_DECLARED', 'CUTOFF_OUTSIDE_COVERAGE', 'FIELDS_NOT_COVERED', 'DECLARED_FIELD_NOT_OBSERVED']
-      .some((code) => finalCodes.has(code as MarketEvidenceReasonCode)) ? 'INCOMPLETE' : 'VERIFIED';
+    : MARKET_EVIDENCE_INCOMPLETENESS_REASONS.some((code) => finalCodes.has(code)) ? 'INCOMPLETE' : 'VERIFIED';
   const captured = shapeOk && archive.provenanceClass === 'CAPTURED';
   const selected = Object.values(observations).filter((o): o is ReplayedObservation => o !== null);
   const nature: MarketEvidenceNature = !captured ? 'SIMULATION'
