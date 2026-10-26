@@ -10,7 +10,7 @@ boundary.
 Frozen versions:
 
 - `xau.decision-chain-dry-run.v1`;
-- `decision-chain-dry-run-1.0.0`.
+- `decision-chain-dry-run-1.1.0`.
 
 | Order | Stage | Upstream |
 | --- | --- | --- |
@@ -61,8 +61,14 @@ becomes eligible.
 Market freshness is re-derived at the knowledge cutoff, not trusted from the
 caller. For each market value, CHAIN-0 computes its age at the cutoff (the
 `ageSeconds` passed to MP-0 is always that age) and
-classifies it with the existing `SYMBOL_RULES` / `classifyFreshness` policy
-(no new threshold). A field declared fresher than that classification is
+classifies it with the existing `SYMBOL_RULES` thresholds (no new threshold).
+Since 1.1.0 (A-C2) the classification uses the exact age to the nanosecond
+(`classifyFreshnessExact`): one millisecond past a threshold crosses it, while
+the reported `ageSeconds` stays whole seconds elapsed. 1.0.0 classified the
+floored seconds, so up to 999 ms past a threshold went unnoticed. The golden
+baseline output is identical apart from its version, so its digest moves from
+`sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c` to
+`sha256:919b602e2f1ad8df2dc8f3acbe2a4237d5914640210bb8b1f4102e8635ae149c`. A field declared fresher than that classification is
 downgraded to `STALE` (`MARKET_FIELD_STALE_AT_CUTOFF`) or to `UNAVAILABLE`
 with its value removed (`MARKET_FIELD_EXPIRED_AT_CUTOFF`). A value without an
 approved rule (DXY) is made `UNAVAILABLE`

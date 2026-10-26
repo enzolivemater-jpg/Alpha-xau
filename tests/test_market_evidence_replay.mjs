@@ -51,7 +51,7 @@ const holds = (r, name) => {
 const base = await replay(fixture);
 holds(base, 'fixture');
 assert.equal(base.schemaVersion, 'xau.market-evidence-replay.v1');
-assert.equal(base.algorithmVersion, 'market-evidence-replay-1.2.0');
+assert.equal(base.algorithmVersion, 'market-evidence-replay-1.3.0');
 assert.equal(base.status, 'INCOMPLETE', 'coverage of dxy is declared, no DXY value is held');
 assert.equal(base.reproducible, false);
 const full = await replay(complete);
@@ -467,6 +467,45 @@ console.log('PASS the replay reaches no provider, network, clock, randomness or 
   }
   assert.deepEqual(context.buildSnapshot([]).dxy, (await replay(fixture)).marketSnapshot.dxy, 'DXY unavailable on both paths');
   console.log(`PASS replay freshness equals the runtime market driver at ${checked} threshold edges`);
+}
+
+// --- 13b. A-C2 (1.3.0): freshness is decided on the exact age (to the nanosecond). One millisecond, or one
+// nanosecond, past a threshold already crosses it; the reported age stays whole seconds elapsed (floor), so it can equal the threshold.
+{
+  const { SYMBOL_RULES } = await loadBackendModule('market_engine/validate.ts');
+  const samples = { spot: 3900, us10y: 4.1, realYield: 1.7, vix: 17.2, wti: 66.4 };
+  let checked = 0;
+  for (const [field, value] of Object.entries(samples)) {
+    const spec = ev.MARKET_EVIDENCE_FIELD_SPEC[field];
+    const rule = SYMBOL_RULES[spec.freshnessSymbol];
+    for (const [ageMs, freshness, proof] of [
+      [rule.liveMaxAgeS * 1000, 'LIVE', 'FRESH'],
+      [rule.liveMaxAgeS * 1000 + 1, 'STALE', 'FRESH'],
+      [rule.staleMaxAgeS * 1000, 'STALE', 'FRESH'],
+      [rule.staleMaxAgeS * 1000 + 1, 'UNAVAILABLE', 'STALE'],
+      [rule.staleMaxAgeS * 1000 + 999, 'UNAVAILABLE', 'STALE'],
+      // One nanosecond past: the cutoff is exact to the nanosecond, so is the age.
+      [`${rule.liveMaxAgeS * 1000}+1ns`, 'STALE', 'FRESH'],
+      [`${rule.staleMaxAgeS * 1000}+1ns`, 'UNAVAILABLE', 'STALE'],
+    ]) {
+      const observedAt = '2026-10-01T00:00:00.000Z';
+      const ns = typeof ageMs === 'string';
+      const wholeMs = ns ? Number(ageMs.slice(0, -4)) : ageMs;
+      const iso = new Date(Date.parse(observedAt) + wholeMs).toISOString();
+      const cutoff = ns ? iso.replace(/Z$/, '000001Z') : iso;
+      const archive = { ...clone(fixture), coverage: { ...fixture.coverage, from: observedAt, to: cutoff },
+        records: [{ ...clone(fixture.records.find((r) => r.field === field)), observedAt, ingestedAt: observedAt, value, supersedes: null }] };
+      if (field !== 'spot') archive.records.push({ ...clone(fixture.records[1]), observedAt: cutoff, ingestedAt: cutoff });
+      const r = await replay(archive, cutoff);
+      const o = r.observations[field];
+      const at = `${field} age ${ageMs}${ns ? '' : ' ms'}`;
+      assert.deepEqual([o.freshnessAtCutoff, o.freshnessProof, o.ageSecondsAtCutoff], [freshness, proof, Math.floor(wholeMs / 1000)], at);
+      assert.equal(r.marketSnapshot[field].value, freshness === 'UNAVAILABLE' ? null : value, at);
+      assert.equal(r.reasonCodes.includes('DECLARED_FIELD_STALE'), proof === 'STALE', at);
+      checked += 1;
+    }
+  }
+  console.log(`PASS replay freshness is decided on the exact age at ${checked} sub-second edges (A-C2)`);
 }
 
 // --- The terminal page keeps its own copy of the reasons that forbid VERIFIED (it cannot import the engine).

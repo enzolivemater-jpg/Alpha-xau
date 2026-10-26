@@ -37,7 +37,7 @@ Chaque critère est binaire (PASS / FAIL). Les preuves « hors dépôt » sont d
 | --- | --- | --- | --- | --- | --- |
 | Q1 | Aucune exécution | part des chemins (matrice, fuzz, scénarios) où chaîne = HOLD, exécution = FORBIDDEN, ACTION = ABSTAIN | 100 % | sonde locale de transitions (720 replays) et fuzz (4 000 + 4 000), hors dépôt ; suites `test_market_*` | PASS |
 | Q2 | Aucune anticipation | sélection identique quand on retire tout enregistrement ingéré après le cutoff ; correction utilisée à son instant d'ingestion, pas 1 ms avant | 100 % | `test_market_pricing_as_of_contract`, `test_market_evidence_replay`, sonde de transitions (I12) | PASS |
-| Q3 | Fraîcheur aux bornes | LIVE ≤ `liveMaxAgeS`, utilisable ≤ `staleMaxAgeS`, retirée au-delà ; même résultat que le pilote runtime | seuils `SYMBOL_RULES` existants (XAUUSD 360 s / 3 j ; FRED 36 h / 6 j) | `test_market_pricing_institutional_contract` (bornes 360 / 361 s, 3 j / 3 j + 1 s), test d'égalité runtime (25 bornes) | PASS à la seconde ; sous la seconde : voir A-C2 |
+| Q3 | Fraîcheur aux bornes | LIVE ≤ `liveMaxAgeS`, utilisable ≤ `staleMaxAgeS`, retirée au-delà ; même résultat que le pilote runtime | seuils `SYMBOL_RULES` existants (XAUUSD 360 s / 3 j ; FRED 36 h / 6 j) | `test_market_pricing_institutional_contract` (bornes 360 / 361 s, 3 j / 3 j + 1 s), test d'égalité runtime (25 bornes) | PASS à la seconde ; sous la seconde : PASS sur la branche `fix/a-c2-millisecond-freshness` (replay 1.3.0, CHAIN-0 1.1.0), non intégrée |
 | Q4 | VERIFIED jamais sans preuve | aucun replay VERIFIED avec champ couvert non observé, expiré ou sans règle | 0 cas | `test_market_evidence_replay` § 8b, sonde de transitions (I4, I9 à I11) ; validateur `VERIFIED_WITHOUT_FRESHNESS_PROOF` | PASS (VERIFIED inatteignable sans règle DXY) |
 | Q5 | Échec fermé sur la provenance | archive avec unité, chronologie, empreinte brute ou révision invalide → `INVALID`, aucune valeur jusqu'à MP-0 | 100 % | `test_market_evidence_replay` (19 défauts), `test_market_pricing_institutional_contract` | PASS |
 | Q6 | Ambiguïté | deux sources, même instant, valeurs différentes → MP-1 `ABSTAIN`, replay `INVALID` | 100 % | `test_market_pricing_as_of_contract` | PASS |
@@ -48,7 +48,7 @@ Chaque critère est binaire (PASS / FAIL). Les preuves « hors dépôt » sont d
 | Q11 | Couverture continue démontrée | intervalle de couverture sans lacune selon un calendrier et une tolérance approuvés | **À DÉCIDER** (responsable données + responsable risque) | audit de continuité DATA-3 ; aujourd'hui `continuity: NOT_ATTESTED` | BLOQUÉ |
 | Q12 | Exactitude des prix | écart à une référence officielle (ICE DXY, carnet bid/ask) | **À DÉCIDER** (responsable données ; licence) | séries officielles sous licence ; le proxy BCE n'en est pas une | BLOQUÉ |
 | Q13 | Fraîcheur DXY | seuils LIVE / utilisable pour DXY | **À DÉCIDER** (responsable données) | règle ajoutée à `SYMBOL_RULES` avec sa source | BLOQUÉ (G2) |
-| Q14 | Granularité des âges | bornes en millisecondes ou en secondes entières | **À DÉCIDER** (responsable risque ; changement de contrat MP-1) | test aux bornes à ± 1 ms | état actuel : secondes entières (A-C2) |
+| Q14 | Granularité des âges | bornes en millisecondes ou en secondes entières | **À DÉCIDER** (responsable risque ; versions replay et CHAIN-0) | test aux bornes à ± 1 ms | instant exact proposé sur `fix/a-c2-millisecond-freshness` (A-C2) ; runtime en secondes arrondies (A-C3) |
 | Q15 | Confiance MP-0 dans un replay | conditions pour quitter `LATEST_ONLY` | **À DÉCIDER** (décision DATA-3 n° 3) | critères MP-0 du document DATA-3 (§ 4), chacun rouge puis vert | BLOQUÉ |
 | Q16 | Performance financière d'un moteur | toute mesure de rendement, précision directionnelle ou risque | **À DÉCIDER** (comité ; hors périmètre OFFLINE) | historique authentique VERIFIED, période hors échantillon, méthode approuvée | NON APPLICABLE tant que Q11 à Q15 ne sont pas levés |
 
@@ -60,12 +60,21 @@ Chaque critère est binaire (PASS / FAIL). Les preuves « hors dépôt » sont d
   « FRAIS AU CUTOFF ». Vue 4.11.0 : `OBSERVED_AFTER_CUTOFF`, sans valeur ni
   âge ; la page refuse toute vue qui en afficherait une. Aucune décision
   n'était touchée (le régime lit l'état seul) ; c'était une fuite d'affichage.
-- **A-C2 (faible, ouverte, À DÉCIDER)** : MP-1 calcule l'âge en secondes
-  entières (`Math.floor`). Jusqu'à 999 ms au-delà d'un seuil, une valeur
-  reste servie (`STALE` au lieu de retirée) et sa preuve est `FRESH`. Le
-  pilote runtime partage la même convention. La corriger change le contrat
-  MP-1 et les empreintes : décision requise, non faite ici. Le comportement
-  actuel est figé par un test, explicitement comme état et non comme norme.
+- **A-C2 (faible, correctif proposé, À DÉCIDER)** : l'âge au cutoff était
+  calculé en secondes entières (`Math.floor`) puis classé. Jusqu'à 999 ms
+  au-delà d'un seuil, une valeur restait servie (`STALE` au lieu de retirée)
+  et sa preuve était `FRESH`. Correctif sur la branche isolée
+  `fix/a-c2-millisecond-freshness` : le replay (1.3.0) et CHAIN-0 (1.1.0)
+  classent l'âge exact à la nanoseconde (`classifyFreshnessExact`) ; MP-1 et
+  ses empreintes ne changent pas (il ne classe pas la fraîcheur) ; l'âge
+  affiché reste en secondes écoulées. Le condensat de référence CHAIN-0
+  change avec la version seulement. Non intégré à la pile qualifiée.
+- **A-C3 (faible, ouverte, À DÉCIDER)** : le pilote runtime n'arrondit pas
+  comme MP-1. L'ingestion (`Math.round`) et `v_market_latest`
+  (`::INTEGER`, arrondi) franchissent un seuil à + 500 ms, le replay 1.2.0 à
+  + 1 s, le replay 1.3.0 au premier instant au-delà. L'égalité runtime/replay
+  n'est donc démontrée qu'aux âges entiers. L'aligner touche le schéma SQL
+  et l'ingestion : décision et migration requises, rien n'est fait ici.
 
 ## 4. Reproduire
 

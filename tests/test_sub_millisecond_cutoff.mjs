@@ -93,5 +93,5 @@ assert.ok(positioning.reasonCodes.includes('EVIDENCE_AFTER_KNOWLEDGE_CUTOFF'));
 // The golden replay is unchanged.
 const goldenOutcome = chain.evaluateDecisionChain(golden.input, golden.knowledgeCutoff);
 assert.equal(await chain.computeDecisionChainDigest(goldenOutcome.result),
-  'sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c');
+  'sha256:919b602e2f1ad8df2dc8f3acbe2a4237d5914640210bb8b1f4102e8635ae149c');
 console.log('PASS CHAIN-0 abstains on sub-millisecond lookahead; golden digest unchanged');

@@ -126,9 +126,15 @@ console.log('PASS Market Pricing V1 freezes deterministic provenance, cutoff, de
   assert.deepEqual([x.mp0.state, x.mp0.fields.spot.value, x.r.observations.spot.freshnessProof], ['ABSTAIN', null, 'STALE']);
   assert.ok(x.mp0.reasonCodes.includes('SOURCE_SNAPSHOT_UNAVAILABLE'));
   assert.equal(x.res.stages.regime.evidenceState, 'ABSTAIN', 'an abstaining MP-0 makes the regime abstain');
-  // Current contract (anomaly A-C2, À DÉCIDER): ages are whole seconds, so up to 999 ms past the threshold the spot is still served.
-  x = await run(archive, at(stale, 999));
-  assert.deepEqual([x.r.observations.spot.ageSecondsAtCutoff, x.mp0.fields.spot.status, x.r.observations.spot.freshnessProof], [stale, 'STALE', 'FRESH']);
+  // A-C2 (replay 1.3.0): freshness is decided in milliseconds. One millisecond past a threshold crosses it,
+  // while the reported age stays whole seconds elapsed.
+  x = await run(archive, at(live, 1));
+  assert.deepEqual([x.mp0.fields.spot.status, x.mp0.reasonCodes.includes('SPOT_NOT_LIVE')], ['STALE', true]);
+  for (const ms of [1, 999]) {
+    x = await run(archive, at(stale, ms));
+    assert.deepEqual([x.r.observations.spot.ageSecondsAtCutoff, x.mp0.state, x.mp0.fields.spot.value, x.r.observations.spot.freshnessProof],
+      [stale, 'ABSTAIN', null, 'STALE'], `${ms} ms past the stale threshold`);
+  }
   // A correction reaches MP-0 from its ingestion instant only (WTI corrected, ingested 2026-10-02T06:00:00Z).
   const before = await run(archive, '2026-10-02T05:59:59.999Z');
   const after = await run(archive, '2026-10-02T06:00:00.000Z');

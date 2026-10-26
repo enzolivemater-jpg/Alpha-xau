@@ -147,7 +147,7 @@ assert.equal(view.temporal.classification, 'HISTORICAL', 'the golden fixture is 
 assert.equal(view.chain.chainState, 'HOLD');
 assert.equal(view.chain.execution, 'FORBIDDEN');
 assert.equal(view.chain.integrity, 'CONSISTENT');
-assert.equal(view.chain.digest, 'sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c', 'golden digest');
+assert.equal(view.chain.digest, 'sha256:919b602e2f1ad8df2dc8f3acbe2a4237d5914640210bb8b1f4102e8635ae149c', 'golden digest');
 const serverSource = readFileSync(new URL('../scripts/serve_terminal_local.mjs', import.meta.url), 'utf8');
 assert.doesNotMatch(serverSource, /computeDecisionChainDigest/, 'terminal may not compute an unchecked chain digest');
 assert.match(serverSource, /obs\.buildOfflineAuditReceipt\(outcome\.result\)/, 'terminal must use OBS-0 receipt');
