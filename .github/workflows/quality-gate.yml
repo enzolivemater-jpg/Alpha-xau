@@ -313,6 +313,8 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
       - name: Market partition RLS contract
         run: node tests/test_market_ticks_partition_rls_postgres.mjs
+      - name: Market latest exact staleness migration and rollback (A-C3)
+        run: node tests/test_market_latest_exact_staleness_postgres.mjs
 
   gold-transmission-postgres:
     runs-on: ubuntu-latest

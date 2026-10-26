@@ -323,11 +323,10 @@ milliseconds (`observedAt + maxAgeS × 1000`); 1.3.0 agrees with it to the
 millisecond. MP-1 (`market-pricing-as-of-selector-1.0.0`) does not classify
 freshness and is unchanged.
 
-Not changed: the live runtime path. Ingestion (`validateDataPoint`,
-`Math.round`) and `v_market_latest.staleness_seconds` (`::INTEGER`, which
-rounds) round to the nearest second, so live data crosses a threshold at
-+ 500 ms. Aligning them is a schema and runtime change, left to a decision
-(A-C3).
+The live runtime path is aligned by A-C3 (branch `fix/a-c3-exact-runtime-staleness`): ingestion and the
+`v_market_latest` read classify the exact age too (`staleness_us`, migration
+`20261026120000_market_latest_exact_staleness`). See
+`docs/XAU_V2_FRESHNESS_TIME_QUALIFICATION.md`.
 
 ## Remaining decisions (DATA-3 onward)
 

@@ -121,7 +121,8 @@ t('E) boundary-valid negative US10YR accepted by application validation', valida
 const latest = ({ symbol, close, source, ts, age, stamps = {} }) => ({
   symbol, bid: null, ask: null, close,
   dxy_value: null, us10y_yield: null, real_yield: null, vix: null, wti: null,
-  source, ts, staleness_seconds: age, ...stamps,
+  // v_market_latest after A-C3: the rounded integer for display, the exact microseconds for decisions.
+  source, ts, staleness_seconds: age, staleness_us: age * 1_000_000, ...stamps,
 });
 const goldLatest = latest({
   symbol: 'XAUUSD', close: 3750.25, source: 'twelve_data',

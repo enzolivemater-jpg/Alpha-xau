@@ -109,7 +109,7 @@ for (const text of ['3900.55', ' 3900.55 ', '-12.5', '+7', '.5', '5.', '1e3', '1
   const context = await loadBackendModule('market_engine/context.ts');
   const goldRow = (overrides) => ({
     symbol: 'XAUUSD', bid: '3899.90', ask: '3900.10', close: '3900.00', dxy_value: null, us10y_yield: null,
-    real_yield: null, vix: null, wti: null, source: 'twelve_data', ts: '2026-10-01T14:14:00.000Z', staleness_seconds: '60', ...overrides,
+    real_yield: null, vix: null, wti: null, source: 'twelve_data', ts: '2026-10-01T14:14:00.000Z', staleness_seconds: '60', staleness_us: '60000000', ...overrides,
   });
   assert.equal(context.buildSnapshot([goldRow({})]).spot.value, 3900, 'a plain decimal text is read');
   assert.equal(context.buildSnapshot([goldRow({ close: ' 3900.5 ' })]).spot.value, 3900.5, 'surrounding spaces are tolerated');
@@ -117,8 +117,9 @@ for (const text of ['3900.55', ' 3900.55 ', '-12.5', '+7', '.5', '5.', '1e3', '1
   for (const text of ['', ' ', '\n', '0x10', '0b11', '0o7', '1_000', 'Infinity', '-Infinity', 'NaN', 'null', '1,5', '.', '+', '--1']) {
     const snapshot = context.buildSnapshot([goldRow({ close: text })]);
     if (snapshot.available !== false || snapshot.spot.value !== null) note(`context close ${JSON.stringify(text)}`, `read as ${snapshot.spot.value}`);
-    const aged = context.buildSnapshot([goldRow({ staleness_seconds: text })]);
-    if (aged.spot.value !== null) note(`context staleness ${JSON.stringify(text)}`, `an unreadable age still gave a value (${aged.spot.value})`);
+    // A-C3: freshness is read from the exact staleness_us only; the rounded staleness_seconds is display.
+    const aged = context.buildSnapshot([goldRow({ staleness_us: text })]);
+    if (aged.spot.value !== null) note(`context staleness_us ${JSON.stringify(text)}`, `an unreadable age still gave a value (${aged.spot.value})`);
     const bid = context.buildSnapshot([goldRow({ bid: text })]);
     if (bid.bid.value !== null) note(`context bid ${JSON.stringify(text)}`, `read as ${bid.bid.value}`);
   }

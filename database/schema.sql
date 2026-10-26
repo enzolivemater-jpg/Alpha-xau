@@ -1083,12 +1083,14 @@ WITH (security_invoker = true) AS
 SELECT DISTINCT ON (symbol)
   symbol, asset_type, bid, ask, spread, close, volume, timeframe,
   dxy_value, us10y_yield, real_yield, vix, wti, source, ts,
-  EXTRACT(EPOCH FROM (now() - ts))::INTEGER AS staleness_seconds
+  EXTRACT(EPOCH FROM (now() - ts))::INTEGER AS staleness_seconds,
+  -- A-C3 (migration 20261026120000) : âge exact en microsecondes, sans arrondi.
+  ((EXTRACT(EPOCH FROM now()) - EXTRACT(EPOCH FROM ts)) * 1000000)::BIGINT AS staleness_us
 FROM market_ticks
 ORDER BY symbol, ts DESC;
 
 COMMENT ON VIEW v_market_latest IS
-  'Dernier tick par instrument + indicateur de fraîcheur pour le badge LIVE/STALE du terminal.';
+  'Dernier tick par instrument + indicateur de fraîcheur pour le badge LIVE/STALE du terminal. staleness_us : âge exact (µs), seule base des décisions de fraîcheur ; staleness_seconds : arrondi, affichage.';
 
 -- Dernière analyse valide par instrument, scénarios agrégés en JSON.
 CREATE VIEW v_ai_latest

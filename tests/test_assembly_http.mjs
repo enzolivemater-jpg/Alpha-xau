@@ -103,7 +103,7 @@ const rest=http.createServer((req,res)=>{
           return send(200,JSON.parse(psql(`WITH updated AS (UPDATE ai_events SET ${sets} ${where} RETURNING event_id) SELECT coalesce(json_agg(t),'[]') FROM updated t;`)));}
         psql(`UPDATE ai_events SET ${sets} ${where};`);return send(204,[]);}
       if(req.method==='GET'&&path.startsWith('v_market_latest'))
-        return send(200,JSON.parse(psql("SELECT coalesce(json_agg(t),'[]') FROM (SELECT symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds FROM v_market_latest) t;")));
+        return send(200,JSON.parse(psql("SELECT coalesce(json_agg(t),'[]') FROM (SELECT symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds,staleness_us FROM v_market_latest) t;")));
       if(req.method==='GET'&&path.startsWith('v_news_actionable')) return send(200,[]);
       send(200,[]);
     }catch(e){send(500,{message:String(e.message).slice(0,200)});}

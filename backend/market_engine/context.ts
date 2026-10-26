@@ -11,11 +11,14 @@
  *  n'a rien fourni.
  *
  *  Il lit la vue existante `v_market_latest` : aucune vue nouvelle, aucun
- *  chemin d'accès parallèle.
+ *  chemin d'accès parallèle. Depuis A-C3, la fraîcheur se décide sur
+ *  `staleness_us` (âge exact en microsecondes, migration
+ *  20261026120000_market_latest_exact_staleness) ; `staleness_seconds`,
+ *  arrondi par la vue, n'est plus lu pour décider.
  * =============================================================================
  */
 
-import { SYMBOL_RULES, classifyFreshness } from './validate.js';
+import { SYMBOL_RULES, classifyFreshness, classifyFreshnessExact, wholeSecondsElapsed } from './validate.js';
 import type {
   Freshness,
   MarketField,
@@ -42,7 +45,10 @@ export interface MarketLatestRow {
   readonly wti: number | string | null;
   readonly source: string | null;
   readonly ts: string | null;
+  /** Arrondi à la seconde la plus proche par la vue : affichage seulement. */
   readonly staleness_seconds: number | string | null;
+  /** Âge exact en microsecondes (A-C3), seule base de la fraîcheur. */
+  readonly staleness_us?: number | string | null;
 }
 
 /**
@@ -84,6 +90,39 @@ export function buildField(
 }
 
 /**
+ * Âge exact en microsecondes : un entier JSON sûr ou une chaîne d'entier
+ * décimal (BIGINT). Toute autre forme est illisible : null, jamais 0.
+ */
+function exactMicros(value: number | string | null | undefined): bigint | null {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? BigInt(value) : null;
+  if (typeof value === 'string' && /^-?\d+$/.test(value)) return BigInt(value);
+  return null;
+}
+
+/**
+ * Comme buildField, sur l'âge exact (A-C3) : la classe est décidée avant tout
+ * arrondi ; l'âge rapporté est en secondes entières écoulées (plancher), donc
+ * négatif pour une ligne datée après l'horloge de la base, comme avant.
+ */
+export function buildFieldExact(
+  value: number | null,
+  ageMicros: bigint | null,
+  observedAt: string | null,
+  source: string | null,
+  symbol: MarketSymbol,
+): MarketField {
+  if (value === null || ageMicros === null || observedAt === null) return UNAVAILABLE_FIELD;
+
+  const ageNanos = ageMicros * 1000n;
+  const ageSeconds = wholeSecondsElapsed(ageNanos);
+  const freshness: Freshness = classifyFreshnessExact(ageNanos < 0n ? 0n : ageNanos, SYMBOL_RULES[symbol]);
+  if (freshness === 'UNAVAILABLE') {
+    return { value: null, status: 'UNAVAILABLE', observedAt, ageSeconds, source };
+  }
+  return { value, status: freshness, observedAt, ageSeconds, source };
+}
+
+/**
  * Assemble l'instantané à partir des lignes de `v_market_latest`.
  *
  * Chaque driver macro est lu exclusivement sur sa ligne native. Les stamps
@@ -104,13 +143,15 @@ export function buildSnapshot(rows: readonly MarketLatestRow[]): MarketSnapshot 
     };
   }
 
-  const goldAge = num(gold.staleness_seconds);
-  const spot = buildField(num(gold.close), goldAge, gold.ts, gold.source, 'XAUUSD');
+  const goldAge = exactMicros(gold.staleness_us);
+  const spot = buildFieldExact(num(gold.close), goldAge, gold.ts, gold.source, 'XAUUSD');
 
   if (spot.status === 'UNAVAILABLE') {
     return {
       available: false,
-      reason: `DATA_UNAVAILABLE : dernier prix XAUUSD périmé (${goldAge ?? '?'}s).`,
+      reason: goldAge === null
+        ? 'DATA_UNAVAILABLE : âge exact du dernier prix XAUUSD illisible (staleness_us).'
+        : `DATA_UNAVAILABLE : dernier prix XAUUSD périmé (${goldAge / 1000n} ms).`,
       spot: UNAVAILABLE_FIELD, bid: UNAVAILABLE_FIELD, ask: UNAVAILABLE_FIELD,
       dxy: UNAVAILABLE_FIELD, us10y: UNAVAILABLE_FIELD, realYield: UNAVAILABLE_FIELD,
       vix: UNAVAILABLE_FIELD, wti: UNAVAILABLE_FIELD,
@@ -122,15 +163,15 @@ export function buildSnapshot(rows: readonly MarketLatestRow[]): MarketSnapshot 
   const macro = (symbol: MarketSymbol): MarketField => {
     const own = rows.find((r) => r.symbol === symbol);
     if (!own) return UNAVAILABLE_FIELD;
-    return buildField(num(own.close), num(own.staleness_seconds), own.ts, own.source, symbol);
+    return buildFieldExact(num(own.close), exactMicros(own.staleness_us), own.ts, own.source, symbol);
   };
 
   return {
     available: true,
     reason: null,
     spot,
-    bid: buildField(num(gold.bid), goldAge, gold.ts, gold.source, 'XAUUSD'),
-    ask: buildField(num(gold.ask), goldAge, gold.ts, gold.source, 'XAUUSD'),
+    bid: buildFieldExact(num(gold.bid), goldAge, gold.ts, gold.source, 'XAUUSD'),
+    ask: buildFieldExact(num(gold.ask), goldAge, gold.ts, gold.source, 'XAUUSD'),
     // DXY retiré (2026-08-18) : Twelve Data ne le référence pas comme
     // symbole interrogeable (vérifié via /symbol_search, pas supposé).
     // dxy_value reste NULL en permanence -> toujours UNAVAILABLE, jamais
@@ -145,7 +186,7 @@ export function buildSnapshot(rows: readonly MarketLatestRow[]): MarketSnapshot 
 }
 
 const SELECT_COLUMNS =
-  'symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds';
+  'symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds,staleness_us';
 
 /**
  * Point d'entrée du contrat : dernier contexte marché valide.

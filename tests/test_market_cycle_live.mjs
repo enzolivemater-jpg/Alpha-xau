@@ -69,7 +69,7 @@ const rest=http.createServer((req,res)=>{
         return send(201,out.filter(Boolean));
       }
       if(req.method==='GET'&&path.startsWith('v_market_latest')){
-        const j=psql("SELECT coalesce(json_agg(t),'[]') FROM (SELECT symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds FROM v_market_latest) t;");
+        const j=psql("SELECT coalesce(json_agg(t),'[]') FROM (SELECT symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds,staleness_us FROM v_market_latest) t;");
         return send(200,JSON.parse(j));
       }
       send(200,[]);
@@ -107,7 +107,7 @@ const n=Number(psql("SELECT count(*) FROM market_ticks;"));
 t('toujours 1 seule ligne en base', n===1, String(n));
 
 console.log('--- Contrat de lecture du comite ---');
-const snap=buildSnapshot(JSON.parse(psql("SELECT coalesce(json_agg(t),'[]') FROM (SELECT symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds FROM v_market_latest) t;")));
+const snap=buildSnapshot(JSON.parse(psql("SELECT coalesce(json_agg(t),'[]') FROM (SELECT symbol,bid,ask,close,dxy_value,us10y_yield,real_yield,vix,wti,source,ts,staleness_seconds,staleness_us FROM v_market_latest) t;")));
 t('snapshot disponible', snap.available);
 t('spot LIVE', snap.spot.status==='LIVE' && snap.spot.value===3401.55);
 t('DXY UNAVAILABLE cote comite', snap.dxy.status==='UNAVAILABLE' && snap.dxy.value===null);

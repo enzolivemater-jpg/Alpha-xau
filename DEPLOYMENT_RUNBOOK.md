@@ -303,7 +303,8 @@ SELECT symbol, close, bid, ask, spread, dxy_value, us10y_yield,
   FROM market_ticks ORDER BY ts DESC LIMIT 20;
 
 -- Vue lue par le comité
-SELECT symbol, close, real_yield, dxy_value, staleness_seconds FROM v_market_latest;
+SELECT symbol, close, real_yield, dxy_value, staleness_seconds, staleness_us FROM v_market_latest;
+-- staleness_us (A-C3, migration 20261026120000) : âge exact en µs, base des décisions ; staleness_seconds : arrondi, affichage.
 
 -- Contrôles d'intégrité
 SELECT count(*) AS zeros_suspects FROM market_ticks WHERE close = 0;          -- 0

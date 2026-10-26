@@ -18,7 +18,7 @@ import type {
   RawDataPoint,
   ValidationOutcome,
 } from './types.js';
-import { parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { parseStrictTimestamp, parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
 /**
  * Contraintes par instrument.
@@ -77,6 +77,23 @@ export function classifyFreshness(ageSeconds: number, rule: SymbolRule): Freshne
   return 'LIVE';
 }
 
+const NANOS_PER_SECOND = 1_000_000_000n;
+
+/**
+ * Secondes entières écoulées (partie entière inférieure), pour l'affichage et
+ * les contrats qui attendent un entier ; jamais la base d'une décision. Un âge
+ * négatif, même de 1 ns, reste négatif.
+ */
+export function wholeSecondsElapsed(ageNanos: bigint): number {
+  const quotient = ageNanos / NANOS_PER_SECOND;
+  return Number(ageNanos < 0n && ageNanos % NANOS_PER_SECOND !== 0n ? quotient - 1n : quotient);
+}
+
+/** Millisecondes entières (troncature), pour les messages de rejet. */
+function formatMs(ageNanos: bigint): string {
+  return String(ageNanos / 1_000_000n);
+}
+
 /**
  * Même règle, sur l'âge exact en nanosecondes (A-C2) : le moindre écart
  * au-delà d'un seuil le franchit, y compris sous la milliseconde. Pour le
@@ -84,8 +101,8 @@ export function classifyFreshness(ageSeconds: number, rule: SymbolRule): Freshne
  * (`parseStrictTimestampNanos`).
  */
 export function classifyFreshnessExact(ageNanos: bigint, rule: SymbolRule): Freshness {
-  if (ageNanos > BigInt(rule.staleMaxAgeS) * 1_000_000_000n) return 'UNAVAILABLE';
-  if (ageNanos > BigInt(rule.liveMaxAgeS) * 1_000_000_000n) return 'STALE';
+  if (ageNanos > BigInt(rule.staleMaxAgeS) * NANOS_PER_SECOND) return 'UNAVAILABLE';
+  if (ageNanos > BigInt(rule.liveMaxAgeS) * NANOS_PER_SECOND) return 'STALE';
   return 'LIVE';
 }
 
@@ -128,18 +145,23 @@ export function validatePoint(raw: RawDataPoint, now: Date = new Date()): Valida
   const observedMs = parseStrictTimestamp(raw.observedAt);
   if (observedMs === null) return reject('Horodatage source invalide');
 
-  const ageSeconds = Math.round((now.getTime() - observedMs) / 1000);
+  // A-C3 : âge exact (nanosecondes), jamais arrondi avant une comparaison.
+  const ageNanos = BigInt(now.getTime()) * 1_000_000n - parseStrictTimestampNanos(raw.observedAt)!;
 
-  // 5. Pas de donnée future (miroir de chk_market_ticks_no_future).
-  if (ageSeconds < -FUTURE_TOLERANCE_S) {
-    return reject(`Horodatage dans le futur (${-ageSeconds}s d'avance)`);
+  // 5. Pas de donnée future (miroir exact de chk_market_ticks_no_future :
+  //    ts <= created_at + 5 min, égalité acceptée).
+  if (ageNanos < -BigInt(FUTURE_TOLERANCE_S) * NANOS_PER_SECOND) {
+    return reject(`Horodatage dans le futur (${formatMs(-ageNanos)} ms d'avance > ${FUTURE_TOLERANCE_S}s)`);
   }
 
   // 6. Fraîcheur.
-  const freshness = classifyFreshness(Math.max(0, ageSeconds), rule);
+  const exactAge = ageNanos < 0n ? 0n : ageNanos;
+  const freshness = classifyFreshnessExact(exactAge, rule);
   if (freshness === 'UNAVAILABLE') {
-    return reject(`Donnée trop ancienne (${ageSeconds}s > ${rule.staleMaxAgeS}s)`);
+    return reject(`Donnée trop ancienne (${formatMs(exactAge)} ms > ${rule.staleMaxAgeS}s)`);
   }
+  // Âge transmis : secondes entières écoulées (affichage), jamais la base d'une décision.
+  const ageSeconds = wholeSecondsElapsed(exactAge);
 
   // 7. Cohérence OHLC. Le CHECK SQL l'imposerait de toute façon ; le rejet
   //    ici évite une transaction perdue et produit un diagnostic lisible.
@@ -168,7 +190,7 @@ export function validatePoint(raw: RawDataPoint, now: Date = new Date()): Valida
       value: raw.value,
       observedAt: new Date(observedMs).toISOString(),
       freshness,
-      ageSeconds: Math.max(0, ageSeconds),
+      ageSeconds,
       open: typeof open === 'number' && Number.isFinite(open) ? open : null,
       high: ohlcPresent && typeof high === 'number' ? high : null,
       low: ohlcPresent && typeof low === 'number' ? low : null,
