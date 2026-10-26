@@ -449,11 +449,13 @@ interface FetchResult<T> {
  */
 function parseRetryAfter(header: string | null): number | null {
   if (!header) return null;
-  const seconds = Number(header);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
-  const date = Date.parse(header);
-  if (Number.isFinite(date)) return Math.max(0, date - Date.now());
-  return null;
+  const value = header.trim();
+  // RFC 9110 : delta-seconds = 1*DIGIT. `Number()` lisait "  " et "0x10" comme
+  // 0 et 16, et un texte non numérique tombait sur Date.parse.
+  if (/^\d{1,9}$/.test(value)) return Number(value) * 1000;
+  if (!/[A-Za-z]{3}/.test(value)) return null;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
 }
 
 /**

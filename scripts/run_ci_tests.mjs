@@ -116,6 +116,7 @@ const TEST_FILES = [
   'tests/test_federal_reserve_collector.mjs',
   'tests/test_federal_reserve_raw_integration.mjs',
   'tests/test_gdelt_429_retry_policy.mjs',
+  'tests/test_retry_after_parsing.mjs',
   'tests/test_gold_transmission_deterministic_processor.mjs',
   'tests/test_gold_transmission_shadow_batch.mjs',
   'tests/test_gold_transmission_shadow_orchestrator.mjs',
