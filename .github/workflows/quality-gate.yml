@@ -318,6 +318,12 @@ jobs:
         run: npm ci
       - name: Market latest exact staleness migration and rollback (A-C3)
         run: node tests/test_market_latest_exact_staleness_postgres.mjs
+        env:
+          XAU_PG_DISPOSABLE: xau_market_rls_test
+      - name: A-C3 PostgreSQL test isolation (concurrent runs, mid-run failure, taken name)
+        run: node tests/test_market_latest_exact_staleness_isolation_postgres.mjs
+        env:
+          XAU_PG_DISPOSABLE: xau_market_rls_test
 
   gold-transmission-postgres:
     runs-on: ubuntu-latest
