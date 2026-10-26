@@ -37,6 +37,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
+import { auditCaptureContinuity, continuityOptions, summarizeContinuity } from './lib/capture_continuity.mjs';
 import { codeIdentity, describeCode } from './lib/code_identity.mjs';
 import { aggregateOfficialReleasesAt, officialReleaseFiles, readOfficialReleases } from './lib/official_events.mjs';
 import { TERMINAL_SCENARIOS, findTerminalScenario } from './lib/terminal_scenarios.mjs';
@@ -568,10 +569,13 @@ export async function buildLocalView({
    * what was read at start; nothing is judged beyond the existing contracts.
    */
   const catalogEntries = [];
+  // DATA-3 continuity audit, as terminal:check-data and the validator compute it: a report, never an attestation.
+  const continuityRules = continuityOptions(evidence, await loadBackendModule('market_engine/validate.ts'),
+    await loadBackendModule('market_engine/evidence_capture.ts'));
   for (const source of market.values()) {
     if (source.load === null) {
       catalogEntries.push({ id: source.id, kind: source.kind, label: source.label, replayable: false, provenanceClass: null, archiveId: null,
-        records: null, coverage: null, observed: null, received: null, fields: [], validation: null, problems: [] });
+        records: null, coverage: null, observed: null, received: null, fields: [], validation: null, continuity: null, problems: [] });
       continue;
     }
     const archive = source.load();
@@ -596,6 +600,8 @@ export async function buildLocalView({
       // Replayed after its last reception: the state DATA-1 gives this archive with everything it received.
       validation: check === null ? { at: null, status: 'INVALID', nature: null, reasonCodes: ['NO_RECEPTION_INSTANT'] }
         : { at, status: check.status, nature: check.nature, reasonCodes: [...check.reasonCodes] },
+      // Not a decision input: the chain and its HOLD never read it.
+      continuity: summarizeContinuity(auditCaptureContinuity(archive, continuityRules)),
       problems: [...(source.problems ?? [])],
     });
   }

@@ -242,18 +242,81 @@ export function auditCaptureContinuity(archive, { rules = {}, cadence = {}, cuto
  */
 export function declaredFieldHoles(report) {
   if (report.outcome === 'NOT_EVALUATED' || report.window?.basis !== 'DECLARED_COVERAGE') return [];
-  const holes = report.declaredFieldsWithoutSeries.map((field) => ({ field, from: report.window.from, to: report.window.to, basis: 'NO_SERIES' }));
-  for (const field of report.window.fields) {
-    const own = report.series.filter((s) => s.field === field);
-    if (own.length === 0) continue;
-    if (own.some((s) => s.unavailableIntervals === null)) { holes.push({ field, from: null, to: null, basis: 'FRESHNESS_RULE_UNAVAILABLE' }); continue; }
-    // Optimistic bound across sources: the field is held if any of its series is fresh.
-    const fresh = own.flatMap((s) => complement(s.unavailableIntervals, report.window));
-    for (const [a, b] of uncoveredIntervals(fresh, Date.parse(report.window.from), Date.parse(report.window.to))) {
-      holes.push({ field, ...interval([a, b]), basis: 'RUNTIME_FRESHNESS_RULE' });
-    }
+  return report.window.fields.flatMap((field) => fieldHoles(report, field) ?? [{ field, from: null, to: null, basis: 'FRESHNESS_RULE_UNAVAILABLE' }]);
+}
+
+/**
+ * Where, in the window, no series of `field` was held fresh: a declared field
+ * no series holds is a hole over the whole window. null when a series of the
+ * field has no freshness rule (not evaluated). Optimistic across sources: the
+ * field counts as held if any of its series is fresh.
+ */
+function fieldHoles(report, field) {
+  const own = report.series.filter((s) => s.field === field);
+  if (own.length === 0) {
+    return report.window.basis === 'DECLARED_COVERAGE' && report.window.fields.includes(field)
+      ? [{ field, from: report.window.from, to: report.window.to, durationSeconds: seconds(Date.parse(report.window.to) - Date.parse(report.window.from)), basis: 'NO_SERIES' }]
+      : [];
   }
-  return holes;
+  if (own.some((s) => s.unavailableIntervals === null)) return null;
+  const fresh = own.flatMap((s) => complement(s.unavailableIntervals, report.window));
+  return uncoveredIntervals(fresh, Date.parse(report.window.from), Date.parse(report.window.to))
+    .map(([a, b]) => ({ field, ...interval([a, b]), basis: 'RUNTIME_FRESHNESS_RULE' }));
+}
+
+const FIELD_ORDER = ['spot', 'bid', 'ask', 'dxy', 'us10y', 'realYield', 'vix', 'wti'];
+
+/**
+ * The audit as an operator reads it, per field and per series: what was
+ * observed, the gaps between observations, the holes (no value held fresh) and
+ * a status. The statuses never say "continuous": NO_HOLE_DETECTED only means
+ * this audit found none, and `continuity` stays NOT_ATTESTED. Shared by the
+ * terminal catalog, terminal:check-data and the page, so they cannot disagree.
+ */
+export function summarizeContinuity(report) {
+  const base = { reportVersion: report.reportVersion, continuity: 'NOT_ATTESTED', continuityBasis: [...report.continuityBasis] };
+  if (report.outcome === 'NOT_EVALUATED') return { ...base, outcome: 'NOT_EVALUATED', reason: report.reason, window: null, fields: [], series: [], findings: {} };
+  const names = new Set([...report.window.fields, ...report.series.map((s) => s.field)]);
+  const fields = [...names].sort((a, b) => (FIELD_ORDER.indexOf(a) + 1 || 99) - (FIELD_ORDER.indexOf(b) + 1 || 99) || a.localeCompare(b)).map((field) => {
+    const own = report.series.filter((s) => s.field === field);
+    const holes = fieldHoles(report, field);
+    const gaps = own.flatMap((s) => s.observationGaps);
+    const status = own.length === 0 ? 'NO_SERIES' : holes === null ? 'NOT_EVALUATED' : holes.length ? 'HOLES_DETECTED' : 'NO_HOLE_DETECTED';
+    return {
+      field, declared: report.window.fields.includes(field), series: own.map((s) => s.series),
+      observationTimes: own.reduce((n, s) => n + s.observationTimes, 0),
+      observed: own.length ? { first: own.map((s) => s.firstObservedAt).sort()[0], last: own.map((s) => s.lastObservedAt).sort().at(-1) } : null,
+      observationGaps: gaps.length,
+      largestGapSeconds: gaps.length ? Math.max(...gaps.map((g) => g.durationSeconds)) : null,
+      missingWeekdays: gaps.reduce((n, g) => n + (g.missingWeekdays ?? 0), 0),
+      missingSaturdaysSundays: gaps.reduce((n, g) => n + (g.missingSaturdaysSundays ?? 0), 0),
+      holes: holes === null ? null : holes.map(({ from, to, durationSeconds, basis }) => ({ from, to, durationSeconds, basis })),
+      status,
+    };
+  });
+  const series = report.series.map((s) => ({
+    series: s.series, field: s.field, cadence: s.cadence, observationTimes: s.observationTimes,
+    observed: { first: s.firstObservedAt, last: s.lastObservedAt },
+    observationGaps: s.observationGaps.map(({ from, to, durationSeconds, missingWeekdays, missingSaturdaysSundays }) => ({
+      from, to, durationSeconds, missingWeekdays: missingWeekdays ?? null, missingSaturdaysSundays: missingSaturdaysSundays ?? null })),
+    holes: s.unavailableIntervals, freshnessBasis: s.freshnessBasis,
+    duplicates: s.duplicates.filter((d) => d.type !== 'LINKED_REVISION').length, lateObservations: s.lateObservations.length,
+    status: s.unavailableIntervals === null ? 'NOT_EVALUATED' : s.unavailableIntervals.length ? 'HOLES_DETECTED' : 'NO_HOLE_DETECTED',
+  }));
+  const findings = {};
+  for (const f of report.findings) findings[f.code] = (findings[f.code] ?? 0) + 1;
+  return { ...base, outcome: report.outcome, reason: null,
+    window: { from: report.window.from, to: report.window.to, basis: report.window.basis }, fields, series, findings };
+}
+
+/** The replay's freshness rule and the capture cadence of each field (backend modules passed in, so this file stays pure). */
+export function continuityOptions(ev, validate, cap) {
+  const rules = {};
+  for (const [field, spec] of Object.entries(ev.MARKET_EVIDENCE_FIELD_SPEC)) {
+    rules[field] = spec.freshnessSymbol === null ? null : validate.SYMBOL_RULES[spec.freshnessSymbol];
+  }
+  const cadence = Object.fromEntries(cap.CAPTURE_SERIES.map((s) => [s.field, s.observationType === 'DAILY_VALUE' ? 'DAILY' : 'INTRADAY']));
+  return { rules, cadence };
 }
 
 /** Closed approximation of a series' fresh intervals from its unavailable ones (bounds shared). */

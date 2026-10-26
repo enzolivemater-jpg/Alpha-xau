@@ -28,7 +28,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadBackendModule } from './lib/backend_module_loader.mjs';
-import { auditCaptureContinuity, declaredFieldHoles } from './lib/capture_continuity.mjs';
+import { auditCaptureContinuity, continuityOptions, declaredFieldHoles } from './lib/capture_continuity.mjs';
+
+export { continuityOptions };
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const DEFAULT_DIR = path.join(homedir(), '.local', 'share', 'xau-v2', 'evidence');
@@ -51,16 +53,6 @@ export function latestIngestedAt(records) {
     if (Number.isFinite(ms) && ms > bestMs) { best = r.ingestedAt; bestMs = ms; }
   }
   return best ?? records.map((r) => r.ingestedAt).sort().at(-1);
-}
-
-/** The replay's freshness rule and the capture cadence of each field, for the continuity audit. */
-export function continuityOptions(ev, validate, cap) {
-  const rules = {};
-  for (const [field, spec] of Object.entries(ev.MARKET_EVIDENCE_FIELD_SPEC)) {
-    rules[field] = spec.freshnessSymbol === null ? null : validate.SYMBOL_RULES[spec.freshnessSymbol];
-  }
-  const cadence = Object.fromEntries(cap.CAPTURE_SERIES.map((s) => [s.field, s.observationType === 'DAILY_VALUE' ? 'DAILY' : 'INTRADAY']));
-  return { rules, cadence };
 }
 
 /**
