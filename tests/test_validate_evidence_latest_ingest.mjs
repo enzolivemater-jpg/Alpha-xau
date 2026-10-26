@@ -31,6 +31,12 @@ const tooOld = replayOf('VERIFIED', FIELDS);
 tooOld.observations.wti = { field: 'wti', freshnessAtCutoff: 'UNAVAILABLE' };
 assert.deepEqual(verifiedClaimProblems(tooOld), ['VERIFIED_WITH_FIELD_UNAVAILABLE'], 'a selected value too old to be held');
 assert.deepEqual(verifiedClaimProblems({ ...tooOld, status: 'INCOMPLETE', reproducible: false }), []);
+// Replay 1.2.0 proof: a VERIFIED claim on a value whose freshness is not proved FRESH; a 1.1.0 replay has no proof field.
+const unproved = replayOf('VERIFIED', FIELDS);
+unproved.observations.dxy = { field: 'dxy', freshnessAtCutoff: 'LIVE', freshnessProof: 'NOT_EVALUATED' };
+assert.deepEqual(verifiedClaimProblems(unproved), ['VERIFIED_WITHOUT_FRESHNESS_PROOF']);
+unproved.observations.dxy.freshnessProof = 'FRESH';
+assert.deepEqual(verifiedClaimProblems(unproved), []);
 // The former expression accepted the first defect: it is the one that matters for DATA-3 L1.
 const former = (r) => r.status !== 'VERIFIED' || r.reproducible;
 assert.equal(former(replayOf('VERIFIED', FIELDS.filter((f) => f !== 'dxy'))), true, 'the former check passed a VERIFIED replay without DXY');
@@ -197,7 +203,8 @@ assert.deepEqual(uncoveredIntervals([[-5, -2]], 0, 0), [[0, 0]], 'a record expir
   assert.deepEqual(declaredFieldHoles(auditCaptureContinuity(log([r('spot', '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z')]), OPTS)), []);
 }
 
-// L1b: the replay itself (1.1.0, unchanged here) calls VERIFIED a cutoff where a covered field is too old to be held.
+// L1b: replay 1.1.0 called VERIFIED a cutoff where a covered field is too old to be held; 1.2.0 says INCOMPLETE.
+// The validator still refuses such a VERIFIED claim (forged, or from a 1.1.0 replay).
 {
   const evr = await (await import('../scripts/lib/backend_module_loader.mjs')).loadBackendModule('market_engine/evidence_archive.ts');
   const { readFileSync } = await import('node:fs');
@@ -205,12 +212,19 @@ assert.deepEqual(uncoveredIntervals([[-5, -2]], 0, 0), [[0, 0]], 'a record expir
   a.records.push({ ...a.records[5], evidenceId: 'syn-dxy-1', field: 'dxy', instrument: 'DXY', unit: 'INDEX_POINTS', value: 100, source: 'synthetic', sourceRecordId: 'DXY' });
   a.coverage = { ...a.coverage, to: '2026-10-07T00:00:00.000Z' };
   const late = await evr.replayMarketEvidence(a, '2026-10-07T00:00:00Z');
-  assert.equal(late.status, 'VERIFIED', 'replay unchanged in this phase');
+  assert.equal(late.status, 'INCOMPLETE');
+  assert.ok(late.reasonCodes.includes('DECLARED_FIELD_STALE') && late.reasonCodes.includes('DECLARED_FIELD_FRESHNESS_NOT_EVALUATED'));
   assert.equal(late.marketSnapshot.available, false);
-  assert.ok(verifiedClaimProblems(late).includes('VERIFIED_WITH_FIELD_UNAVAILABLE'));
+  assert.deepEqual(verifiedClaimProblems(late), []);
+  const forged = { ...late, status: 'VERIFIED', reproducible: true };
+  assert.deepEqual(verifiedClaimProblems(forged), ['VERIFIED_WITH_FIELD_UNAVAILABLE', 'VERIFIED_WITHOUT_FRESHNESS_PROOF']);
+  const asIn110 = structuredClone(forged);
+  for (const o of Object.values(asIn110.observations)) if (o) delete o.freshnessProof;
+  assert.deepEqual(verifiedClaimProblems(asIn110), ['VERIFIED_WITH_FIELD_UNAVAILABLE'], 'a 1.1.0 replay is still judged');
   const audit = auditCaptureContinuity(a, { rules: { ...RULES, bid: RULES.spot, ask: RULES.spot, realYield: RULES.us10y, vix: RULES.us10y, wti: RULES.us10y }, cadence: CADENCE });
   assert.deepEqual([...new Set(declaredFieldHoles(audit).map((h) => h.field))].sort(), ['ask', 'bid', 'dxy', 'realYield', 'spot', 'us10y', 'vix', 'wti']);
-  assert.ok(continuityClaimProblems(late, audit)[0].startsWith('VERIFIED_OVER_DECLARED_WINDOW_WITH_HOLES:'));
+  assert.ok(continuityClaimProblems(forged, audit)[0].startsWith('VERIFIED_OVER_DECLARED_WINDOW_WITH_HOLES:'));
+  assert.deepEqual(continuityClaimProblems(late, audit), []);
 }
 
 console.log('PASS DATA-3 continuity audit: per-series gaps, duplicates, order, freshness holes and cutoff; no hole found is never an attestation');

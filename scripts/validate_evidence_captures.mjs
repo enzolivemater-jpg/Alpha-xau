@@ -85,6 +85,10 @@ export function verifiedClaimProblems(r) {
   if (r.status === 'VERIFIED' && Object.values(r.observations).some((o) => o === null)) problems.push('VERIFIED_WITH_FIELD_NOT_HELD');
   // A selected value too old for its freshness rule is not in the snapshot: the field is not held either.
   if (r.status === 'VERIFIED' && Object.values(r.observations).some((o) => o !== null && o.freshnessAtCutoff === 'UNAVAILABLE')) problems.push('VERIFIED_WITH_FIELD_UNAVAILABLE');
+  // Replay 1.2.0 states the proof; a 1.1.0 replay carries none and is judged by the line above alone.
+  if (r.status === 'VERIFIED' && Object.values(r.observations).some((o) => o !== null && o.freshnessProof !== undefined && o.freshnessProof !== 'FRESH')) {
+    problems.push('VERIFIED_WITHOUT_FRESHNESS_PROOF');
+  }
   if (r.reproducible !== (r.status === 'VERIFIED')) problems.push('REPRODUCIBLE_STATUS_MISMATCH');
   if (r.nature === 'HISTORICAL_VERIFIED' && r.status !== 'VERIFIED') problems.push('HISTORICAL_VERIFIED_WITHOUT_VERIFIED');
   return problems;
