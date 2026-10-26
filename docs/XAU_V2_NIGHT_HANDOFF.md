@@ -327,3 +327,5 @@ three open draft PRs of the day — #162 (CFTC 1.4.1), #163 (ECB DXY proxy, rese
 
 Not touched: main, production, DXY_ICE_OFFICIAL contract. Next P3 candidates:
 `backend/ingest.ts`, `backend/worker.ts`, shadow event orchestrators. After the change: 160/160.
+
+35. Reliability (Retry-After, 2026-10-26, branch `claude/keen-keller-uia8ux`, base `17b1652` = tip of `claude/keen-keller-sa9xu5`, which merges #162/#163/#164 + committee baseline fix). `parseRetryAfter` (news `ingest.ts` and committee) read the header with `Number()`: `"   "` and `"0x10"` gave 0 / 16 s, so an unreadable header from a rate-limiting provider meant an immediate retry instead of the normal backoff. Now delta-seconds is `^\d{1,9}$` (RFC 9110) or an HTTP date containing a month/day name; anything else is `null` (normal backoff). Red first: 13 of 30 cases failed on the old code. `tests/test_retry_after_parsing.mjs`, registered in `scripts/run_ci_tests.mjs`. Baseline before change: typecheck clean, 160/160.
