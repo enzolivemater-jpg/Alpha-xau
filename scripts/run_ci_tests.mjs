@@ -133,6 +133,7 @@ const TEST_FILES = [
   'tests/test_market_pricing_institutional_contract.mjs',
   'tests/test_market_pricing_persistence_contract.mjs',
   'tests/test_market_evidence_replay.mjs',
+  'tests/test_freshness_edge_matrix.mjs',
   'tests/test_market_evidence_capture.mjs',
   'tests/test_validate_evidence_latest_ingest.mjs',
   'tests/test_market_evidence_mutation.mjs',
