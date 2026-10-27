@@ -10,7 +10,7 @@ déjà dans le code et ses contrats (`SYMBOL_RULES`, contrats MP-0 / MP-1 /
 DATA-1). Tout autre seuil est marqué **À DÉCIDER**, avec qui décide. REC-1
 reste gelé ; HOLD / FORBIDDEN reste vrai quel que soit le résultat.
 
-Périmètre : replay DATA-1 (`market-evidence-replay-1.2.0`), MP-1
+Périmètre : replay DATA-1 (`market-evidence-replay-1.3.0`), MP-1
 (`market-pricing-as-of-selector-1.0.0`), MP-0
 (`market-pricing-envelope-1.0.0`), pont CHAIN-0
 (`evaluateDecisionChainOnMarketEvidence`) et vue terminal
