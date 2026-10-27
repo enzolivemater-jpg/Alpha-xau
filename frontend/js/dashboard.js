@@ -1191,6 +1191,24 @@ let pollTimer = null;
   };
 
   const V2_SUMMARY_STATUS = ['BLOCKED', 'INPUT_REJECTED', 'INTEGRITY_VIOLATED'];
+
+  /*
+   * Instant exact en nanosecondes, ou null : même forme stricte que le moteur (date civile et fuseau vérifiés, pas de
+   * `-00:00`). Date.parse lit le 30 février comme le 2 mars et tronque à la milliseconde.
+   */
+  const STRICT_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|([+-])(\d{2}):(\d{2}))$/;
+  function instantNanos(s) {
+    const m = typeof s === 'string' ? STRICT_INSTANT.exec(s) : null;
+    if (!m) return null;
+    const [y, mo, d, h, mi, se] = m.slice(1, 7).map(Number);
+    const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+    if (y === 0 || !(d >= 1 && d <= days) || h > 23 || mi > 59 || se > 59) return null;
+    if (m[8] && (Number(m[9]) > 14 || Number(m[10]) > 59 || (Number(m[9]) === 14 && Number(m[10]) !== 0)
+        || (m[8] === '-' && Number(m[9]) === 0 && Number(m[10]) === 0))) return null;
+    const ms = Date.parse(s);
+    return Number.isFinite(ms) ? BigInt(ms) * 1000000n + BigInt((m[7] || '').slice(3).padEnd(6, '0')) : null;
+  }
   const V2_MISSING_KINDS = ['MARKET_FIELD', 'DATA_REASON', 'INPUT_ERROR'];
 
   const V2_ORIGIN_LABELS = {
@@ -1283,6 +1301,14 @@ let pollTimer = null;
     if (!isList(view.stages) || !isList(view.capabilities) || !view.market || !isList(view.market.fields)
         || !isList(view.horizons) || !view.acceptance || !isList(view.acceptance.evidence) || !view.observability) {
       return 'structure incomplète';
+    }
+    // Une valeur de marché n'est affichée que si son observation, lisible, précède ou égale le cutoff à la
+    // nanoseconde près (vues 4.11.0 et 4.12.0) ; sinon elle n'était pas connue à cette date, ou rien ne le montre.
+    // Une entrée rejetée n'a pas de cutoff : rien à comparer.
+    const cutoffNs = instantNanos(chain.knowledgeCutoff);
+    if (chain.knowledgeCutoff != null && view.market.fields.some((f) => f && f.value !== null && f.value !== undefined
+        && !(cutoffNs !== null && instantNanos(f.observedAt) !== null && instantNanos(f.observedAt) <= cutoffNs))) {
+      return 'valeur de marché non connue au cutoff';
     }
     const why = view.holdRationale;
     if (!why || !isList(why.rootCauses) || !isList(why.unclassifiedCodes)) return 'justification du HOLD absente';
@@ -1647,7 +1673,9 @@ let pollTimer = null;
         const tr = v2Row([
           node('td', 'v2__field', String(f.field || '?').toUpperCase()),
           node('td', 'ta-r num', isNum(f.value) ? String(f.value) : 'N/A'),
-          node('td', 'v2__state-cell', f.statusAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF' : f.statusAtCutoff),
+          node('td', 'v2__state-cell', f.statusAtCutoff === 'LIVE' ? 'FRAIS AU CUTOFF'
+            : f.statusAtCutoff === 'OBSERVED_AFTER_CUTOFF' ? 'POSTÉRIEUR AU CUTOFF'
+              : f.statusAtCutoff === 'OBSERVATION_TIME_INVALID' ? 'DATE ILLISIBLE' : f.statusAtCutoff),
           node('td', 'ta-r num', isNum(f.ageSecondsAtCutoff) ? fmtAge(f.ageSecondsAtCutoff) : 'N/A'),
           node('td', 'num', isText(f.observedAt) ? f.observedAt.replace('T', ' ').replace(/\.000Z$|Z$/, 'Z') : 'N/A'),
           node('td', '', f.source || 'N/A'),

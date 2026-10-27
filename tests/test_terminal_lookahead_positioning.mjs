@@ -21,7 +21,7 @@ const viewAt = (cutoff, positioningEvidence = golden.input.positioningEvidence) 
   return tv.buildTerminalView(chain.evaluateDecisionChain(input, cutoff), null, { kind: 'GOLDEN_FIXTURE', label: 'golden' }, AT);
 };
 
-assert.equal(tv.TERMINAL_VIEW_ALGORITHM_VERSION, 'terminal-local-view-4.10.0');
+assert.equal(tv.TERMINAL_VIEW_ALGORITHM_VERSION, 'terminal-local-view-4.12.0');
 const AFTER = {
   status: 'AFTER_KNOWLEDGE_CUTOFF', reason: 'EVIDENCE_AFTER_KNOWLEDGE_CUTOFF',
   plain: 'preuve postérieure au cutoff — écartée, fraîcheur non évaluée',

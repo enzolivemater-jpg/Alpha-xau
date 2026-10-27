@@ -67,7 +67,7 @@ assert.equal(outcome.kind, 'COMPLETED');
 const digest = await chain.computeDecisionChainDigest(outcome.result);
 const view = tv.buildTerminalView(outcome, digest, ORIGIN, AT);
 assert.equal(view.schemaVersion, 'xau.terminal-local-view.v4');
-assert.equal(view.algorithmVersion, 'terminal-local-view-4.10.0');
+assert.equal(view.algorithmVersion, 'terminal-local-view-4.12.0');
 assert.equal(view.simulated, true);
 assert.equal(view.generatedAt, AT);
 assert.deepEqual(view.origin, ORIGIN);
@@ -298,3 +298,57 @@ const oddView = tv.buildTerminalView({ kind: 'COMPLETED', result: odd }, null, O
 assert.deepEqual(oddView.stages[0].reasons.at(-1), { code: 'NEW_CODE', category: null, plain: null });
 assert.deepEqual(oddView.holdRationale.unclassifiedCodes, ['NEW_CODE']);
 console.log('PASS an unclassified reason code stays visible with a null category');
+
+// --- A market value observed after the cutoff (an input document from the future): MP-0 abstains, and the view
+// never shows that value as known, let alone fresh, at the cutoff (view 4.11.0).
+{
+  const doc = structuredClone(golden.input);
+  const future = new Date(Date.parse(golden.knowledgeCutoff) + 3_600_000).toISOString();
+  doc.marketSnapshot.spot = { ...doc.marketSnapshot.spot, observedAt: future, value: 4444 };
+  doc.marketSnapshot.capturedAt = future;
+  doc.marketSnapshot.vix = { ...doc.marketSnapshot.vix, observedAt: golden.knowledgeCutoff };
+  const out = chain.evaluateDecisionChain(doc, golden.knowledgeCutoff);
+  assert.equal(out.result.stages.marketPricing.state, 'ABSTAIN');
+  assert.ok(out.result.stages.marketPricing.reasonCodes.includes('OBSERVATION_AFTER_KNOWLEDGE_CUTOFF'));
+  const v = tv.buildTerminalView(out, await chain.computeDecisionChainDigest(out.result), ORIGIN, AT);
+  assert.deepEqual([v.chain.chainState, v.chain.execution], ['HOLD', 'FORBIDDEN']);
+  const spot = v.market.fields.find((f) => f.field === 'spot');
+  assert.deepEqual(spot, { field: 'spot', role: 'REQUIRED', value: null, statusAtCutoff: 'OBSERVED_AFTER_CUTOFF', observedAt: future,
+    ageSecondsAtCutoff: null, source: spot.source }, 'unknown at the cutoff: no value, no age, never LIVE');
+  assert.ok(!JSON.stringify(v).includes('4444'), 'the future value appears nowhere in the view');
+  // Observed exactly at the cutoff is known at the cutoff.
+  assert.notEqual(v.market.fields.find((f) => f.field === 'vix').statusAtCutoff, 'OBSERVED_AFTER_CUTOFF');
+  assert.ok(v.summary.missingData.some((m) => m.code === 'spot' && /observé après le cutoff/.test(m.plain)));
+}
+console.log('PASS a market value observed after the cutoff is never shown as known at the cutoff');
+
+// --- A market value whose observation time is unreadable (impossible date, `-00:00`): MP-0 rejects the field
+// (INVALID_FIELD_CONTRACT), so nothing shows it was known at the cutoff. Up to 4.11.0 the view kept the value and the
+// declared LIVE status, and the page showed it « FRAIS AU CUTOFF » (view 4.12.0).
+for (const observedAt of ['2026-02-30T00:00:00Z', new Date(Date.parse(golden.knowledgeCutoff) + 3_600_000).toISOString().replace('Z', '-00:00')]) {
+  const doc = structuredClone(golden.input);
+  doc.marketSnapshot.spot = { ...doc.marketSnapshot.spot, observedAt, value: 4444 };
+  const out = chain.evaluateDecisionChain(doc, golden.knowledgeCutoff);
+  assert.equal(out.kind, 'COMPLETED', observedAt);
+  assert.ok(out.result.stages.marketPricing.reasonCodes.includes('INVALID_FIELD_CONTRACT'), observedAt);
+  const v = tv.buildTerminalView(out, await chain.computeDecisionChainDigest(out.result), ORIGIN, AT);
+  assert.deepEqual([v.chain.chainState, v.chain.execution], ['HOLD', 'FORBIDDEN']);
+  const spot = v.market.fields.find((f) => f.field === 'spot');
+  assert.deepEqual(spot, { field: 'spot', role: 'REQUIRED', value: null, statusAtCutoff: 'OBSERVATION_TIME_INVALID', observedAt,
+    ageSecondsAtCutoff: null, source: spot.source }, observedAt);
+  assert.ok(!JSON.stringify(v).includes('4444'), `${observedAt}: the value appears nowhere in the view`);
+  assert.ok(v.summary.missingData.some((m) => m.code === 'spot' && /date d'observation illisible/.test(m.plain)), observedAt);
+}
+{
+  // Readable times keep their 4.11.0 treatment, to the nanosecond.
+  const at = (observedAt) => {
+    const doc = structuredClone(golden.input);
+    doc.marketSnapshot.vix = { ...doc.marketSnapshot.vix, observedAt };
+    const out = chain.evaluateDecisionChain(doc, golden.knowledgeCutoff);
+    return tv.buildTerminalView(out, null, ORIGIN, AT).market.fields.find((f) => f.field === 'vix');
+  };
+  const cutoffNs = golden.knowledgeCutoff.replace(/(\.\d{3})?Z$/, (m, f) => `${f ?? '.000'}000000Z`);
+  assert.notEqual(at(cutoffNs).value, null, 'observed exactly at the cutoff: known');
+  assert.equal(at(cutoffNs.replace(/0Z$/, '1Z')).statusAtCutoff, 'OBSERVED_AFTER_CUTOFF', 'one nanosecond later: not known');
+}
+console.log('PASS a market value with an unreadable observation time is never shown (view 4.12.0)');

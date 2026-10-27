@@ -1,0 +1,91 @@
+# XAU V2 — Critères quantitatifs de qualification des moteurs
+
+Date : 2026-10-25. Auteur : XAU V2 — LOCAL DEVELOPMENT (agent C, validation
+financière). Statut : **PROPOSITION, AUCUNE APPROBATION**.
+
+Ce document n'est **ni une validation financière ni une approbation** d'un
+moteur, d'une méthode ou d'une source. Il dit ce qui doit être mesuré, sur
+quelle preuve, et avec quel seuil : un seuil n'apparaît ici que s'il existe
+déjà dans le code et ses contrats (`SYMBOL_RULES`, contrats MP-0 / MP-1 /
+DATA-1). Tout autre seuil est marqué **À DÉCIDER**, avec qui décide. REC-1
+reste gelé ; HOLD / FORBIDDEN reste vrai quel que soit le résultat.
+
+Périmètre : replay DATA-1 (`market-evidence-replay-1.2.0`), MP-1
+(`market-pricing-as-of-selector-1.0.0`), MP-0
+(`market-pricing-envelope-1.0.0`), pont CHAIN-0
+(`evaluateDecisionChainOnMarketEvidence`) et vue terminal
+(`terminal-local-view-4.12.0`).
+
+## 1. Dépendances DATA-3 → moteurs (état mesuré)
+
+| Sortie du replay | Consommateur | Effet |
+| --- | --- | --- |
+| `selection` (MP-1) | replay lui-même | `ABSTAIN` pour une raison contractuelle → replay `INVALID`, instantané vide |
+| `marketSnapshot` (statuts `LIVE` / `STALE` / `UNAVAILABLE`) | MP-0 via le pont | seul champ remplacé dans l'entrée CHAIN-0 |
+| `status`, `freshnessProof`, raisons | terminal, validateur DATA-3 | affichage et contrôles ; **aucun moteur ne les lit** |
+| état MP-0 | régime (`buildRegimeAssessmentContract`) | lit l'**état** seul, jamais les valeurs |
+
+MP-0 reste `LATEST_ONLY`, non reproductible, avec `HISTORICAL_REPLAY_UNAVAILABLE`
+sur tous les chemins : un replay, même parfait, n'élève jamais sa confiance.
+
+## 2. Critères et preuves
+
+Chaque critère est binaire (PASS / FAIL). Les preuves « hors dépôt » sont des sondes locales de cette session, à intégrer au dépôt avant toute qualification formelle.
+« Taux cible 100 % » signifie : aucun contre-exemple sur l'ensemble testé.
+
+| # | Critère | Mesure | Seuil | Preuve exigée | État au 2026-10-25 |
+| --- | --- | --- | --- | --- | --- |
+| Q1 | Aucune exécution | part des chemins (matrice, fuzz, scénarios) où chaîne = HOLD, exécution = FORBIDDEN, ACTION = ABSTAIN | 100 % | sonde locale de transitions (720 replays) et fuzz (4 000 + 4 000), hors dépôt ; suites `test_market_*` | PASS |
+| Q2 | Aucune anticipation | sélection identique quand on retire tout enregistrement ingéré après le cutoff ; correction utilisée à son instant d'ingestion, pas 1 ms avant | 100 % | `test_market_pricing_as_of_contract`, `test_market_evidence_replay`, sonde de transitions (I12) | PASS |
+| Q3 | Fraîcheur aux bornes | LIVE ≤ `liveMaxAgeS`, utilisable ≤ `staleMaxAgeS`, retirée au-delà ; même résultat que le pilote runtime | seuils `SYMBOL_RULES` existants (XAUUSD 360 s / 3 j ; FRED 36 h / 6 j) | `test_market_pricing_institutional_contract` (bornes 360 / 361 s, 3 j / 3 j + 1 s), test d'égalité runtime (25 bornes) | PASS à la seconde ; sous la seconde : voir A-C2 |
+| Q4 | VERIFIED jamais sans preuve | aucun replay VERIFIED avec champ couvert non observé, expiré ou sans règle | 0 cas | `test_market_evidence_replay` § 8b, sonde de transitions (I4, I9 à I11) ; validateur `VERIFIED_WITHOUT_FRESHNESS_PROOF` | PASS (VERIFIED inatteignable sans règle DXY) |
+| Q5 | Échec fermé sur la provenance | archive avec unité, chronologie, empreinte brute ou révision invalide → `INVALID`, aucune valeur jusqu'à MP-0 | 100 % | `test_market_evidence_replay` (19 défauts), `test_market_pricing_institutional_contract` | PASS |
+| Q6 | Ambiguïté | deux sources, même instant, valeurs différentes → MP-1 `ABSTAIN`, replay `INVALID` | 100 % | `test_market_pricing_as_of_contract` | PASS |
+| Q7 | Historique défectueux | un défaut connu seulement plus tard ne produit jamais une valeur différente à un cutoff antérieur (au pire, abstention) | 100 % | `test_market_pricing_as_of_contract` | PASS |
+| Q8 | Affichage sans anticipation | une valeur observée après le cutoff, ou dont l'instant d'observation est illisible, n'est jamais affichée ni dite fraîche | 100 % | `test_terminal_view`, `test_terminal_local` (vues 4.11.0 et 4.12.0) | PASS depuis la vue 4.12.0 (anomalies A-C1, A-C4) ; la vue 4.11.0 laissait passer une date illisible |
+| Q9 | Déterminisme | même archive et cutoff → même empreinte, quels que soient ordre, fuseau, locale | 100 % | `test_market_evidence_replay` §2 | PASS |
+| Q10 | Mutation | part des mutants tués sur la logique de décision et de fraîcheur | 100 % des mutants listés | scripts de mutation du rapport (continuité 14/14, L1b 9/9, affichage 6/6, vue 4.11.0 5/5, vue 4.12.0 2/2, moteurs 6/6) | PASS |
+| Q11 | Couverture continue démontrée | intervalle de couverture sans lacune selon un calendrier et une tolérance approuvés | **À DÉCIDER** (responsable données + responsable risque) | audit de continuité DATA-3 ; aujourd'hui `continuity: NOT_ATTESTED` | BLOQUÉ |
+| Q12 | Exactitude des prix | écart à une référence officielle (ICE DXY, carnet bid/ask) | **À DÉCIDER** (responsable données ; licence) | séries officielles sous licence ; le proxy BCE n'en est pas une | BLOQUÉ |
+| Q13 | Fraîcheur DXY | seuils LIVE / utilisable pour DXY | **À DÉCIDER** (responsable données) | règle ajoutée à `SYMBOL_RULES` avec sa source | BLOQUÉ (G2) |
+| Q14 | Granularité des âges | bornes en millisecondes ou en secondes entières | **À DÉCIDER** (responsable risque ; changement de contrat MP-1) | test aux bornes à ± 1 ms | état actuel : secondes entières (A-C2) |
+| Q15 | Confiance MP-0 dans un replay | conditions pour quitter `LATEST_ONLY` | **À DÉCIDER** (décision DATA-3 n° 3) | critères MP-0 du document DATA-3 (§ 4), chacun rouge puis vert | BLOQUÉ |
+| Q16 | Performance financière d'un moteur | toute mesure de rendement, précision directionnelle ou risque | **À DÉCIDER** (comité ; hors périmètre OFFLINE) | historique authentique VERIFIED, période hors échantillon, méthode approuvée | NON APPLICABLE tant que Q11 à Q15 ne sont pas levés |
+
+## 3. Anomalies relevées par cette qualification
+
+- **A-C1 (moyenne, corrigée, `7935ac7`)** : un document d'entrée dont une
+  valeur de marché est observée après le cutoff faisait bien abstenir MP-0,
+  mais la vue copiait le champ, et le terminal affichait cette valeur
+  « FRAIS AU CUTOFF ». Vue 4.11.0 : `OBSERVED_AFTER_CUTOFF`, sans valeur ni
+  âge ; la page refuse toute vue qui en afficherait une. Aucune décision
+  n'était touchée (le régime lit l'état seul) ; c'était une fuite d'affichage.
+- **A-C4 (moyenne, corrigée, vue 4.12.0)** : la vue 4.11.0 ne masquait
+  qu'un `observedAt` lisible et postérieur au cutoff. Un `observedAt`
+  illisible (`2026-02-30T00:00:00Z`, décalage `-00:00`) faisait abstenir
+  MP-0 (`INVALID_FIELD_CONTRACT`), mais la vue gardait la valeur et le statut
+  `LIVE` déclaré, et la page l'affichait « FRAIS AU CUTOFF ». Vue 4.12.0 :
+  `OBSERVATION_TIME_INVALID`, sans valeur ni âge. La page lisait les instants
+  par `Date.parse` (date impossible normalisée, troncature à la
+  milliseconde : 0,4 ms après le cutoff passait) ; elle applique désormais la
+  règle stricte du moteur, à la nanoseconde. Fuite d'affichage seulement :
+  HOLD / FORBIDDEN inchangé.
+- **A-C2 (faible, ouverte, À DÉCIDER)** : MP-1 calcule l'âge en secondes
+  entières (`Math.floor`). Jusqu'à 999 ms au-delà d'un seuil, une valeur
+  reste servie (`STALE` au lieu de retirée) et sa preuve est `FRESH`. Le
+  pilote runtime partage la même convention. La corriger change le contrat
+  MP-1 et les empreintes : décision requise, non faite ici. Le comportement
+  actuel est figé par un test, explicitement comme état et non comme norme.
+
+## 4. Reproduire
+
+```
+node node_modules/typescript/bin/tsc --noEmit
+node scripts/run_ci_tests.mjs
+node tests/test_market_pricing_as_of_contract.mjs
+node tests/test_market_pricing_institutional_contract.mjs
+node tests/test_terminal_view.mjs
+```
+
+Toutes les données de ces tests sont synthétiques. Aucune valeur de marché ou
+CFTC réelle n'y figure.
