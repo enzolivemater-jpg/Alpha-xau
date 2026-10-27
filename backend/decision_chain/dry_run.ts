@@ -55,7 +55,7 @@ import {
 } from '../market_engine/institutional_snapshot.js';
 import { canonicalJson, sha256Canonical } from '../shared/canonical_json.js';
 import type { Freshness, MarketField, MarketSnapshot, MarketSymbol } from '../market_engine/types.js';
-import { SYMBOL_RULES, classifyFreshness } from '../market_engine/validate.js';
+import { SYMBOL_RULES, classifyFreshnessExact } from '../market_engine/validate.js';
 import {
   PORTFOLIO_MANAGER_ALGORITHM_VERSION,
   PORTFOLIO_MANAGER_SCHEMA_VERSION,
@@ -88,10 +88,10 @@ import {
   type PrePmContractInput,
   type PrePmEnvelope,
 } from '../risk_engine/pre_pm_contract.js';
-import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp, parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
 export const DECISION_CHAIN_SCHEMA_VERSION = 'xau.decision-chain-dry-run.v1' as const;
-export const DECISION_CHAIN_ALGORITHM_VERSION = 'decision-chain-dry-run-1.0.0' as const;
+export const DECISION_CHAIN_ALGORITHM_VERSION = 'decision-chain-dry-run-1.1.0' as const;
 
 export const DECISION_CHAIN_STAGES = [
   { stage: 'MARKET_PRICING', schemaVersion: MARKET_PRICING_SCHEMA_VERSION, algorithmVersion: MARKET_PRICING_ALGORITHM_VERSION },
@@ -453,7 +453,9 @@ function fieldAtCutoff(
   // Invalid or look-ahead timestamps are rejected by MP-0 itself.
   if (cutoffMs === null || observedMs === null || isStrictlyAfter(field.observedAt, knowledgeCutoff)) return field;
   const ageSeconds = Math.floor((cutoffMs - observedMs) / 1000);
-  const freshness = classifyFreshness(ageSeconds, rule);
+  // A-C2 (1.1.0): decided on the exact age; the reported age stays whole seconds elapsed.
+  const freshness = classifyFreshnessExact(
+    parseStrictTimestampNanos(knowledgeCutoff)! - parseStrictTimestampNanos(field.observedAt)!, rule);
   // The age reported downstream is always the age at the cutoff.
   if (FRESHNESS_RANK[freshness] <= FRESHNESS_RANK[field.status]) return { ...field, ageSeconds };
   if (freshness === 'UNAVAILABLE') {

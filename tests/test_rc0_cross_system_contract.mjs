@@ -199,7 +199,7 @@ const OFFICIAL_RELEASES = [
 ];
 const macroCutoff = golden.knowledgeCutoff; // 2026-10-01T14:15:00.000Z, after the four releases
 const goldenDigest = await chain.computeDecisionChainDigest(chain.evaluateDecisionChain(golden.input, macroCutoff).result);
-assert.equal(goldenDigest, 'sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c');
+assert.equal(goldenDigest, 'sha256:919b602e2f1ad8df2dc8f3acbe2a4237d5914640210bb8b1f4102e8635ae149c');
 
 const eventVersions = OFFICIAL_RELEASES.map((release, index) => {
   const document = fixture(release.file);

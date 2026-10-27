@@ -36,7 +36,7 @@ const codes = (violations) => violations.map((v) => `${v.stage}:${v.code}`);
 // --- 1. Current state composes end to end into an honest, consistent HOLD.
 const result = mod.runDecisionChainDryRun(baseline, cutoff);
 assert.equal(result.schemaVersion, 'xau.decision-chain-dry-run.v1');
-assert.equal(result.algorithmVersion, 'decision-chain-dry-run-1.0.0');
+assert.equal(result.algorithmVersion, 'decision-chain-dry-run-1.1.0');
 assert.equal(result.mode, 'DRY_RUN');
 assert.equal(result.chainState, 'HOLD');
 assert.equal(result.execution, 'FORBIDDEN');
@@ -177,6 +177,36 @@ assert.equal(check.t.REGIME.state, 'ABSTAIN');
 check = aged((s) => { s.vix.observedAt = '2026-09-24T00:00:00.000Z'; });
 assert.deepEqual(check.findings, ['marketSnapshot.vix:MARKET_FIELD_EXPIRED_AT_CUTOFF']);
 assert.ok(check.t.MARKET_PRICING.reasonCodes.includes('OPTIONAL_FIELD_UNAVAILABLE'));
+// A-C2 (1.1.0): the windows are compared on the exact age (to the nanosecond); one millisecond, or one nanosecond, past a threshold crosses it.
+// The reported age stays whole seconds elapsed. Cutoff 14:15:00.000Z; spot live 360 s, stale 3 days; VIX stale 6 days.
+for (const [observedAt, finding, status, ageSeconds] of [
+  ['2026-10-01T14:09:00.000Z', null, 'LIVE', 360],
+  ['2026-10-01T14:08:59.999Z', 'MARKET_FIELD_STALE_AT_CUTOFF', 'STALE', 360],
+  ['2026-09-28T14:15:00.000Z', 'MARKET_FIELD_STALE_AT_CUTOFF', 'STALE', 259200],
+  ['2026-09-28T14:14:59.999Z', 'MARKET_FIELD_EXPIRED_AT_CUTOFF', 'UNAVAILABLE', 259200],
+  ['2026-09-28T14:14:59.001Z', 'MARKET_FIELD_EXPIRED_AT_CUTOFF', 'UNAVAILABLE', 259200],
+  ['2026-09-28T14:14:59.999999999Z', 'MARKET_FIELD_EXPIRED_AT_CUTOFF', 'UNAVAILABLE', 259200],
+  ['2026-10-01T14:08:59.999999999Z', 'MARKET_FIELD_STALE_AT_CUTOFF', 'STALE', 360],
+]) {
+  check = aged((s) => { for (const name of ['spot', 'bid', 'ask']) s[name].observedAt = observedAt; s.capturedAt = observedAt; });
+  assert.equal(check.findings.find((f) => f.startsWith('marketSnapshot.spot:')), finding === null ? undefined : `marketSnapshot.spot:${finding}`, observedAt);
+  assert.deepEqual([check.run.stages.marketPricing.fields.spot.status, check.run.stages.marketPricing.fields.spot.ageSeconds], [status, ageSeconds], observedAt);
+}
+// The cutoff itself is exact to the nanosecond: 1 ns after it, a spot observed exactly 3 days earlier has expired.
+// A millisecond-truncated age would still call it STALE.
+{
+  const copy = structuredClone(baseline);
+  for (const name of ['spot', 'bid', 'ask']) copy.marketSnapshot[name].observedAt = '2026-09-28T14:15:00.000Z';
+  copy.marketSnapshot.capturedAt = '2026-09-28T14:15:00.000Z';
+  for (const [at, finding] of [['2026-10-01T14:15:00.000Z', 'MARKET_FIELD_STALE_AT_CUTOFF'], ['2026-10-01T14:15:00.000000001Z', 'MARKET_FIELD_EXPIRED_AT_CUTOFF']]) {
+    const run = mod.runDecisionChainDryRun(structuredClone(copy), at);
+    assert.equal(run.inputFindings.map((f) => `${f.field}:${f.code}`).find((f) => f.startsWith('marketSnapshot.spot:')), `marketSnapshot.spot:${finding}`, at);
+  }
+}
+check = aged((s) => { s.vix.observedAt = '2026-09-25T14:15:00.000Z'; });
+assert.deepEqual(check.findings, ['marketSnapshot.vix:MARKET_FIELD_STALE_AT_CUTOFF'], 'exactly 6 days: still usable');
+check = aged((s) => { s.vix.observedAt = '2026-09-25T14:14:59.999Z'; });
+assert.deepEqual(check.findings, ['marketSnapshot.vix:MARKET_FIELD_EXPIRED_AT_CUTOFF']);
 // A value with no approved freshness rule (DXY) is never admitted.
 check = aged((s) => { s.dxy = live(97.4, '2026-10-01T14:00:00.000Z', 'test'); });
 assert.deepEqual(check.findings, ['marketSnapshot.dxy:MARKET_FIELD_FRESHNESS_RULE_UNAVAILABLE']);
@@ -426,6 +456,6 @@ assert.match(source, /chainState: 'HOLD'/);
 assert.match(source, /execution: 'FORBIDDEN'/);
 assert.match(docs, /DRY RUN ONLY/);
 assert.match(docs, /xau\.decision-chain-dry-run\.v1/);
-assert.match(docs, /decision-chain-dry-run-1\.0\.0/);
+assert.match(docs, /decision-chain-dry-run-1\.1\.0/);
 assert.match(docs, /authorizes no persistence[\s\S]*trading/i);
 console.log('PASS CHAIN-0 composes MP-0..E2E-0 into a verified, replayable HOLD dry run');

@@ -78,6 +78,18 @@ export function classifyFreshness(ageSeconds: number, rule: SymbolRule): Freshne
 }
 
 /**
+ * Même règle, sur l'âge exact en nanosecondes (A-C2) : le moindre écart
+ * au-delà d'un seuil le franchit, y compris sous la milliseconde. Pour le
+ * rejeu et la chaîne à un cutoff, qui connaissent les deux instants exacts
+ * (`parseStrictTimestampNanos`).
+ */
+export function classifyFreshnessExact(ageNanos: bigint, rule: SymbolRule): Freshness {
+  if (ageNanos > BigInt(rule.staleMaxAgeS) * 1_000_000_000n) return 'UNAVAILABLE';
+  if (ageNanos > BigInt(rule.liveMaxAgeS) * 1_000_000_000n) return 'STALE';
+  return 'LIVE';
+}
+
+/**
  * Valide un point brut. Retourne un résultat discriminé : le code appelant
  * ne peut pas accéder à `point` sans avoir vérifié `ok`.
  *

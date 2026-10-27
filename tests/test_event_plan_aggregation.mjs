@@ -49,7 +49,7 @@ console.log('PASS all-insufficient plan sets aggregate to INSUFFICIENT_EVIDENCE,
 // --- The summary feeds CHAIN-0 exactly like the golden summary.
 const input = { ...structuredClone(golden.input), eventImpact: out.summary, goldTransmission: g.summary };
 const digest = await chain.computeDecisionChainDigest(chain.evaluateDecisionChain(input, CUTOFF).result);
-assert.equal(digest, 'sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c');
+assert.equal(digest, 'sha256:919b602e2f1ad8df2dc8f3acbe2a4237d5914640210bb8b1f4102e8635ae149c');
 console.log('PASS aggregated summaries reproduce the golden CHAIN-0 digest');
 
 // --- Every other set is UNAVAILABLE, with the reason.
@@ -141,7 +141,7 @@ assert.deepEqual(v2([p1, p2], [...okReleases].reverse()), r, 'order-independent 
 const v2Digest = await chain.computeDecisionChainDigest(chain.evaluateDecisionChain(
   { ...structuredClone(golden.input), eventImpact: r.summary,
     goldTransmission: v2([gtPlan(1), gtPlan(2)], okReleases, 'GOLD_TRANSMISSION').summary }, CUTOFF).result);
-assert.equal(v2Digest, 'sha256:9bbd9cacdf16aff9fe886fb938b3cbf6202674d1ef4b3e34581f7b45eef2db3c', 'golden digest unchanged');
+assert.equal(v2Digest, 'sha256:919b602e2f1ad8df2dc8f3acbe2a4237d5914640210bb8b1f4102e8635ae149c', 'golden digest unchanged');
 console.log('PASS EIA-0 v2: with valid release evidence the summary equals v1 and keeps the golden CHAIN-0 digest');
 
 // Back-dated, equal, later: the comparison is exact to the nanosecond, across offsets.

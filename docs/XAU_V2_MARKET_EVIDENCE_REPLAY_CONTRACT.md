@@ -15,7 +15,7 @@ Module: `backend/market_engine/evidence_archive.ts`. Bridge:
 ## Frozen versions
 
 - archive: `xau.market-evidence-archive.v1`;
-- replay: `xau.market-evidence-replay.v1` / `market-evidence-replay-1.2.0`.
+- replay: `xau.market-evidence-replay.v1` / `market-evidence-replay-1.3.0`.
 
 ## Evidence record
 
@@ -295,6 +295,39 @@ digests); replay digests change with the version. The terminal view moves to
 every observation, including any 4.9.0 manifest. The DATA-3 validator
 refuses the same claim (`VERIFIED_WITHOUT_FRESHNESS_PROOF`) and still judges
 1.1.0 replays by their runtime class (`VERIFIED_WITH_FIELD_UNAVAILABLE`).
+
+## A-C2: freshness decided on the exact age (replay 1.3.0)
+
+Up to 1.2.0 the age at the cutoff was whole seconds (`Math.floor`) and
+freshness was classified on it, so a value up to 999 ms past `liveMaxAgeS` was
+still `LIVE`, and up to 999 ms past `staleMaxAgeS` it was still served with
+`freshnessProof: FRESH`. 1.3.0 classifies the exact age, cutoff minus
+`observedAt` to the nanosecond (`parseStrictTimestampNanos`, the precision the
+cutoff gate already uses), with `classifyFreshnessExact`: the slightest excess
+over a threshold crosses it.
+
+| Age at the cutoff | 1.2.0 | 1.3.0 |
+| --- | --- | --- |
+| `liveMaxAgeS` exactly | `LIVE` | `LIVE` |
+| `liveMaxAgeS` + 1 ms | `LIVE` | `STALE` |
+| `staleMaxAgeS` exactly | `STALE`, `FRESH` | `STALE`, `FRESH` |
+| `staleMaxAgeS` + 1 ms to + 999 ms | `STALE`, `FRESH`, value served | `UNAVAILABLE`, `STALE`, value withdrawn (`DECLARED_FIELD_STALE`) |
+
+The thresholds themselves are unchanged (`SYMBOL_RULES`, no new value). At
+whole-second ages both versions agree, and so does the runtime driver
+(section 13 of the replay test). `ageSecondsAtCutoff` is still whole seconds
+elapsed (floor), so an expired value can report an age equal to its threshold.
+Output shape, archives and archive digests are unchanged; replay digests
+change with the version. The DATA-3 continuity audit already compared
+milliseconds (`observedAt + maxAgeS × 1000`); 1.3.0 agrees with it to the
+millisecond. MP-1 (`market-pricing-as-of-selector-1.0.0`) does not classify
+freshness and is unchanged.
+
+Not changed: the live runtime path. Ingestion (`validateDataPoint`,
+`Math.round`) and `v_market_latest.staleness_seconds` (`::INTEGER`, which
+rounds) round to the nearest second, so live data crosses a threshold at
++ 500 ms. Aligning them is a schema and runtime change, left to a decision
+(A-C3).
 
 ## Remaining decisions (DATA-3 onward)
 

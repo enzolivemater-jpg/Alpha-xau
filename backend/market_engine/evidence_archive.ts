@@ -30,14 +30,14 @@ import {
   type MarketPricingAsOfSelection,
 } from './as_of_snapshot.js';
 import type { Freshness, MarketField, MarketSnapshot, MarketSymbol, RawDataPoint } from './types.js';
-import { SYMBOL_RULES, classifyFreshness } from './validate.js';
+import { SYMBOL_RULES, classifyFreshnessExact } from './validate.js';
 import { canonicalJson, sha256Canonical, sha256Text } from '../shared/canonical_json.js';
-import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp, parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
 /** Input format of an archive (not an output contract version). */
 export const MARKET_EVIDENCE_ARCHIVE_FORMAT = 'xau.market-evidence-archive.v1' as const;
 export const MARKET_EVIDENCE_REPLAY_SCHEMA_VERSION = 'xau.market-evidence-replay.v1' as const;
-export const MARKET_EVIDENCE_REPLAY_ALGORITHM_VERSION = 'market-evidence-replay-1.2.0' as const;
+export const MARKET_EVIDENCE_REPLAY_ALGORITHM_VERSION = 'market-evidence-replay-1.3.0' as const;
 
 export type EvidenceInstrument = 'XAUUSD' | 'DXY' | 'US10Y' | 'US10YR' | 'VIX' | 'WTI';
 export type EvidenceUnit = 'USD_PER_TROY_OUNCE' | 'INDEX_POINTS' | 'PERCENT' | 'USD_PER_BARREL';
@@ -541,8 +541,10 @@ export async function replayMarketEvidence(
       let freshnessProof: MarketEvidenceFreshnessProof = 'NOT_EVALUATED';
       if (spec.freshnessSymbol === null) add('FRESHNESS_RULE_UNAVAILABLE');
       else {
-        freshnessAtCutoff = classifyFreshness(ageSecondsAtCutoff, SYMBOL_RULES[spec.freshnessSymbol]);
-        // Same edge as classifyFreshness: expired only strictly beyond staleMaxAgeS.
+        // A-C2 (1.3.0): decided on the exact age, not on the whole seconds reported in ageSecondsAtCutoff.
+        const ageNanos = parseStrictTimestampNanos(knowledgeCutoff)! - parseStrictTimestampNanos(record.observedAt)!;
+        freshnessAtCutoff = classifyFreshnessExact(ageNanos, SYMBOL_RULES[spec.freshnessSymbol]);
+        // Same edge as the rule: expired only strictly beyond staleMaxAgeS.
         freshnessProof = freshnessAtCutoff === 'UNAVAILABLE' ? 'STALE' : 'FRESH';
       }
       const payload = record.rawPayloadDigest === null ? undefined : archive.rawPayloads[record.rawPayloadDigest];
