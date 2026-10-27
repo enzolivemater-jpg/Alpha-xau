@@ -14,7 +14,7 @@ Périmètre : replay DATA-1 (`market-evidence-replay-1.3.0`), MP-1
 (`market-pricing-as-of-selector-1.0.0`), MP-0
 (`market-pricing-envelope-1.0.0`), pont CHAIN-0
 (`evaluateDecisionChainOnMarketEvidence`) et vue terminal
-(`terminal-local-view-4.11.0`).
+(`terminal-local-view-4.12.0`).
 
 ## 1. Dépendances DATA-3 → moteurs (état mesuré)
 
@@ -42,9 +42,9 @@ Chaque critère est binaire (PASS / FAIL). Les preuves « hors dépôt » sont d
 | Q5 | Échec fermé sur la provenance | archive avec unité, chronologie, empreinte brute ou révision invalide → `INVALID`, aucune valeur jusqu'à MP-0 | 100 % | `test_market_evidence_replay` (19 défauts), `test_market_pricing_institutional_contract` | PASS |
 | Q6 | Ambiguïté | deux sources, même instant, valeurs différentes → MP-1 `ABSTAIN`, replay `INVALID` | 100 % | `test_market_pricing_as_of_contract` | PASS |
 | Q7 | Historique défectueux | un défaut connu seulement plus tard ne produit jamais une valeur différente à un cutoff antérieur (au pire, abstention) | 100 % | `test_market_pricing_as_of_contract` | PASS |
-| Q8 | Affichage sans anticipation | une valeur observée après le cutoff n'est jamais affichée ni dite fraîche | 100 % | `test_terminal_view`, `test_terminal_local` (vue 4.11.0) | PASS depuis `7935ac7` (anomalie A-C1) |
+| Q8 | Affichage sans anticipation | une valeur observée après le cutoff, ou dont l'instant d'observation est illisible, n'est jamais affichée ni dite fraîche | 100 % | `test_terminal_view`, `test_terminal_local` (vues 4.11.0 et 4.12.0) | PASS depuis la vue 4.12.0 (anomalies A-C1, A-C4) ; la vue 4.11.0 laissait passer une date illisible |
 | Q9 | Déterminisme | même archive et cutoff → même empreinte, quels que soient ordre, fuseau, locale | 100 % | `test_market_evidence_replay` §2 | PASS |
-| Q10 | Mutation | part des mutants tués sur la logique de décision et de fraîcheur | 100 % des mutants listés | scripts de mutation du rapport (continuité 14/14, L1b 9/9, affichage 6/6, vue 4.11.0 5/5, moteurs 6/6) | PASS |
+| Q10 | Mutation | part des mutants tués sur la logique de décision et de fraîcheur | 100 % des mutants listés | scripts de mutation du rapport (continuité 14/14, L1b 9/9, affichage 6/6, vue 4.11.0 5/5, vue 4.12.0 2/2, moteurs 6/6) | PASS |
 | Q11 | Couverture continue démontrée | intervalle de couverture sans lacune selon un calendrier et une tolérance approuvés | **À DÉCIDER** (responsable données + responsable risque) | audit de continuité DATA-3 ; aujourd'hui `continuity: NOT_ATTESTED` | BLOQUÉ |
 | Q12 | Exactitude des prix | écart à une référence officielle (ICE DXY, carnet bid/ask) | **À DÉCIDER** (responsable données ; licence) | séries officielles sous licence ; le proxy BCE n'en est pas une | BLOQUÉ |
 | Q13 | Fraîcheur DXY | seuils LIVE / utilisable pour DXY | **À DÉCIDER** (responsable données) | règle ajoutée à `SYMBOL_RULES` avec sa source | BLOQUÉ (G2) |
@@ -60,6 +60,16 @@ Chaque critère est binaire (PASS / FAIL). Les preuves « hors dépôt » sont d
   « FRAIS AU CUTOFF ». Vue 4.11.0 : `OBSERVED_AFTER_CUTOFF`, sans valeur ni
   âge ; la page refuse toute vue qui en afficherait une. Aucune décision
   n'était touchée (le régime lit l'état seul) ; c'était une fuite d'affichage.
+- **A-C4 (moyenne, corrigée, vue 4.12.0)** : la vue 4.11.0 ne masquait
+  qu'un `observedAt` lisible et postérieur au cutoff. Un `observedAt`
+  illisible (`2026-02-30T00:00:00Z`, décalage `-00:00`) faisait abstenir
+  MP-0 (`INVALID_FIELD_CONTRACT`), mais la vue gardait la valeur et le statut
+  `LIVE` déclaré, et la page l'affichait « FRAIS AU CUTOFF ». Vue 4.12.0 :
+  `OBSERVATION_TIME_INVALID`, sans valeur ni âge. La page lisait les instants
+  par `Date.parse` (date impossible normalisée, troncature à la
+  milliseconde : 0,4 ms après le cutoff passait) ; elle applique désormais la
+  règle stricte du moteur, à la nanoseconde. Fuite d'affichage seulement :
+  HOLD / FORBIDDEN inchangé.
 - **A-C2 (faible, correctif proposé, À DÉCIDER)** : l'âge au cutoff était
   calculé en secondes entières (`Math.floor`) puis classé. Jusqu'à 999 ms
   au-delà d'un seuil, une valeur restait servie (`STALE` au lieu de retirée)
