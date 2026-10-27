@@ -148,7 +148,7 @@ for (const [label, raw] of mutationCases(point).filter(([, mutated]) => mutated 
 // Capture append and merge.
 for (const [label, hostile] of mutationCases(providerCapture)) {
   await probe(`capture ${label}`, () => capture.appendProviderCapture(archive, hostile, parsers), (out) => {
-    if (!['APPENDED', 'ALREADY_CAPTURED', 'REJECTED'].includes(out.outcome)) note(`capture ${label}`, `outcome ${out.outcome}`);
+    if (!['APPENDED', 'ALREADY_CAPTURED', 'NO_NEW_VALUE', 'REJECTED'].includes(out.outcome)) note(`capture ${label}`, `outcome ${out.outcome}`);
     if (out.outcome === 'APPENDED') {
       for (const record of out.archive.records) {
         if (strict.parseStrictTimestamp(record.ingestedAt) === null || strict.parseStrictTimestamp(record.observedAt) === null || !Number.isFinite(record.value)) {

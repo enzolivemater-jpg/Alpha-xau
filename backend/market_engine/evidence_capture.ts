@@ -10,7 +10,10 @@
  *
  * Append-only: existing records and payloads are never changed. A value the
  * archive already holds is not recorded again; a different value for the same
- * observation becomes a new revision superseding the latest one. Capture
+ * observation becomes a new revision superseding the latest one. A body whose
+ * every value the archive already holds adds no record, so its bytes are not
+ * kept either (NO_NEW_VALUE): the raw-storage contract keeps no byte that no
+ * record names, and nothing records that this capture happened. Capture
  * times must not go backwards, and the declared coverage ends at the latest
  * capture. A capture is applied only if the resulting archive replays without
  * a blocking finding; otherwise the archive is returned unchanged.
@@ -31,7 +34,7 @@ import {
 import type { MarketPricingAsOfFieldName } from './as_of_snapshot.js';
 import type { MarketSymbol, RawDataPoint } from './types.js';
 import { canonicalJson, sha256Text } from '../shared/canonical_json.js';
-import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp, parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
 export interface CaptureParsers {
   /** Every observation of a FRED response (`parseFredObservations`). */
@@ -80,7 +83,7 @@ export type CaptureRejection =
   | 'ARCHIVE_WOULD_BE_INVALID';
 
 export interface CaptureResult {
-  readonly outcome: 'APPENDED' | 'ALREADY_CAPTURED' | 'REJECTED';
+  readonly outcome: 'APPENDED' | 'ALREADY_CAPTURED' | 'NO_NEW_VALUE' | 'REJECTED';
   /** The new archive, or the input archive unchanged. */
   readonly archive: MarketEvidenceArchive;
   readonly rawPayloadDigest: string | null;
@@ -168,6 +171,12 @@ export async function appendProviderCapture(
 
   const ingestedMs = parseStrictTimestamp(capture.ingestedAt);
   if (ingestedMs === null) return result({ outcome: 'REJECTED', rejection: 'INVALID_INGESTED_AT' });
+  // The log keeps reception instants to the millisecond. A finer one was stored rounded down, so a capture
+  // declared 0.3 ms before the previous one passed the order check, and a manifest repeating the declared
+  // instant contradicted the log. Refused, never rounded.
+  if (parseStrictTimestampNanos(capture.ingestedAt) !== BigInt(ingestedMs) * 1_000_000n) {
+    return result({ outcome: 'REJECTED', rejection: 'INVALID_INGESTED_AT' });
+  }
   const ingestedAt = new Date(ingestedMs).toISOString();
   // The log's last known instant: the end of its coverage or its latest
   // ingestion, whichever is later. An archive without coverage is still a log.
@@ -251,6 +260,8 @@ export async function appendProviderCapture(
     });
     (prior ? revised : added).push(evidenceId);
   }
+  // No record would name these bytes: keeping them would leave an orphan payload with no reception time.
+  if (records.length === 0) return result({ outcome: 'NO_NEW_VALUE', rawPayloadDigest: digest, unchanged, skipped });
 
   const next: MarketEvidenceArchive = {
     ...archive,
