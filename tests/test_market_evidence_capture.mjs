@@ -98,6 +98,18 @@ const correction = r2.archive.records.find((r) => r.evidenceId === r2.revised[0]
 assert.equal(correction.value, 4.11);
 assert.equal(correction.supersedes, rec.evidenceId, 'the provider revision supersedes the earlier value');
 assert.deepEqual(r2.archive.records.slice(0, 4), r1.archive.records, 'earlier records unchanged');
+// A body whose every value the archive already holds (FRED's vintage date moved, its values did not) adds no record,
+// so its bytes are not kept: no orphan payload, no reception time without a record (DATA-3 raw-storage contract).
+const sameValues = fredBody('2026-10-03', [['2026-09-29', '4.12'], ['2026-09-30', '4.11'], ['2026-10-01', '4.15']]);
+const nothingNew = await cap.appendProviderCapture(r2.archive, fred('DGS10', 'US10Y', sameValues, '2026-10-03T06:00:00Z'), PARSERS);
+assert.deepEqual([nothingNew.outcome, nothingNew.unchanged, nothingNew.added, nothingNew.revised, nothingNew.rejection],
+  ['NO_NEW_VALUE', 3, [], [], null]);
+assert.equal(nothingNew.rawPayloadDigest, await sha256Text(sameValues));
+assert.equal(nothingNew.archive, r2.archive, 'archive unchanged: bytes not kept, coverage not extended');
+{
+  const { auditCaptureAttestation } = await import('../scripts/lib/capture_attestation.mjs');
+  assert.equal(auditCaptureAttestation(r2.archive, { series: cap.CAPTURE_SERIES }).outcome, 'BYTES_CONSISTENT');
+}
 const late = await cap.appendProviderCapture(r2.archive, fred('DGS10', 'US10Y', fredBody('2026-10-01', [['2026-09-23', '4.00']]), '2026-10-01T23:00:00Z'), PARSERS);
 assert.equal(late.outcome, 'REJECTED');
 assert.equal(late.rejection, 'INGESTION_OUT_OF_ORDER');
@@ -390,6 +402,17 @@ console.log('PASS capture CLI: explicit attestation for CAPTURED, never overwrit
   const renamed = structuredClone(c);
   renamed.records[0].evidenceId = 'twelve_data:renamed';
   assert.match((await cap.mergeCaptureArchives([renamed], { archiveId: 'm', parsers: PARSERS })).problems.join(), /RECORD_NOT_REPRODUCED/);
+  // Two logs holding the same value from two different bodies: the later body adds nothing to the merge, and its
+  // bytes are not kept there (they used to be, named by no record, so the merge broke the raw-storage contract).
+  {
+    const { auditCaptureAttestation } = await import('../scripts/lib/capture_attestation.mjs');
+    const later = await logOf('log-a-later', [fred('DGS10', 'US10Y', fredBody('2026-10-02', [['2026-09-30', '4.10']]), '2026-10-02T06:00:00Z')]);
+    const m = await cap.mergeCaptureArchives([a, later], { archiveId: 'm', parsers: PARSERS });
+    assert.equal(m.outcome, 'MERGED', m.problems.join());
+    assert.deepEqual(m.captures.map((x) => x.outcome), ['APPENDED', 'NO_NEW_VALUE']);
+    assert.deepEqual(Object.keys(m.archive.rawPayloads), Object.keys(a.rawPayloads));
+    assert.equal(auditCaptureAttestation(m.archive, { series: cap.CAPTURE_SERIES }).outcome, 'BYTES_CONSISTENT');
+  }
   // The same capture held by two logs is merged once.
   const twice = await cap.mergeCaptureArchives([c, structuredClone(c)], { archiveId: 'm', parsers: PARSERS });
   assert.equal(twice.outcome, 'MERGED');

@@ -13,11 +13,21 @@
  *
  * Report only. It never changes a replay, a status or a decision, and it reads
  * no clock, file, network or provider.
+ *
+ * Instants are read with the repository's strict rule (shared/strict_timestamp.ts):
+ * an impossible date (2026-09-31) or the `-00:00` offset is unreadable, never
+ * rolled over to a real one as Date.parse does, and instants compare to the
+ * nanosecond.
  */
 
 import { createHash } from 'node:crypto';
+import { loadBackendModule } from './backend_module_loader.mjs';
 
-export const CAPTURE_ATTESTATION_REPORT_VERSION = 'capture-attestation-1.0.0';
+const { parseStrictTimestampNanos } = await loadBackendModule('shared/strict_timestamp.ts');
+
+// 1.1.0: strict instants (an impossible date is unreadable; nanosecond comparison); a capture listed twice in a
+// manifest refuses it (MANIFEST_CAPTURE_DUPLICATED).
+export const CAPTURE_ATTESTATION_REPORT_VERSION = 'capture-attestation-1.1.0';
 export const ATTESTATION_MANIFEST_FORMAT = 'xau.capture-attestation-manifest.v1';
 
 /** What a manifest may declare. Anything else is refused, not ignored. */
@@ -30,12 +40,9 @@ const OVERCLAIM = /\b(VERIFIED|CERTIFIED|SIGNED|PROVEN|AUTHENTICATED)\b/i;
 const sha256 = (text) => `sha256:${createHash('sha256').update(text, 'utf8').digest('hex')}`;
 const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isText = (v) => typeof v === 'string' && v.trim().length > 0;
-const instant = (v) => {
-  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(v)) return null;
-  const ms = Date.parse(v);
-  return Number.isFinite(ms) ? ms : null;
-};
-const iso = (ms) => new Date(ms).toISOString();
+/** Exact instant (nanoseconds, bigint) or null. */
+const instant = (v) => parseStrictTimestampNanos(v);
+const iso = (ns) => new Date(Number(ns / 1_000_000n)).toISOString();
 
 /** Problems of a manifest's own shape, and the claims it makes beyond what can be checked. */
 function manifestProblems(manifest, archiveId) {
@@ -57,6 +64,9 @@ function manifestProblems(manifest, archiveId) {
       || !isText(lic.retention))) problems.push('MANIFEST_LICENCE_INVALID');
   if (!Array.isArray(manifest.captures) || manifest.captures.some((c) => !isObject(c) || !isText(c.rawPayloadDigest) || instant(c.receivedAt) === null)) {
     problems.push('MANIFEST_CAPTURES_INVALID');
+  } else if (new Set(manifest.captures.map((c) => c.rawPayloadDigest)).size !== manifest.captures.length) {
+    // One capture, one declaration: a second entry would silently replace the first.
+    problems.push('MANIFEST_CAPTURE_DUPLICATED');
   }
   return [...new Set(problems)];
 }
@@ -109,15 +119,16 @@ export function auditCaptureAttestation(archive, { series = [], manifest = null 
       records: recs.length,
       firstIndex: recs.length ? Math.min(...recs.map((x) => x.index)) : null,
       receivedAt: received.length === 1 && received[0] !== null ? iso(received[0]) : null,
+      receivedNs: received.length === 1 ? received[0] : null,
       bytes: bytesKept ? 'KEPT' : 'MISSING',
       digest: !bytesKept ? 'NOT_CHECKED' : digestMatches ? 'MATCH' : 'MISMATCH',
       request: known ? 'KNOWN_SERIES' : 'NOT_ESTABLISHED',
     });
   }
   // Append order: captures appear in the log in reception order.
-  const ordered = captures.filter((c) => c.firstIndex !== null && c.receivedAt !== null).sort((a, b) => a.firstIndex - b.firstIndex);
+  const ordered = captures.filter((c) => c.firstIndex !== null && c.receivedNs !== null).sort((a, b) => a.firstIndex - b.firstIndex);
   for (let i = 1; i < ordered.length; i += 1) {
-    if (Date.parse(ordered[i].receivedAt) < Date.parse(ordered[i - 1].receivedAt)) add('CAPTURES_OUT_OF_ORDER', { rawPayloadDigest: ordered[i].rawPayloadDigest });
+    if (ordered[i].receivedNs < ordered[i - 1].receivedNs) add('CAPTURES_OUT_OF_ORDER', { rawPayloadDigest: ordered[i].rawPayloadDigest });
   }
 
   // What only an attestation can say: who attested, which collector, under which licence.
@@ -136,7 +147,7 @@ export function auditCaptureAttestation(archive, { series = [], manifest = null 
       for (const c of captures) {
         const m = listed.get(c.rawPayloadDigest);
         if (!m) add('MANIFEST_CAPTURE_MISSING', { rawPayloadDigest: c.rawPayloadDigest });
-        else if (c.receivedAt === null || instant(m.receivedAt) !== Date.parse(c.receivedAt)) add('MANIFEST_RECEPTION_MISMATCH', { rawPayloadDigest: c.rawPayloadDigest });
+        else if (c.receivedNs === null || instant(m.receivedAt) !== c.receivedNs) add('MANIFEST_RECEPTION_MISMATCH', { rawPayloadDigest: c.rawPayloadDigest });
       }
       for (const d of listed.keys()) if (!captures.some((c) => c.rawPayloadDigest === d)) add('MANIFEST_CAPTURE_UNKNOWN', { rawPayloadDigest: d });
       attestedBy = archive.provenanceClass === 'CAPTURED' ? `${manifest.attestedBy.kind}_DECLARED` : 'NOT_CAPTURED';
@@ -160,7 +171,7 @@ export function auditCaptureAttestation(archive, { series = [], manifest = null 
     attestedBy,
     collector,
     licence,
-    captures: captures.map(({ firstIndex, ...c }) => c),
+    captures: captures.map(({ firstIndex, receivedNs, ...c }) => c),
     findings,
     manifest: manifestReport,
   };

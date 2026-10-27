@@ -314,6 +314,11 @@ console.log('PASS DATA-3 continuity audit: per-series gaps, duplicates, order, f
   broken('series no capture code knows', (a) => { for (const r of a.records.slice(0, 2)) r.sourceRecordId = 'T10YIE'; }, 'UNKNOWN_SERIES');
   broken('bytes relabelled to another provider', (a) => { a.rawPayloads[digests[1]].parser = 'fred'; }, 'UNKNOWN_SERIES');
   broken('bytes relabelled to another symbol', (a) => { a.rawPayloads[digests[1]].symbol = 'VIX'; }, 'UNKNOWN_SERIES');
+  // Instants follow the strict rule: an impossible date or `-00:00` is unreadable, never rolled over to a real day.
+  broken('reception on an impossible date', (a) => { a.records[2].ingestedAt = '2026-09-31T14:14:03Z'; }, 'RECEPTION_INSTANT_UNREADABLE');
+  broken('reception at an unknown offset', (a) => { a.records[2].ingestedAt = '2026-10-01T14:14:03-00:00'; }, 'RECEPTION_INSTANT_UNREADABLE');
+  // ... and compare to the nanosecond: 0.4 ms apart is two instants, not one.
+  broken('one capture received 0.4 ms apart', (a) => { a.records[1].ingestedAt = '2026-10-01T06:00:00.0004Z'; }, 'CAPTURE_RECEPTION_NOT_SINGLE');
 
   // An attestation manifest: a second declaration. It can name a collector and a licence, contradict the log, never upgrade it.
   const manifest = (over = {}) => ({ schemaVersion: ATTESTATION_MANIFEST_FORMAT, archiveId: 'att-log',
@@ -335,6 +340,10 @@ console.log('PASS DATA-3 continuity audit: per-series gaps, duplicates, order, f
     ['licence without retention', manifest({ licence: { termsReference: 'x', redistribution: 'ALLOWED' } }), 'MANIFEST_LICENCE_INVALID'],
     ['a capture left out', manifest({ captures: [{ rawPayloadDigest: digests[0], receivedAt: '2026-10-01T06:00:00Z' }] }), 'MANIFEST_CAPTURE_MISSING'],
     ['another reception instant', manifest({ captures: ok.captures.map((c, i) => ({ rawPayloadDigest: c.rawPayloadDigest, receivedAt: i ? '2026-10-01T14:14:04Z' : c.receivedAt })) }), 'MANIFEST_RECEPTION_MISMATCH'],
+    ['a reception instant on an impossible date', manifest({ captures: ok.captures.map((c, i) => ({ rawPayloadDigest: c.rawPayloadDigest, receivedAt: i ? c.receivedAt : '2026-09-31T06:00:00Z' })) }), 'MANIFEST_CAPTURES_INVALID'],
+    ['a reception instant 0.4 ms off', manifest({ captures: ok.captures.map((c, i) => ({ rawPayloadDigest: c.rawPayloadDigest, receivedAt: i ? c.receivedAt : '2026-10-01T06:00:00.0004Z' })) }), 'MANIFEST_RECEPTION_MISMATCH'],
+    ['one capture declared twice, at two instants', manifest({ captures: [{ rawPayloadDigest: digests[0], receivedAt: '2026-10-01T09:00:00Z' }, ...manifest().captures] }), 'MANIFEST_CAPTURE_DUPLICATED'],
+    ['one capture declared twice, identically', manifest({ captures: [...manifest().captures, manifest().captures[0]] }), 'MANIFEST_CAPTURE_DUPLICATED'],
     ['a capture the log does not hold', manifest({ captures: [...manifest().captures, { rawPayloadDigest: `sha256:${'2'.repeat(64)}`, receivedAt: '2026-10-01T06:00:00Z' }] }), 'MANIFEST_CAPTURE_UNKNOWN'],
     ['unreadable', 'UNREADABLE', 'MANIFEST_UNREADABLE'],
   ]) {

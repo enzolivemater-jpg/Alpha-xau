@@ -16,7 +16,7 @@ Une capture est une réponse de fournisseur conservée dans un journal
 | Octets exacts de la réponse | `rawPayloads[d].body` | oui : présents |
 | Empreinte SHA-256 des octets (UTF-8) | clé `d` = `sha256:<hex>` | oui : recalculée |
 | Identité de la requête | `parser` + `symbol` du corps, `source` + `sourceRecordId` + `field` des enregistrements | oui : doit être une série de `CAPTURE_SERIES` |
-| Instant de réception | `ingestedAt` des enregistrements | oui : un seul instant par capture |
+| Instant de réception | `ingestedAt` des enregistrements | oui : un seul instant par capture, lisible selon la règle stricte du dépôt (date civile réelle, fuseau explicite autre que `-00:00`), comparé à la nanoseconde |
 | Ajout uniquement | ordre des enregistrements | oui : captures dans l'ordre de réception ; aucun octet sans enregistrement, aucun enregistrement sans octets |
 | Valeurs relues depuis les octets | parseurs runtime | oui (replay, `RAW_VERIFIED`) |
 | Qui atteste la capture | `provenanceClass: CAPTURED` (+ `--attest-captured`) | **non** : déclaration de l'opérateur |
@@ -40,7 +40,9 @@ Une capture est une réponse de fournisseur conservée dans un journal
 }
 ```
 
-`collector` et `licence` peuvent être `null`. Le manifeste est une **seconde
+`collector` et `licence` peuvent être `null`. Chaque capture n'y figure
+qu'une fois (`MANIFEST_CAPTURE_DUPLICATED` sinon) ; `receivedAt` suit la même
+règle stricte que le journal. Le manifeste est une **seconde
 déclaration** : il peut contredire le journal (capture absente, inconnue,
 autre instant de réception), jamais le promouvoir. Il est refusé s'il est
 illisible, d'un autre format, d'un autre journal, s'il porte une clé
@@ -66,6 +68,23 @@ reçue à plusieurs instants, octets partagés par deux séries, série inconnue
 et sur un manifeste refusé ou contredit. Un collecteur ou une licence non
 enregistrés sont signalés, sans échec : aucun registre n'existe encore. Le
 rapport n'est lu par aucun replay ni aucune décision.
+
+### Capture sans valeur nouvelle
+
+L'outil de capture (`appendProviderCapture`) ne garde des octets que si au
+moins un enregistrement les nomme. Une réponse dont toutes les valeurs sont
+déjà au journal (par exemple une réponse FRED dont seule la date de
+millésime change) n'ajoute rien : issue `NO_NEW_VALUE`, journal inchangé,
+octets non conservés, couverture non prolongée. Avant, l'outil gardait ces
+octets sans enregistrement (issue `APPENDED`), ce que ce contrat refuse
+(`ORPHAN_RAW_PAYLOAD`), et la fusion les refusait
+(`CAPTURE_TIME_OR_SERIES_AMBIGUOUS`). Conséquence : le journal ne garde
+aucune trace d'une telle capture ; l'audit de continuité n'en voit pas.
+Conserver ces octets demanderait un enregistrement de capture sans valeur
+(changement de contrat) et une revue des droits de conservation du
+fournisseur (décision n° 4 ci-dessous) : non fait. Les journaux qui portent
+déjà de tels octets restent refusés ; `RAW_VERIFIED` et ce contrat ne sont
+pas assouplis.
 
 ## 4. Ce qui reste NON PROUVÉ
 
