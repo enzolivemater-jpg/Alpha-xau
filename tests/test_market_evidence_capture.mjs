@@ -124,6 +124,10 @@ for (const [name, capture, rejection] of [
   ['series named for another symbol', fred('DGS10', 'VIX', body1, '2026-10-04T00:00:00Z'), 'UNKNOWN_SERIES'],
   ['unknown provider series', fred('DEXUSEU', 'US10Y', body1, '2026-10-04T00:00:00Z'), 'UNKNOWN_SERIES'],
   ['bad ingestion time', fred('DGS10', 'US10Y', body1, 'tomorrow'), 'INVALID_INGESTED_AT'],
+  // The log keeps milliseconds: a finer reception instant is refused, never rounded (it hid a capture declared
+  // 0.3 ms before the previous one, and contradicted a manifest repeating it).
+  ['ingestion time finer than the millisecond', fred('DGS10', 'US10Y', fredBody('2026-10-04', [['2026-10-03', '4.2']]), '2026-10-04T00:00:00.0004Z'), 'INVALID_INGESTED_AT'],
+  ['ingestion time with a sub-millisecond digit', fred('DGS10', 'US10Y', fredBody('2026-10-04', [['2026-10-03', '4.2']]), '2026-10-04T00:00:00.123000001Z'), 'INVALID_INGESTED_AT'],
   ['empty FRED window', fred('DGS10', 'US10Y', fredBody('2026-10-04', [['2026-10-03', '.']]), '2026-10-04T00:00:00Z'), 'NO_USABLE_OBSERVATION'],
   ['quota error', { provider: 'twelve_data', symbol: 'XAUUSD', sourceRecordId: 'XAU/USD', body: '{"status":"error","code":429}', ingestedAt: '2026-10-04T00:00:00Z' }, 'NO_USABLE_OBSERVATION'],
   ['quote stamped after reception', { provider: 'twelve_data', symbol: 'XAUUSD', sourceRecordId: 'XAU/USD',

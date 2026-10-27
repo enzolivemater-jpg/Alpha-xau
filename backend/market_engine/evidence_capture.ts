@@ -34,7 +34,7 @@ import {
 import type { MarketPricingAsOfFieldName } from './as_of_snapshot.js';
 import type { MarketSymbol, RawDataPoint } from './types.js';
 import { canonicalJson, sha256Text } from '../shared/canonical_json.js';
-import { isStrictlyAfter, parseStrictTimestamp } from '../shared/strict_timestamp.js';
+import { isStrictlyAfter, parseStrictTimestamp, parseStrictTimestampNanos } from '../shared/strict_timestamp.js';
 
 export interface CaptureParsers {
   /** Every observation of a FRED response (`parseFredObservations`). */
@@ -171,6 +171,12 @@ export async function appendProviderCapture(
 
   const ingestedMs = parseStrictTimestamp(capture.ingestedAt);
   if (ingestedMs === null) return result({ outcome: 'REJECTED', rejection: 'INVALID_INGESTED_AT' });
+  // The log keeps reception instants to the millisecond. A finer one was stored rounded down, so a capture
+  // declared 0.3 ms before the previous one passed the order check, and a manifest repeating the declared
+  // instant contradicted the log. Refused, never rounded.
+  if (parseStrictTimestampNanos(capture.ingestedAt) !== BigInt(ingestedMs) * 1_000_000n) {
+    return result({ outcome: 'REJECTED', rejection: 'INVALID_INGESTED_AT' });
+  }
   const ingestedAt = new Date(ingestedMs).toISOString();
   // The log's last known instant: the end of its coverage or its latest
   // ingestion, whichever is later. An archive without coverage is still a log.

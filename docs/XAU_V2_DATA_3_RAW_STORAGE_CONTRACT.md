@@ -16,7 +16,7 @@ Une capture est une réponse de fournisseur conservée dans un journal
 | Octets exacts de la réponse | `rawPayloads[d].body` | oui : présents |
 | Empreinte SHA-256 des octets (UTF-8) | clé `d` = `sha256:<hex>` | oui : recalculée |
 | Identité de la requête | `parser` + `symbol` du corps, `source` + `sourceRecordId` + `field` des enregistrements | oui : doit être une série de `CAPTURE_SERIES` |
-| Instant de réception | `ingestedAt` des enregistrements | oui : un seul instant par capture, lisible selon la règle stricte du dépôt (date civile réelle, fuseau explicite autre que `-00:00`), comparé à la nanoseconde |
+| Instant de réception | `ingestedAt` des enregistrements | oui : un seul instant par capture, lisible selon la règle stricte du dépôt (date civile réelle, fuseau explicite autre que `-00:00`), comparé à la nanoseconde ; l'outil de capture le garde à la milliseconde et refuse un instant plus fin (`INVALID_INGESTED_AT`) au lieu de l'arrondir |
 | Ajout uniquement | ordre des enregistrements | oui : captures dans l'ordre de réception ; aucun octet sans enregistrement, aucun enregistrement sans octets |
 | Valeurs relues depuis les octets | parseurs runtime | oui (replay, `RAW_VERIFIED`) |
 | Qui atteste la capture | `provenanceClass: CAPTURED` (+ `--attest-captured`) | **non** : déclaration de l'opérateur |
@@ -58,6 +58,8 @@ PROVEN, AUTHENTICATED (`MANIFEST_CLAIM_EXCEEDS_PROOF`).
   requête `KNOWN_SERIES` / `NOT_ESTABLISHED`, instant de réception ;
 - par journal : `attestedBy` (`OPERATOR_DECLARED`, `NOT_CAPTURED`),
   `collector` et `licence` (`NOT_RECORDED`, `DECLARED_UNVERIFIED`) ;
+- `receivedAt` rapporté : l'instant comparé, chiffres au-delà de la
+  milliseconde compris (rapport `capture-attestation-1.2.0`) ;
 - `outcome` : `BYTES_CONSISTENT` (ce que le journal peut montrer tient) ou
   `CONTRACT_BROKEN` ;
 - toujours `attestation: NOT_PROVEN` et `upgradesReplay: false`.

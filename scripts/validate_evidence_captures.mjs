@@ -37,6 +37,8 @@ import { attestationIntegrityProblems, auditCaptureAttestation } from './lib/cap
 
 export { continuityOptions };
 
+const { parseStrictTimestampNanos } = await loadBackendModule('shared/strict_timestamp.ts');
+
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const DEFAULT_DIR = path.join(homedir(), '.local', 'share', 'xau-v2', 'evidence');
 
@@ -47,15 +49,17 @@ function defaultSources() {
 
 /**
  * Latest reception time of a source, compared as instants. A lexical sort
- * mis-orders `…:00Z` against `…:00.500Z` ('.' sorts before 'Z'). A value that
- * does not parse never wins; the replay then reports the source INVALID.
+ * mis-orders `…:00Z` against `…:00.500Z` ('.' sorts before 'Z'). Instants are
+ * read strictly and to the nanosecond: Date.parse rolled an impossible date
+ * over to a real one and tied `.0001Z` with `.0004Z`. A value that does not
+ * parse never wins; the replay then reports the source INVALID.
  */
 export function latestIngestedAt(records) {
   let best = null;
-  let bestMs = Number.NEGATIVE_INFINITY;
+  let bestNs = null;
   for (const r of records) {
-    const ms = Date.parse(r.ingestedAt);
-    if (Number.isFinite(ms) && ms > bestMs) { best = r.ingestedAt; bestMs = ms; }
+    const ns = parseStrictTimestampNanos(r.ingestedAt);
+    if (ns !== null && (bestNs === null || ns > bestNs)) { best = r.ingestedAt; bestNs = ns; }
   }
   return best ?? records.map((r) => r.ingestedAt).sort().at(-1);
 }

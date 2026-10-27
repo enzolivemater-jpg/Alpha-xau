@@ -27,7 +27,8 @@ const { parseStrictTimestampNanos } = await loadBackendModule('shared/strict_tim
 
 // 1.1.0: strict instants (an impossible date is unreadable; nanosecond comparison); a capture listed twice in a
 // manifest refuses it (MANIFEST_CAPTURE_DUPLICATED).
-export const CAPTURE_ATTESTATION_REPORT_VERSION = 'capture-attestation-1.1.0';
+// 1.2.0: receivedAt keeps the digits beyond the millisecond that the comparison uses (it used to drop them).
+export const CAPTURE_ATTESTATION_REPORT_VERSION = 'capture-attestation-1.2.0';
 export const ATTESTATION_MANIFEST_FORMAT = 'xau.capture-attestation-manifest.v1';
 
 /** What a manifest may declare. Anything else is refused, not ignored. */
@@ -42,7 +43,12 @@ const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isText = (v) => typeof v === 'string' && v.trim().length > 0;
 /** Exact instant (nanoseconds, bigint) or null. */
 const instant = (v) => parseStrictTimestampNanos(v);
-const iso = (ns) => new Date(Number(ns / 1_000_000n)).toISOString();
+/** UTC text of an exact instant: the digits beyond the millisecond are kept, never dropped. */
+const iso = (ns) => {
+  const rest = ((ns % 1_000_000n) + 1_000_000n) % 1_000_000n;
+  const text = new Date(Number((ns - rest) / 1_000_000n)).toISOString();
+  return rest === 0n ? text : text.replace('Z', `${String(rest).padStart(6, '0').replace(/0+$/, '')}Z`);
+};
 
 /** Problems of a manifest's own shape, and the claims it makes beyond what can be checked. */
 function manifestProblems(manifest, archiveId) {

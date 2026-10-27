@@ -14,6 +14,10 @@ assert.equal(latestIngestedAt([rec('zzz'), rec('2026-01-01T10:00:00Z')]), '2026-
 // Nothing parses: deterministic fallback, no throw.
 assert.equal(latestIngestedAt([rec('b'), rec('a')]), 'b');
 assert.equal(latestIngestedAt([]), undefined);
+// Strict and to the nanosecond: an impossible date never wins, 0.3 ms apart is not a tie.
+assert.equal(latestIngestedAt([rec('2026-09-30T23:00:00Z'), rec('2026-09-31T06:00:00Z')]), '2026-09-30T23:00:00Z');
+assert.equal(latestIngestedAt([rec('2026-10-01T06:00:00.0001Z'), rec('2026-10-01T06:00:00.0004Z')]), '2026-10-01T06:00:00.0004Z');
+assert.equal(latestIngestedAt([rec('2026-10-01T06:00:00.0004Z'), rec('2026-10-01T06:00:00.0001Z')]), '2026-10-01T06:00:00.0004Z');
 
 console.log('PASS validate_evidence_captures: latest reception time compared as instants, not as text');
 
@@ -356,6 +360,17 @@ console.log('PASS DATA-3 continuity audit: per-series gaps, duplicates, order, f
   // A synthetic log stays not captured, whatever a manifest says.
   assert.equal(audit({ ...logA, provenanceClass: 'SYNTHETIC_FIXTURE' }, manifest()).attestedBy, 'NOT_CAPTURED');
   // The report never overstates itself, and the validator refuses one that would.
+  // The reported reception instant is the one compared: digits beyond the millisecond are not dropped, so a
+  // manifest repeating the report agrees with the log.
+  {
+    const fine = structuredClone(logA);
+    fine.records[2].ingestedAt = '2026-10-01T16:14:03.0004+02:00';
+    const rep = audit(fine);
+    assert.equal(rep.outcome, 'BYTES_CONSISTENT');
+    assert.deepEqual(rep.captures.map((c) => c.receivedAt), ['2026-10-01T06:00:00.000Z', '2026-10-01T14:14:03.0004Z']);
+    const echoed = audit(fine, manifest({ captures: rep.captures.map((c) => ({ rawPayloadDigest: c.rawPayloadDigest, receivedAt: c.receivedAt })) }));
+    assert.deepEqual(attestationIntegrityProblems(echoed), []);
+  }
   assert.deepEqual(attestationIntegrityProblems({ ...ok, attestation: 'PROVEN' }), ['ATTESTATION_OVERSTATED']);
   assert.deepEqual(attestationIntegrityProblems({ ...ok, upgradesReplay: true }), ['ATTESTATION_OVERSTATED']);
   assert.equal(auditCaptureAttestation(null).outcome, 'NOT_EVALUATED');
