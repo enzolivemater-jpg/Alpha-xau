@@ -329,3 +329,22 @@ Not touched: main, production, DXY_ICE_OFFICIAL contract. Next P3 candidates:
 `backend/ingest.ts`, `backend/worker.ts`, shadow event orchestrators. After the change: 160/160.
 
 35. Reliability (Retry-After, 2026-10-26, branch `claude/keen-keller-uia8ux`, base `17b1652` = tip of `claude/keen-keller-sa9xu5`, which merges #162/#163/#164 + committee baseline fix). `parseRetryAfter` (news `ingest.ts` and committee) read the header with `Number()`: `"   "` and `"0x10"` gave 0 / 16 s, so an unreadable header from a rate-limiting provider meant an immediate retry instead of the normal backoff. Now delta-seconds is `^\d{1,9}$` (RFC 9110) or an HTTP date containing a month/day name; anything else is `null` (normal backoff). Red first: 13 of 30 cases failed on the old code. `tests/test_retry_after_parsing.mjs`, registered in `scripts/run_ci_tests.mjs`. Baseline before change: typecheck clean, 160/160.
+
+## Cloud session 2026-10-28 (branch `claude/keen-keller-hujkdp`)
+
+Base: `origin/claude/keen-keller-j18vjr` (`b5d18b9`) = tip of the stacked draft PRs #165–#174 (up to A-C3,
+`5b8361b`) plus the two P3 fixes (committee baseline, Retry-After). `main` (`ec9cde5`) is far behind the stack and
+was not used. Baseline: typecheck clean, 160/160 test files. No open PR was merged, no migration applied.
+
+Audited read-only, no defect demonstrated, nothing changed:
+- `backend/worker.ts`: cron constants equal `wrangler.toml`; unknown cron runs nothing; errors never propagate;
+  exact-match shadow routes; engine handlers authenticate before acting.
+- `backend/ingest.ts`: `isAuthorized` / `timingSafeEqual` (length mismatch fails, constant-time over the longer
+  input), `parseRetryAfter` + the retry loop (suggested delay capped by `MAX_RETRY_AFTER_MS`),
+  `isNotificationWithinHorizon` and `isProviderCircuitOpen` (NaN dates fail closed), `cleanText` entity decoding,
+  `parseTimestamp` (strict, skew-bounded).
+- Observation only (not changed, heuristic scoring, no data-integrity impact): `scoreSurprise` reads a comma as a
+  decimal separator, so "1,250 vs 250" is read as 1.25 vs 250; both sides clamp to 100 in that case.
+
+Next P3 candidates: shadow event orchestrators (`event_engine`, `event_impact`, `gold_transmission` runtimes),
+`committee_orchestrator.ts` legacy paths, remaining `ingest.ts` collectors (GDELT / NewsAPI mapping).
