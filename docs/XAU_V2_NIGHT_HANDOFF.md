@@ -348,3 +348,20 @@ Audited read-only, no defect demonstrated, nothing changed:
 
 Next P3 candidates: shadow event orchestrators (`event_engine`, `event_impact`, `gold_transmission` runtimes),
 `committee_orchestrator.ts` legacy paths, remaining `ingest.ts` collectors (GDELT / NewsAPI mapping).
+
+## Cloud session 2026-10-29 (branch `claude/keen-keller-s7n0jo`)
+
+Base: `origin/claude/keen-keller-hujkdp` (`c1413f6`), tip of the stack #165–#174 plus the two P3 fixes. `main`
+(`ec9cde5`) is still far behind and was not used. Baseline: typecheck clean, 160/160 test files. No open PR merged,
+no migration applied.
+
+Audited read-only, no defect demonstrated, nothing changed:
+- `backend/event_engine/shadow_batch.ts` read in full: input validated before any DB call (size, UUID shape,
+  case-insensitive duplicates, trigger-type allowlist), strict sequential order, per-item error isolation, release
+  attempted exactly once in `finally`, release failure surfaces as an error rather than a report.
+- `event_impact/shadow_batch.ts` and `gold_transmission/shadow_batch.ts`: same guards found by grep (size cap 25,
+  lowercase duplicate key, status rule `failed === requested`, single release path).
+
+Not yet audited: the three `shadow_orchestrator.ts` / `shadow_runtime.ts` / `deterministic_processor.ts` bodies
+(~4,500 lines), `committee_orchestrator.ts` legacy paths, `ingest.ts` GDELT / NewsAPI mappers. Open human decisions
+unchanged (see "Remaining / next", item 4).
