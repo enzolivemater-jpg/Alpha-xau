@@ -365,3 +365,22 @@ Audited read-only, no defect demonstrated, nothing changed:
 Not yet audited: the three `shadow_orchestrator.ts` / `shadow_runtime.ts` / `deterministic_processor.ts` bodies
 (~4,500 lines), `committee_orchestrator.ts` legacy paths, `ingest.ts` GDELT / NewsAPI mappers. Open human decisions
 unchanged (see "Remaining / next", item 4).
+
+## Cloud session 2026-10-30 (branch `claude/keen-keller-zxaxft`)
+
+Base: `origin/claude/keen-keller-s7n0jo` (`a9c93c5`), tip of the stack #165–#174 plus the two P3 fixes. `main`
+(`ec9cde5`) is still far behind and was not used. The handoff file exists only on the stack branches, not on `main`.
+Baseline: typecheck clean. No open PR merged, no migration applied.
+
+Audited read-only, no defect demonstrated, nothing changed:
+- `gold_transmission/shadow_orchestrator.ts` read in full: UUID-checked input, one-row invariants on the event
+  version, RPC result and read-back, zero-path plan shape asserted, full field-by-field read-back comparison,
+  fingerprints validated as SHA-256, canonical JSON refuses undefined / non-finite / non-plain objects.
+- The three `shadow_runtime.ts` `checkDeclaredContentLength`: `Number(header)` is used, but only as a fast-reject
+  hint; the real body is always byte-measured before `JSON.parse`, so an unparsable header cannot bypass the cap.
+- Grep sweep of the shadow orchestrators / runtimes / deterministic processors for `Number(`, `Date.parse`, `?? 0`:
+  date components come from regex captures validated before `Date.parse`; no coercion of untrusted input to 0.
+
+Not yet audited: bodies of `event_engine` / `event_impact` `shadow_orchestrator.ts` and the three
+`deterministic_processor.ts` (~3,800 lines), `committee_orchestrator.ts` legacy paths, `ingest.ts` GDELT / NewsAPI
+mappers. Open human decisions unchanged. Risk: the stack #165–#174 is only on draft PR branches, not on `main`.
