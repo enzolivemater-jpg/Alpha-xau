@@ -384,3 +384,28 @@ Audited read-only, no defect demonstrated, nothing changed:
 Not yet audited: bodies of `event_engine` / `event_impact` `shadow_orchestrator.ts` and the three
 `deterministic_processor.ts` (~3,800 lines), `committee_orchestrator.ts` legacy paths, `ingest.ts` GDELT / NewsAPI
 mappers. Open human decisions unchanged. Risk: the stack #165–#174 is only on draft PR branches, not on `main`.
+
+## Cloud session 2026-10-31 (branch `claude/keen-keller-rxceyn`)
+
+Base: `origin/claude/keen-keller-zxaxft` (`090cdce`), tip of the stack #165–#174 plus the two P3 fixes. `main`
+(`ec9cde5`) is still far behind and was not used; the branch was first reset onto the stack tip (it sat on `main`).
+Baseline: typecheck clean, 160/160 test files. No open PR merged, no migration applied.
+
+Audited read-only, no defect demonstrated, nothing changed:
+- `event_engine/deterministic_processor.ts` read in full: exact source tuple, fail-closed quality gate, strict
+  timestamps (checked against V8 `Date.parse` for `+0100`, 9-digit fractions, `:60`, year 0000), ECB URL gate
+  (WHATWG normalisation removes `..` / `%2e%2e` before the prefix check), candidate-cluster collision abstains,
+  CORRECTION only on a single matching prior origin.
+- `event_impact/deterministic_processor.ts` validators: claims week-ending ordinal checked against real Saturdays
+  (2026-10-24, 2000-02-26, 1900-03-03 true; a Sunday false).
+- `ingest.ts` GDELT / NewsAPI mappers: a `null` element in `articles` throws and fails that collector's whole batch
+  (caught, reported `ok:false`, no bad write); not changed.
+
+Observation for a human decision (not changed): the canonical-state CPI validators in `event_impact` and
+`gold_transmission` accept any canonical decimal for `actual`, while PCE and NFP require one decimal. The BLS CPI
+adapter already guarantees one decimal at source, so this is defence in depth only; tightening it touches frozen
+validators and test fixtures.
+
+Not yet audited: bodies of `event_engine` / `event_impact` `shadow_orchestrator.ts` (~1,400 lines),
+`gold_transmission/deterministic_processor.ts`, `committee_orchestrator` legacy paths. Risk unchanged: the stack
+#165–#174 lives only on draft PR branches, not on `main`.
