@@ -152,6 +152,34 @@ abstains(plan({ canonicalEventState: {
   event_type: 'STATISTICAL_RELEASE', subject: 'Valid', detail: null, actual: 3.2,
 } }), 'INVALID_CANONICAL_EVENT_STATE_V1', 'undeclared typed field cannot sneak into v1');
 
+// Differential check of the jobless-claims week-ending validator against the platform calendar:
+// a week ending is accepted if and only if it is a real Saturday (every day of 1900-2100).
+{
+  const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const claimsState = (current) => {
+    const cur = Date.parse(`${current}T00:00:00Z`);
+    const metric = (metric_code, endMs) => ({
+      metric_code, reference_period: { kind: 'WEEK_ENDING', date: iso(endMs) }, unit: 'THOUSANDS_OF_PERSONS',
+      actual: { state: 'KNOWN', value: '210' }, consensus: { state: 'UNKNOWN', value: null },
+      prior_periods: [{ reference_period: { kind: 'WEEK_ENDING', date: iso(endMs - 7 * 86400000) },
+        prior_value: { state: 'KNOWN', value: '205' }, revised_value: { state: 'KNOWN', value: '206' } }],
+    });
+    return { event_type: 'STATISTICAL_RELEASE', subject: 'US Department of Labor releases jobless claims', detail: null,
+      facts: { release_family: 'US_JOBLESS_CLAIMS', metrics: [
+        metric('INITIAL_CLAIMS', cur), metric('CLAIMS_4WK_AVERAGE', cur), metric('CONTINUING_CLAIMS', cur - 7 * 86400000),
+      ] } };
+  };
+  let mismatches = 0; let days = 0;
+  for (let ms = Date.UTC(1900, 0, 15); ms <= Date.UTC(2100, 11, 31); ms += 86400000) {
+    const day = iso(ms);
+    const result = plan({ canonicalEventStateSchemaVersion: 2, canonicalEventState: claimsState(day) });
+    const accepted = result?.kind === 'PROCESS';
+    if (accepted !== (new Date(ms).getUTCDay() === 6)) mismatches += 1;
+    days += 1;
+  }
+  test(`claims week-ending validator agrees with the calendar on ${days} days`, mismatches === 0, `${mismatches} mismatches`);
+}
+
 test('no imports', !/^\s*import\s/m.test(executableSource));
 test('no database or network call', !/\b(fetch|request|supabase|postgres|sql\s*`)/i.test(executableSource));
 test('no environment or clock read', !/process\.env|Date\.|new Date|transaction_timestamp|now\s*\(/.test(executableSource));

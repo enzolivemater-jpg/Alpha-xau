@@ -409,3 +409,18 @@ validators and test fixtures.
 Not yet audited: bodies of `event_engine` / `event_impact` `shadow_orchestrator.ts` (~1,400 lines),
 `gold_transmission/deterministic_processor.ts`, `committee_orchestrator` legacy paths. Risk unchanged: the stack
 #165–#174 lives only on draft PR branches, not on `main`.
+
+## Cloud session 2026-11-01 (branch `claude/keen-keller-5sqh6s`)
+
+Base: `origin/claude/keen-keller-rxceyn` (`a3dbbae`), tip of the stack #165–#174 plus the two P3 fixes. `main`
+(`ec9cde5`) is still far behind and was not used (the branch sat on `main` and was reset onto the stack tip).
+Baseline: typecheck clean. Open PRs: #160–#174, all draft; none merged, no migration applied.
+
+- `gold_transmission/deterministic_processor.ts` read in full: no defect demonstrated (exact keys everywhere,
+  strict timestamps, CPI / PCE / NFP / claims validators fail closed, unsupported schema version → UNAVAILABLE).
+- Added a differential test (73,400 days, 1900–2100) pinning the jobless-claims week-ending validator to the real
+  calendar: accepted iff a Saturday. Mutants killed: wrong weekday ordinal (20,971 mismatches), century leap rule (173).
+  No engine change.
+
+Not yet audited: `event_engine` / `event_impact` `shadow_orchestrator.ts` bodies (~1,400 lines),
+`committee_orchestrator` legacy paths. Human decisions unchanged. Risk unchanged: the stack lives only on draft PR branches.
