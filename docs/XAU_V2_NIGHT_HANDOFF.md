@@ -424,3 +424,20 @@ Baseline: typecheck clean. Open PRs: #160–#174, all draft; none merged, no mig
 
 Not yet audited: `event_engine` / `event_impact` `shadow_orchestrator.ts` bodies (~1,400 lines),
 `committee_orchestrator` legacy paths. Human decisions unchanged. Risk unchanged: the stack lives only on draft PR branches.
+
+## Cloud session 2026-11-02 (branch `claude/keen-keller-w2dd6t`)
+
+Base: `origin/claude/keen-keller-5sqh6s` (`3f69942`), tip of the stack #165–#174 plus the P3 fixes. `main` (`ec9cde5`) is
+still far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#160–#174, draft); none merged, no
+migration applied. Note: this prompt's handoff path `docs/XAU_V2_NIGHT_HANDOFF.md` exists only on the stack branches, not on `main`.
+
+- `event_impact/shadow_orchestrator.ts` read in full: no defect demonstrated (UUID-checked identity, exact row counts,
+  read-back of every persisted field and zero children, fingerprints domain-separated).
+- Added `tests/test_event_impact_shadow_orchestrator_mutation.mjs` (registered in `scripts/run_ci_tests.mjs`): hostile DB
+  responses (read-back row 286 cases, RPC row 77, event version row 325); nothing accepted unless exact, at most one RPC,
+  identity and cutoff preserved. Mutant killed: removing the `semantic_fingerprint` read-back assertion fails the test.
+  No engine change.
+- Validation: typecheck clean; full `npm test` 161 files (CI inventory fixed after registering the new file).
+
+Not yet audited: `event_engine/shadow_orchestrator.ts` (904 lines), `committee_orchestrator` legacy paths. Human decisions
+unchanged. Risk unchanged: the stack lives only on draft PR branches, not on `main`.

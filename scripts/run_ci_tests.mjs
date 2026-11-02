@@ -100,6 +100,7 @@ const TEST_FILES = [
   'tests/test_event_impact_deterministic_processor.mjs',
   'tests/test_event_impact_shadow_batch.mjs',
   'tests/test_event_impact_shadow_orchestrator.mjs',
+  'tests/test_event_impact_shadow_orchestrator_mutation.mjs',
   'tests/test_event_impact_shadow_runtime.mjs',
   'tests/test_event_membership_reassign_contract.mjs',
   'tests/test_event_plan_aggregation.mjs',
