@@ -441,3 +441,21 @@ migration applied. Note: this prompt's handoff path `docs/XAU_V2_NIGHT_HANDOFF.m
 
 Not yet audited: `event_engine/shadow_orchestrator.ts` (904 lines), `committee_orchestrator` legacy paths. Human decisions
 unchanged. Risk unchanged: the stack lives only on draft PR branches, not on `main`.
+
+## Cloud session 2026-11-03 (branch `claude/keen-keller-wj8ram`)
+
+Base: `origin/claude/keen-keller-w2dd6t` (`84624de`), tip of the stack #165–#174 plus the P3 fixes. `main` (`ec9cde5`) is still
+far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#165–#174, draft); none merged, no migration applied.
+
+- `event_engine/shadow_orchestrator.ts` read in full. **Defect demonstrated**: `fetchObservation` never compared the row's `id` with
+  the requested one, so a `news_articles` row for another observation was processed and `fn_event_assign_observation` was called
+  under that other identity (reachable only through a faulty or hostile database response, hence defence in depth). Now refused
+  before any write: `OBSERVATION_IDENTITY_MISMATCH`.
+- Added `tests/test_event_shadow_orchestrator_mutation.mjs` (registered in `scripts/run_ci_tests.mjs`): hostile assign / membership /
+  version rows (494 cases) and wrong row counts; nothing accepted unless exact, at most one RPC of each kind. Red before the fix,
+  green after; removing the guard fails the test (mutant killed).
+- Observation, not changed (low exposure, TIME-0 alignment): `isValidNumericOffset` in this file accepts offsets up to ±23:59,
+  like the older copies fixed in changes 2 and 27. Comparison stays arithmetically correct; DB timestamps are normalised.
+
+Not yet audited: `committee_orchestrator.ts` legacy paths. Human decisions unchanged. Risk unchanged: the stack lives only on draft
+PR branches, not on `main`.

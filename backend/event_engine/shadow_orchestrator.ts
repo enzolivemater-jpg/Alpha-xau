@@ -240,6 +240,15 @@ async function fetchObservation(db: EventShadowDb, observationId: string): Promi
       `expected at most 1 news_articles row for id=${observationId}, got ${rows.length}.`,
     );
   }
+  // The row must be the observation that was asked for: a mismatching id
+  // would make every later write (assign RPC, event version) run under
+  // another observation's identity.
+  if (rows[0].id !== observationId) {
+    throw new EventShadowInvariantError(
+      'OBSERVATION_IDENTITY_MISMATCH',
+      `news_articles row id ${JSON.stringify(rows[0].id)} does not match the requested observation id=${observationId}.`,
+    );
+  }
   return mapRowToObservation(rows[0]);
 }
 

@@ -110,6 +110,7 @@ const TEST_FILES = [
   'tests/test_event_shadow_batch.mjs',
   'tests/test_event_shadow_candidate_discovery.mjs',
   'tests/test_event_shadow_orchestrator.mjs',
+  'tests/test_event_shadow_orchestrator_mutation.mjs',
   'tests/test_event_shadow_runtime.mjs',
   'tests/test_event_version_rpc_contract.mjs',
   'tests/test_frontend_degraded_modes.mjs',
