@@ -459,3 +459,20 @@ far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#165
 
 Not yet audited: `committee_orchestrator.ts` legacy paths. Human decisions unchanged. Risk unchanged: the stack lives only on draft
 PR branches, not on `main`.
+
+## Cloud session 2026-11-04 (branch `claude/keen-keller-mihb5o`)
+
+Base: `origin/claude/keen-keller-wj8ram` (`0a9d216`), tip of the stack #165–#174 plus the P3 fixes. `main` (`ec9cde5`) is still
+far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#165–#174, draft); none merged, no migration applied.
+
+- `committee_orchestrator.ts` (market context, retry, auth, routing) read. **Defect demonstrated (defence in depth)**: `loadContext`
+  defaulted an unknown spot age to `0` (« fresh ») and an unknown capture time to the current clock; `renderMarketContext` printed
+  `NaNs` with no stale warning. Now: unknown / negative / non-finite age or missing capture time → `DATA_UNAVAILABLE` (fail closed);
+  a non-finite age is rendered « DONNÉE NON DATÉE (traiter comme périmée) ». The market engine currently never yields a value with
+  a null age, so exposure is low.
+- Added `tests/test_committee_market_context_staleness.mjs` (registered in `scripts/run_ci_tests.mjs`). Red before, green after.
+- Observations, not changed: manual `POST` busy path returns HTTP 200 `ALREADY_RUNNING` while the event path returns 409
+  (manual use only). `asUnitConfidence` reads any value >1 as a percentage (1.5 → 0.015): a methodology choice.
+
+Not yet audited: committee `runCommitteeLocked` body (lines ~1636–1940) and `backend/worker.ts` routes. Human decisions unchanged.
+Risk unchanged: the stack lives only on draft PR branches, not on `main`.

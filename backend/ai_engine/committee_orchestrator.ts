@@ -733,7 +733,9 @@ VIX                : ${fmt(market.vix)}
 WTI                : ${fmt(market.wti)}
 ATR                : ${fmt(market.atr)}
 Horodatage donnée  : ${market.capturedAt}
-Fraîcheur          : ${market.stalenessSeconds}s${market.stalenessSeconds > 900 ? ' — DONNÉE PÉRIMÉE (>15min)' : ''}`;
+Fraîcheur          : ${Number.isFinite(market.stalenessSeconds)
+    ? `${market.stalenessSeconds}s${market.stalenessSeconds > 900 ? ' — DONNÉE PÉRIMÉE (>15min)' : ''}`
+    : 'N/A — DONNÉE NON DATÉE (traiter comme périmée)'}`;
 }
 
 function renderNewsContext(news: readonly NewsContextItem[]): string {
@@ -1137,6 +1139,13 @@ async function loadContext(db: SupabaseClient, env: CommitteeRuntimeEnv): Promis
     throw new Error(snapshot.reason ?? 'DATA_UNAVAILABLE : aucun prix XAUUSD exploitable.');
   }
 
+  // Un âge ou un horodatage absent ne vaut ni 0 s (« frais ») ni l'heure
+  // courante : sans datation du spot, le comité refuse d'analyser.
+  const spotAge = snapshot.spot.ageSeconds;
+  if (spotAge === null || !Number.isFinite(spotAge) || spotAge < 0 || !snapshot.capturedAt) {
+    throw new Error('DATA_UNAVAILABLE : spot XAUUSD sans âge ni horodatage exploitables.');
+  }
+
   return {
     market: {
       symbol: 'XAUUSD',
@@ -1151,8 +1160,8 @@ async function loadContext(db: SupabaseClient, env: CommitteeRuntimeEnv): Promis
       vix: snapshot.vix.value,
       wti: snapshot.wti.value,
       atr: null, // Calculé par le market_engine ultérieurement ; "N/A" ici.
-      stalenessSeconds: snapshot.spot.ageSeconds ?? 0,
-      capturedAt: snapshot.capturedAt ?? new Date().toISOString(),
+      stalenessSeconds: spotAge,
+      capturedAt: snapshot.capturedAt,
     },
     news: newsRows.map((n) => ({
       id: n.id,
