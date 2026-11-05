@@ -19,8 +19,8 @@ const baselineWith = (mutate) => {
   mutate(scenarios);
   return scenarios;
 };
-const run = (scenarios) => committee.fetchBaselineScenarios({
-  select: async () => [{ id: 'x', market_regime: 'range', regime_confidence: 0.5, spot_reference: 3900, scenarios }],
+const run = (scenarios, ...status) => committee.fetchBaselineScenarios({
+  select: async () => [{ id: 'x', market_regime: 'range', regime_confidence: 0.5, spot_reference: 3900, scenarios, execution_status: status.length > 0 ? status[0] : 'VALID_SETUP' }],
 });
 
 const honest = await run(baselineWith(() => {}));
@@ -54,3 +54,18 @@ for (const field of ['probability', 'confidence']) {
 }
 assert.deepEqual(rangeFailures, [], `baseline range failures:\n${rangeFailures.join('\n')}`);
 console.log('PASS committee baseline: probability and confidence must be present and within [0,1]');
+
+// A blocked analysis (NO_VALID_SETUP) is persisted with flat placeholder scenarios (target = spot,
+// 20 % each, neutral) and stays in v_ai_latest for 90 minutes. It is not a reference: a partial
+// recalculation must fall back to FULL (null) instead of republishing those placeholders as the
+// out-of-scope horizons of a VALID_SETUP analysis.
+const queries = [];
+await committee.fetchBaselineScenarios({
+  select: async (_t, columns) => { queries.push(columns); return []; },
+});
+assert.ok(queries[0].split(',').includes('execution_status'), 'the baseline read selects execution_status');
+for (const status of ['NO_VALID_SETUP', undefined, null, '', 'valid_setup', 'UNKNOWN']) {
+  assert.equal(await run(baselineWith(() => {}), status), null, `execution_status ${JSON.stringify(status)} is not a baseline`);
+}
+assert.ok(await run(baselineWith(() => {}), 'VALID_SETUP') !== null, 'VALID_SETUP stays a valid baseline');
+console.log('PASS committee baseline: only a VALID_SETUP analysis is a baseline');

@@ -476,3 +476,20 @@ far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#165
 
 Not yet audited: committee `runCommitteeLocked` body (lines ~1636–1940) and `backend/worker.ts` routes. Human decisions unchanged.
 Risk unchanged: the stack lives only on draft PR branches, not on `main`.
+
+## Cloud session 2026-11-05 (branch `claude/keen-keller-az2vj9`)
+
+Base: `origin/claude/keen-keller-mihb5o` (`e374d90`), tip of the stack #165–#174 plus the P3 fixes. `main` (`ec9cde5`) is still
+far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#165–#174, draft); none merged, no migration applied.
+
+- `runCommitteeLocked` and `applyScope` / `fetchBaselineScenarios` read. **Defect demonstrated**: the partial-recalculation baseline
+  was the latest non-expired row of `v_ai_latest`, including a blocked `NO_VALID_SETUP` analysis (kept 90 min with flat placeholder
+  scenarios: target = spot, 20 % each, neutral). A partial recalculation after a block would republish those placeholders as the
+  out-of-scope horizons of a `VALID_SETUP` analysis. Now `execution_status` is read and anything but `VALID_SETUP` (blocked, absent,
+  unknown) gives no baseline, hence the existing explicit fallback to a FULL recalculation.
+- Extended `tests/test_committee_baseline_numbers.mjs`. Red before, green after.
+- Observations, not changed: `confidence_cap` missing or malformed defaults to 0.5 (conservative); `applyScope` output is not
+  re-validated after merging (sums stay equal to the baseline's by construction).
+
+Not yet audited: `backend/worker.ts` scheduled paths beyond routes. Human decisions unchanged. Risk unchanged: the stack lives
+only on draft PR branches, not on `main`.

@@ -1383,6 +1383,7 @@ interface LatestAnalysisRow {
   market_regime: string;
   regime_confidence: number;
   spot_reference: number;
+  execution_status?: string | null;
   scenarios: Record<string, {
     direction?: string; probability?: number | string; target?: number | string;
     invalidation?: number | string; activation_condition?: string;
@@ -1400,12 +1401,16 @@ export async function fetchBaselineScenarios(
 ): Promise<Record<Horizon, Scenario> | null> {
   const rows = await db.select<LatestAnalysisRow>(
     'v_ai_latest',
-    'id,market_regime,regime_confidence,spot_reference,scenarios',
+    'id,market_regime,regime_confidence,spot_reference,execution_status,scenarios',
     'symbol=eq.XAUUSD&order=analysis_ts.desc&limit=1',
   ).catch(() => [] as LatestAnalysisRow[]);
 
   const latest = rows[0];
   if (!latest) return null;
+  // Une analyse bloquée (NO_VALID_SETUP) reste dans v_ai_latest 90 minutes avec des scénarios
+  // plats (cible = spot, 20 % chacun) : ce n'est pas une référence. Statut absent ou inconnu =
+  // pas de référence, donc repli explicite sur FULL.
+  if (latest.execution_status !== 'VALID_SETUP') return null;
 
   const baseline = {} as Record<Horizon, Scenario>;
   for (const horizon of CONFIG.HORIZONS) {
