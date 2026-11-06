@@ -493,3 +493,18 @@ far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#165
 
 Not yet audited: `backend/worker.ts` scheduled paths beyond routes. Human decisions unchanged. Risk unchanged: the stack lives
 only on draft PR branches, not on `main`.
+
+## Cloud session 2026-11-06 (branch `claude/keen-keller-juqxxw`)
+
+Base: `origin/claude/keen-keller-az2vj9` (`2c143b7`), tip of the stack #165–#174 plus the P3 fixes. `main` (`ec9cde5`) is still
+far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#165–#174, draft); none merged, no migration applied.
+
+- `backend/worker.ts` read in full (scheduled dispatcher, routes, `/health`): no defect demonstrated. Unknown cron runs nothing,
+  engine errors are logged and never propagated, manual routes are exact-match and not wired to cron.
+- Added a drift guard to `tests/test_worker_routes_security.mjs`: the crons in `wrangler.toml` must be unique, all resolve to a job,
+  and cover exactly market / news / committee. Mutant (extra cron) fails the test. No engine change.
+- Observation, not changed: the committee scope (`FULL` at UTC hour 0, else `H1_H2`) reads the wall clock, not the scheduled time,
+  so a cron delayed past midnight would run `H1_H2`. Low impact; a methodology/scheduling decision.
+
+P3 audit of the named components is now complete (committee, ingest, worker, shadow orchestrators). Human decisions unchanged.
+Risk unchanged: the stack lives only on draft PR branches, not on `main`.

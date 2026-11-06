@@ -126,6 +126,19 @@ for (const route of ['/event-shadow/', '/event-shadow/x', '/event-impact-shadow/
 assert.equal(worker.resolveJob('*/5 * * * *'), 'market_engine');
 assert.equal(worker.resolveJob('7-59/15 * * * *'), 'news_engine');
 assert.equal(worker.resolveJob('0 * * * *'), 'ai_committee');
+// Drift guard: the crons declared in wrangler.toml are exactly the ones the dispatcher knows.
+// A declared cron that resolves to nothing would fire silently and run no engine.
+{
+  const { readFileSync } = await import('node:fs');
+  const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const m = /^\s*crons\s*=\s*\[([^\]]*)\]/m.exec(toml);
+  assert.ok(m, 'wrangler.toml declares crons');
+  const declared = [...m[1].matchAll(/"([^"]*)"/g)].map((x) => x[1]);
+  assert.equal(new Set(declared).size, declared.length, 'no duplicate cron');
+  const jobs = declared.map((c) => worker.resolveJob(c));
+  assert.ok(jobs.every((j) => j !== null), 'every declared cron resolves to a job');
+  assert.deepEqual([...jobs].sort(), ['ai_committee', 'market_engine', 'news_engine'], 'one cron per engine, none extra');
+}
 for (const cron of [undefined, '', ' ', '*/5 * * * * ', ' */5 * * * *', '*/10 * * * *', '0 * * * 0', '0 0 * * *', '* * * * *', 'market_engine', '__proto__', null]) {
   assert.equal(worker.resolveJob(cron), null, `unknown cron ${JSON.stringify(cron)} runs nothing`);
 }
