@@ -94,3 +94,14 @@ test('a row shorter or longer than the header rejects the file',()=>{
   assert.throws(()=>parseEcbDailyCsv(csv([...ok.slice(1),ok[0].replace(/,[^,]*$/,'')]),{sourceSha256:sha}),/ECB_CSV_COLUMN_COUNT/);
   assert.throws(()=>parseEcbDailyCsv(csv([...ok.slice(1),ok[0]+',x']),{sourceSha256:sha}),/ECB_CSV_COLUMN_COUNT/);
 });
+
+test('OBS_VALUE accepts only plain positive decimals (no hex, binary, exponent, sign, padding)', () => {
+  const sha = 'a'.repeat(64);
+  const csv = (usd) => 'KEY,TIME_PERIOD,OBS_VALUE,CURRENCY,CURRENCY_DENOM\n'
+    + ['USD', 'JPY', 'GBP', 'CAD', 'SEK', 'CHF']
+      .map((c) => `EXR.D.${c}.EUR.SP00.A,2026-01-02,${c === 'USD' ? usd : '1.5'},${c},EUR`).join('\n');
+  for (const bad of ['0x10', '0b11', '1e0', '+1.1', ' 1.1 ', '.5', '1.', '-1.1', '0', '0.0', 'Infinity', 'NaN']) {
+    assert.throws(() => parseEcbDailyCsv(csv(bad), { sourceSha256: sha }), /ECB_RATE_INVALID/, JSON.stringify(bad));
+  }
+  assert.equal(parseEcbDailyCsv(csv('1.0834'), { sourceSha256: sha })[0].status, 'CALCULATED');
+});

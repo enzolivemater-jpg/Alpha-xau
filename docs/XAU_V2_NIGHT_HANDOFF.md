@@ -508,3 +508,17 @@ far behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#165
 
 P3 audit of the named components is now complete (committee, ingest, worker, shadow orchestrators). Human decisions unchanged.
 Risk unchanged: the stack lives only on draft PR branches, not on `main`.
+
+## Cloud session 2026-11-07 (branch `claude/keen-keller-079nk8`)
+
+Base: `origin/claude/keen-keller-juqxxw` (`666e0ca`), tip of the stack #165–#174 plus the P3 fixes. `main` (`ec9cde5`) is still far
+behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#160–#174, draft); none merged, no migration applied.
+
+- P4: PR #163 (`feat/dxy-ecb-daily-proxy-offline`, `9cf926e`) was **not** an ancestor of the stack tip; its 3 commits were cherry-picked
+  (additive: `shared/dxy_ecb_daily_proxy.mjs`, CLI, 2 test files, doc, 2 CI-runner lines). The USDX formula, weights, constant and the
+  EUR-cross derivations (USDJPY = JPY/USD, GBPUSD = USD/GBP, USDxxx = xxx/USD) were re-derived by hand: correct. Flags
+  `officialIceDxy:false`, `lookaheadSafeForReplay:false`, kind `DXY_PROXY_RECONSTRUCTED_ECB_DAILY` unchanged; not wired to DATA-3 / MP-0.
+- **Defect demonstrated** in `parseEcbDailyCsv`: `Number(OBS_VALUE)` accepted `0x10`, `0b11`, `+1.1`, `1e0`, `.5`, padded values as a rate
+  (hex `0x10` became 16). Now only `^\d+(\.\d+)?$` (ECB publishes plain decimals) and a positive finite value. Red before, green after
+  (`tests/test_dxy_ecb_daily_proxy.mjs`).
+- The proxy stays research-only and separate from the `DXY_ICE_OFFICIAL` VERIFIED contract.

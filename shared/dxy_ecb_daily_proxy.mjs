@@ -61,8 +61,10 @@ export function parseEcbDailyCsv(csv, {sourceSha256}={}) {
     for (const [k,v] of [['FREQ','D'],['EXR_TYPE','SP00'],['EXR_SUFFIX','A']]) if(at(k)>=0&&cells[at(k)]!==v) throw new Error('ECB_SERIES_KEY_INVALID');
     // 'A' is a normal value; provisional, estimated or missing-flagged observations are not used.
     if (at('OBS_STATUS')>=0&&cells[at('OBS_STATUS')]!=='A') throw new Error('ECB_OBS_STATUS_NOT_NORMAL');
+    // ECB publishes plain decimals. Number() would also read hex, binary, exponent and signed forms as a rate.
+    if (!/^\d+(\.\d+)?$/.test(cells[at('OBS_VALUE')])) throw new Error('ECB_RATE_INVALID');
     const rate=Number(cells[at('OBS_VALUE')]);
-    if (!cells[at('OBS_VALUE')].trim()||!Number.isFinite(rate)||rate<=0) throw new Error('ECB_RATE_INVALID');
+    if (!Number.isFinite(rate)||rate<=0) throw new Error('ECB_RATE_INVALID');
     if(!rows.has(day))rows.set(day,{});
     if(Object.hasOwn(rows.get(day),currency))throw new Error('ECB_DUPLICATE_RATE');
     rows.get(day)[currency]=rate;
