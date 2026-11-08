@@ -522,3 +522,23 @@ behind and was not used. Baseline: typecheck clean. Open PRs unchanged (#160–#
   (hex `0x10` became 16). Now only `^\d+(\.\d+)?$` (ECB publishes plain decimals) and a positive finite value. Red before, green after
   (`tests/test_dxy_ecb_daily_proxy.mjs`).
 - The proxy stays research-only and separate from the `DXY_ICE_OFFICIAL` VERIFIED contract.
+
+## Cloud session 2026-11-08 (branch `claude/keen-keller-midut8`)
+
+Base: `origin/claude/keen-keller-079nk8` (`6e27255`), tip of the stack #165–#174 plus the P3/P4 fixes. `main` (`ec9cde5`) is still
+far behind (304 commits) and was not used; this branch was restarted from the stack tip. Open PRs unchanged (#155–#174, draft);
+none merged, no migration applied. Baseline: typecheck clean, `npm test` **165/165** (4 min 33 s).
+
+- Audit only, no defect demonstrated, no code change:
+  - Loose `Number()` / `parseFloat` readings across `backend/` and `shared/`: all remaining uses read regex-captured digits or are
+    guarded (`^\d+$`, plain-decimal patterns, `isSafeInteger`). `Content-Length` checks in the three shadow runtimes read a hint
+    only (the real body is bounded separately); a blank header passes the hint and is caught by the body bound.
+  - `toISOString()` call sites: every one is fed by a strict parser or a finite, validated millisecond value (`parseStrictTimestamp`,
+    `parseTimestamp` in `ingest.ts`, committee event body validation).
+  - CFTC adapter `extractCftcCotReport`: report date, YYMMDD cross-check, duplicate rows, publication-after-day-end bound and
+    dataset marker contradiction re-read; fail-closed as documented.
+- Observation, not changed: `scoreSurprise` (V1 `ingest.ts`) reads a "X vs Y" pair anywhere in the text and treats `,` as a decimal
+  separator (`1,234` → 1.234); heuristic scoring with a lexical and an explicit-assumption fallback, a methodology choice.
+
+Resume point: the next useful work is P1 (DATA-3 real-archive validation, needs retained real captures) and CI confirmation on the
+exact stack tip. Risk unchanged: the stack lives only on draft PR branches, not on `main`.
