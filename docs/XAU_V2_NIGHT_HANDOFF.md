@@ -542,3 +542,14 @@ none merged, no migration applied. Baseline: typecheck clean, `npm test` **165/1
 
 Resume point: the next useful work is P1 (DATA-3 real-archive validation, needs retained real captures) and CI confirmation on the
 exact stack tip. Risk unchanged: the stack lives only on draft PR branches, not on `main`.
+
+## Cloud session 2026-11-09 (branch `claude/keen-keller-85ecc9`)
+
+Base: `origin/claude/keen-keller-midut8` (`52ae7e9`), tip of the stack #165–#174 plus the P3/P4 fixes. `main` (`ec9cde5`) is still far
+behind and was not used; the designated branch sat on `main` and was reset onto the stack tip. Open PRs unchanged (#165–#174, draft);
+none merged, no migration applied. Baseline: typecheck clean, `npm test` **165/165** (4 min 45 s).
+
+- Coverage scan: every `backend/**/*.ts` file is referenced by at least one test (name match; not a measure of branch coverage).
+  No new defect looked for blindly; no code change this session.
+- Resume point unchanged: P1 (DATA-3 real-archive validation) needs retained real captures; CI confirmation on the exact stack tip;
+  human review/merge of the stack. Risk unchanged: the stack lives only on draft PR branches, not on `main`.
