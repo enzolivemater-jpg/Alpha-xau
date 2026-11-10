@@ -33,7 +33,10 @@ export const TERMINAL_VIEW_SCHEMA_VERSION = 'xau.terminal-local-view.v4' as cons
 // stale or whose freshness is not evaluated (DXY: no approved rule) makes the manifest INCOMPLETE.
 // 4.11.0: a market field observed after the knowledge cutoff (MP-0 OBSERVATION_AFTER_KNOWLEDGE_CUTOFF) was copied as
 // is, its value shown « FRAIS AU CUTOFF »; it is now OBSERVED_AFTER_CUTOFF with no value and no age.
-export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.11.0' as const;
+// 4.12.0: a market field whose observedAt is unreadable (MP-0 INVALID_FIELD_CONTRACT: impossible date, `-00:00`, no
+// zone) kept its value and declared status, shown « FRAIS AU CUTOFF »; it is now OBSERVATION_TIME_INVALID with no
+// value and no age.
+export const TERMINAL_VIEW_ALGORITHM_VERSION = 'terminal-local-view-4.12.0' as const;
 
 /**
  * A view whose cutoff precedes its generation by more than the spot LIVE
@@ -255,6 +258,7 @@ const MARKET_STATUS_PLAIN_FR: Readonly<Record<string, string>> = {
   UNAVAILABLE: 'indisponible au cutoff',
   STALE: 'périmé au cutoff',
   OBSERVED_AFTER_CUTOFF: 'observé après le cutoff : inconnu à cette date, valeur non affichée',
+  OBSERVATION_TIME_INVALID: 'date d\'observation illisible : connaissance au cutoff non établie, valeur non affichée',
 };
 
 /**
@@ -1034,11 +1038,14 @@ export function buildTerminalView(
   const pricing = result.stages.marketPricing;
   const positioning = result.stages.positioning;
   const holdRationale = holdRationaleOf(stages);
-  // MP-0 keeps the fields it abstains on, for audit. A value observed after the cutoff was not knowable then:
-  // the view shows when it was observed, never the value itself nor a freshness.
+  // MP-0 keeps the fields it abstains on, for audit. A value observed after the cutoff was not knowable then, and
+  // one whose observation time is unreadable cannot be shown to have been: the view shows the observedAt as given,
+  // never the value itself nor a freshness.
   const fields: TerminalMarketFieldView[] = Object.entries(pricing.fields).map(([field, value]) => (
     value.observedAt !== null && isStrictlyAfter(value.observedAt, result.knowledgeCutoff)
       ? { field, role: value.role, value: null, statusAtCutoff: 'OBSERVED_AFTER_CUTOFF', observedAt: value.observedAt, ageSecondsAtCutoff: null, source: value.source }
+      : value.value !== null && parseStrictTimestamp(value.observedAt) === null
+      ? { field, role: value.role, value: null, statusAtCutoff: 'OBSERVATION_TIME_INVALID', observedAt: value.observedAt, ageSecondsAtCutoff: null, source: value.source }
       : {
         field,
         role: value.role,

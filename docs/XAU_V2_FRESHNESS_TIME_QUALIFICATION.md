@@ -78,11 +78,31 @@ puis code. **Retour arrière** : code, puis
 
 Un code A-C3 lisant une base non migrée échoue fermé : PostgREST refuse la
 colonne inconnue, donc `DATA_UNAVAILABLE`, sans valeur servie. Le script de
-retour arrière recrée la vue (on ne peut pas retirer une colonne d'une vue).
-Il restaure les droits un par un, options de transmission comprises, ainsi que
-le commentaire et `security_invoker`. Il s'interrompt sans rien changer si un
-objet dépend de la vue. L'OID de la vue change, et son propriétaire devient le
-rôle qui exécute le script (le même que pour le schéma).
+retour arrière recrée la vue (on ne peut pas retirer une colonne d'une vue),
+en une seule transaction, tout ou rien :
+
+- il restaure le propriétaire, les droits de table et de colonne, chacun avec
+  son concédant d'origine et son option de transmission, le commentaire et
+  `security_invoker` ;
+- il compare ensuite propriétaire et droits à ce qu'il avait relevé, et
+  s'interrompt à la moindre différence ;
+- il s'interrompt sans rien changer si un objet dépend de la vue (vue, vue
+  matérialisée, fonction), s'il est lancé par un rôle qui n'en est pas
+  propriétaire, si la vue porte un déclencheur, une règle ou un droit sur
+  `staleness_us` (que `DROP VIEW` supprimerait sans le dire), ou s'il ne peut
+  pas rejouer un droit sous son concédant d'origine (propriétaire non
+  superutilisateur face au droit d'un autre concédant).
+
+Seul l'OID de la vue change.
+
+Le test PostgreSQL refuse de démarrer si le serveur n'est pas déclaré jetable
+(`XAU_PG_DISPOSABLE=xau_market_rls_test`, hôte local). Il travaille dans une base de son exécution, au nom unique
+(`xau_a_c3_<pid>_<aléa>`), vérifiée absente avant `CREATE DATABASE`, et
+marquée d'un jeton de l'exécution ; sa création et sa propriété (rôle
+propriétaire et jeton) sont vérifiées après création et avant suppression. Il ne supprime jamais de base au
+démarrage. Au nettoyage, il ne supprime que cette base, et seulement si elle
+porte encore son jeton, y compris en cas d'échec intermédiaire. Une exécution
+tuée net laisse sa propre base, jamais celle d'un autre.
 
 ## 4. Preuves (reproductibles)
 
@@ -90,7 +110,8 @@ rôle qui exécute le script (le même que pour le schéma).
 node node_modules/typescript/bin/tsc --noEmit
 node scripts/run_ci_tests.mjs                      # inclut tests/test_freshness_edge_matrix.mjs
 node tests/test_freshness_edge_matrix.mjs           # 240 cellules : 5 symboles × 2 seuils × 6 décalages × 4 chemins
-PGDATABASE=xau_market_rls_test node tests/test_market_latest_exact_staleness_postgres.mjs   # PG 17.6 jetable
+XAU_PG_DISPOSABLE=xau_market_rls_test PGDATABASE=xau_market_rls_test node tests/test_market_latest_exact_staleness_postgres.mjs   # PG 17.6 jetable
+XAU_PG_DISPOSABLE=xau_market_rls_test PGDATABASE=xau_market_rls_test node tests/test_market_latest_exact_staleness_isolation_postgres.mjs   # 2 exécutions concurrentes, échec intermédiaire, nom déjà pris
 ```
 
 Décalages autour de chaque seuil : -1 ms, égalité, +1 ms, +499 ms, +500 ms et
