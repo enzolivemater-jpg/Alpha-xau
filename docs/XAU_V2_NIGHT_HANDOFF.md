@@ -553,3 +553,15 @@ none merged, no migration applied. Baseline: typecheck clean, `npm test` **165/1
   No new defect looked for blindly; no code change this session.
 - Resume point unchanged: P1 (DATA-3 real-archive validation) needs retained real captures; CI confirmation on the exact stack tip;
   human review/merge of the stack. Risk unchanged: the stack lives only on draft PR branches, not on `main`.
+
+## Cloud session 2026-11-10 (branch `claude/keen-keller-wlzdsp`)
+
+Base: `origin/claude/keen-keller-85ecc9` (`7d97603`). `main` (`ec9cde5`) is still far behind and was not used. Open PRs #155–#174
+(draft); none merged, no migration applied. Baseline: typecheck clean, `npm test` 165/165 (6 min).
+
+- Consolidation (P0): PRs #172–#174 (A-C2 / A-C3 exact-age freshness, view 4.12.0) and #171 (DATA-3 raw-storage and capture
+  attestation) were not in the stack. Merged `origin/fix/a-c3-exact-runtime-staleness` (`5b8361b`, contains #172 and #173) and
+  `origin/feat/data-3-raw-capture-attestation` (`dd6e732`) into this branch: no conflict; typecheck clean, `npm test` 165/165.
+  The PostgreSQL test added by A-C3 (`test_market_latest_exact_staleness_isolation_postgres.mjs`) needs CI/ephemeral DB, not run.
+- No code change of my own. Resume point: CI confirmation on this tip, human review of the stack, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PR / nightly branches, not on `main`.
