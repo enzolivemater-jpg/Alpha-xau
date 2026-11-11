@@ -90,7 +90,7 @@ const CRON_COMMITTEE = '0 * * * *';
 
 export type JobName = 'market_engine' | 'news_engine' | 'ai_committee';
 
-interface ScheduledEventLike { readonly cron?: string }
+interface ScheduledEventLike { readonly cron?: string; readonly scheduledTime?: number }
 interface ExecutionContextLike { waitUntil(promise: Promise<unknown>): void }
 
 /**
@@ -107,6 +107,18 @@ export function resolveJob(cron: string | undefined): JobName | null {
   }
 }
 
+/**
+ * Committee scope for a cron run: FULL at UTC hour 0, else H1_H2. The hour
+ * comes from the SCHEDULED instant (Cloudflare's event.scheduledTime, epoch
+ * ms) so a run delayed past the hour boundary keeps the scope it was
+ * scheduled for; a missing or non-finite value falls back to the wall clock.
+ */
+export function committeeScopeFor(scheduledTime: number | undefined, nowMs: number = Date.now()): RecalcScope {
+  const ms = typeof scheduledTime === 'number' && Number.isFinite(scheduledTime) ? scheduledTime : nowMs;
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) || d.getUTCHours() === 0 ? 'FULL' : 'H1_H2';
+}
+
 function log(level: string, job: string, message: string, extra?: Record<string, unknown>): void {
   console.log(JSON.stringify({
     ts: new Date().toISOString(), level, worker: 'alpha-xau', job, message, ...extra,
@@ -115,7 +127,7 @@ function log(level: string, job: string, message: string, extra?: Record<string,
 
 /** Exécute le job demandé. Toute erreur est journalisée, jamais propagée
  *  au runtime : un moteur en échec ne doit pas empêcher les suivants. */
-export async function runJob(job: JobName, env: WorkerEnv): Promise<void> {
+export async function runJob(job: JobName, env: WorkerEnv, scheduledTime?: number): Promise<void> {
   log('info', job, 'STARTED');
   try {
     if (job === 'market_engine') {
@@ -136,8 +148,7 @@ export async function runJob(job: JobName, env: WorkerEnv): Promise<void> {
       log('info', job, 'SUCCESS');
       return;
     }
-    const hourUTC = new Date().getUTCHours();
-    const scope: RecalcScope = hourUTC === 0 ? 'FULL' : 'H1_H2';
+    const scope: RecalcScope = committeeScopeFor(scheduledTime);
     const analysis = await runCommittee(env, { scope, triggerType: 'cron' });
     log('info', job, 'SUCCESS', { execution_status: analysis.meta.execution_status });
   } catch (err) {
@@ -209,6 +220,6 @@ export default {
       return;
     }
     // waitUntil : le run se termine même après le retour du handler.
-    ctx.waitUntil(runJob(job, env));
+    ctx.waitUntil(runJob(job, env, event.scheduledTime));
   },
 };

@@ -126,6 +126,15 @@ for (const route of ['/event-shadow/', '/event-shadow/x', '/event-impact-shadow/
 assert.equal(worker.resolveJob('*/5 * * * *'), 'market_engine');
 assert.equal(worker.resolveJob('7-59/15 * * * *'), 'news_engine');
 assert.equal(worker.resolveJob('0 * * * *'), 'ai_committee');
+// Committee scope follows the SCHEDULED instant, not the wall clock.
+{
+  const at = (iso) => Date.parse(iso);
+  assert.equal(worker.committeeScopeFor(at('2026-11-11T00:00:00Z'), at('2026-11-11T05:00:00Z')), 'FULL');
+  assert.equal(worker.committeeScopeFor(at('2026-11-11T23:00:00Z'), at('2026-11-12T00:00:03Z')), 'H1_H2', 'delayed past midnight keeps scheduled scope');
+  assert.equal(worker.committeeScopeFor(at('2026-11-11T00:00:00Z'), at('2026-11-11T01:00:01Z')), 'FULL', 'delayed run of the midnight job stays FULL');
+  assert.equal(worker.committeeScopeFor(undefined, at('2026-11-11T00:30:00Z')), 'FULL');
+  assert.equal(worker.committeeScopeFor(Number.NaN, at('2026-11-11T07:00:00Z')), 'H1_H2');
+}
 // Drift guard: the crons declared in wrangler.toml are exactly the ones the dispatcher knows.
 // A declared cron that resolves to nothing would fire silently and run no engine.
 {

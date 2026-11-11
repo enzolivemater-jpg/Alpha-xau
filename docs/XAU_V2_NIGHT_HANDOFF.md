@@ -565,3 +565,16 @@ Base: `origin/claude/keen-keller-85ecc9` (`7d97603`). `main` (`ec9cde5`) is stil
   The PostgreSQL test added by A-C3 (`test_market_latest_exact_staleness_isolation_postgres.mjs`) needs CI/ephemeral DB, not run.
 - No code change of my own. Resume point: CI confirmation on this tip, human review of the stack, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PR / nightly branches, not on `main`.
+
+## Cloud session 2026-11-11 (branch `claude/keen-keller-1n6vur`)
+
+Base: `origin/claude/keen-keller-wlzdsp` (`d545e85`), tip of the stack plus P3/P4 fixes and the #171-#174 merges. `main` (`ec9cde5`) is
+still far behind and was not used. Open PRs unchanged (#155-#174, draft); none merged, no migration applied.
+
+- P3 (reproducibility): the 2026-11-06 observation is fixed. The committee scope (`FULL` at UTC hour 0, else `H1_H2`) read the wall clock,
+  so a delayed cron could run the wrong scope. `committeeScopeFor(scheduledTime, now)` now uses Cloudflare's `event.scheduledTime`
+  (finite epoch ms), falling back to the wall clock if absent/non-finite. `runJob` takes an optional third argument; manual callers unchanged.
+- Tests added in `tests/test_worker_routes_security.mjs` (delayed past midnight, delayed midnight job, missing/NaN). Typecheck clean;
+  worker routes, architecture boundaries and body-timeout tests pass. Full `npm test` not re-run this session.
+- Resume point unchanged: CI on the exact tip, human review of the stack, P1 needs retained real captures. Risk unchanged: the stack
+  lives only on draft PR / nightly branches, not on `main`.
