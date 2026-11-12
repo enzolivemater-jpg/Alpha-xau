@@ -578,3 +578,16 @@ still far behind and was not used. Open PRs unchanged (#155-#174, draft); none m
   worker routes, architecture boundaries and body-timeout tests pass. Full `npm test` not re-run this session.
 - Resume point unchanged: CI on the exact tip, human review of the stack, P1 needs retained real captures. Risk unchanged: the stack
   lives only on draft PR / nightly branches, not on `main`.
+
+## Cloud session 2026-11-12 (branch `claude/keen-keller-iy4eiq`)
+
+Base: `origin/claude/keen-keller-1n6vur` (`19271f0`), the newest consolidated tip (stack #155-#174 + #171-#174 merges + worker
+committee-scope fix). The designated branch sat on `main` (`ec9cde5`) and was reset onto that tip. Open PRs unchanged (#155-#174,
+draft); none merged, no migration applied.
+
+- Validation owed from 2026-11-11: full `npm test` on `19271f0` = **165/165**, `npm run typecheck` clean (Node 22.23.4).
+- Wall-clock audit of `committee_orchestrator.ts`, event shadow batches/orchestrators, `run_lock.ts`, `worker.ts`: remaining
+  `Date.now()` / `new Date()` uses are operational durations, persisted `generated_at` / `valid_until` of a live row, and the HTTP-date
+  `Retry-After` delta. None decides a scheduled-instant or as-of outcome; no code change.
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack, P1 needs retained real captures. Risk unchanged:
+  the stack lives only on draft PR / nightly branches, not on `main`.
