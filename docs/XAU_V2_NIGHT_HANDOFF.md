@@ -591,3 +591,14 @@ draft); none merged, no migration applied.
   `Retry-After` delta. None decides a scheduled-instant or as-of outcome; no code change.
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack, P1 needs retained real captures. Risk unchanged:
   the stack lives only on draft PR / nightly branches, not on `main`.
+
+## Cloud session 2026-11-13 (branch `claude/keen-keller-k08c0z`)
+
+Base: `origin/claude/keen-keller-iy4eiq` (`935f655`), newest consolidated tip; the designated branch sat on `main` (`ec9cde5`) and was
+reset onto it. `main` unchanged, no PR opened/merged, no migration.
+
+- Baseline on `935f655`: `npm run typecheck` clean, full `npm test` = **165/165** (Node 22.23.4).
+- Read-only audit of `backend/ingest.ts` `parseTimestamp`/`scoreQuality` (future-skew and 48h window guards, strict calendar parse) and
+  `backend/worker.ts` `runJob` (busy vs failure classification, no error propagation): no demonstrable defect, no code change.
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
