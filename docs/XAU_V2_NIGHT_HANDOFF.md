@@ -602,3 +602,14 @@ reset onto it. `main` unchanged, no PR opened/merged, no migration.
   `backend/worker.ts` `runJob` (busy vs failure classification, no error propagation): no demonstrable defect, no code change.
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
+
+## Cloud session 2026-11-14 (branch `claude/keen-keller-7ej849`)
+
+Base: `origin/claude/keen-keller-k08c0z` (`bef7c61`), newest consolidated tip; the designated branch was reset onto it. `main`
+(`ec9cde5`) unchanged; open PRs #155-#174 unchanged (draft); none merged, no migration applied.
+
+- Baseline: `npm run typecheck` clean, full `npm test` = **165/165** (Node 22.23.4).
+- Read-only audit of `committee_orchestrator.ts`: `parseRetryAfter` (strict delta-seconds, capped by `MAX_RETRY_AFTER_MS` before sleeping),
+  `fetchBaselineScenarios` (DB error or non-VALID_SETUP reference falls back to FULL, fail-closed). No demonstrable defect, no code change.
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
