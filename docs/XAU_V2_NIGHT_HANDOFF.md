@@ -613,3 +613,14 @@ Base: `origin/claude/keen-keller-k08c0z` (`bef7c61`), newest consolidated tip; t
   `fetchBaselineScenarios` (DB error or non-VALID_SETUP reference falls back to FULL, fail-closed). No demonstrable defect, no code change.
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
+
+## Cloud session 2026-11-15 (branch `claude/keen-keller-3sebr2`)
+
+Base: `origin/claude/keen-keller-7ej849` (`57646fa`), newest consolidated tip; the designated branch sat on `main` (`ec9cde5`) and was
+reset onto it. `main` unchanged; open PRs #155-#174 unchanged (draft); none merged, no migration applied.
+
+- Baseline: `npm ci` needed first (fresh container lacked `fflate`); then `npm run typecheck` clean, full `npm test` = **165/165**.
+- Re-scan of the three shadow orchestrators (`event_engine`, `event_impact`, `gold_transmission`): no wall-clock read and no swallowed
+  catch in the decision path. No demonstrable defect, no code change.
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
