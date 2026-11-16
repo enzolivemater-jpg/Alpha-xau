@@ -624,3 +624,16 @@ reset onto it. `main` unchanged; open PRs #155-#174 unchanged (draft); none merg
   catch in the decision path. No demonstrable defect, no code change.
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
+
+## Cloud session 2026-11-16 (branch `claude/keen-keller-f78loj`)
+
+Base: `origin/claude/keen-keller-3sebr2` (`cf2e336`), newest consolidated tip, reached by fast-forward from `main` (`ec9cde5`, unchanged).
+Open PRs #155-#174 unchanged (draft); none merged, no migration applied. Baseline: `npm ci` then typecheck clean, `npm test` **165/165**.
+
+- Closes the 2026-11-03 observation: the three event-engine copies of `isValidNumericOffset` (`shadow_orchestrator`, `shadow_candidate_discovery`,
+  `deterministic_processor`) accepted offsets to ±23:59 and `-00:00`. Now the TIME-0 policy (≤ ±14:00, no `-00:00`), like `shared/raw_news.ts`.
+  Regression test in `tests/test_event_shadow_candidate_discovery.mjs` (4 cases): the 3 refusal cases were red without the fix, green with it.
+  Full `npm test` 165/165, typecheck clean. Caution for review: `deterministic_processor` decides event-source timestamp acceptance, so a source
+  using an offset beyond ±14:00 is now refused (none is known to exist).
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.

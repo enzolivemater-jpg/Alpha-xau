@@ -203,7 +203,9 @@ function isValidNumericOffset(offset: string): boolean {
   if (!m) return false;
   const hour = Number(m[2]);
   const minute = Number(m[3]);
-  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
+  // TIME-0 policy: a real zone is at most +/-14:00; "-00:00" means unknown.
+  if (hour > 14 || minute > 59 || (hour === 14 && minute !== 0)) return false;
+  return !(m[1] === '-' && hour === 0 && minute === 0);
 }
 
 /**

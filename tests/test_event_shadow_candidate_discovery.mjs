@@ -788,5 +788,18 @@ async function expectThrow(fn, label) {
     result.selected.every((c) => 'observationId' in c && 'lane' in c && 'ingestedAt' in c && 'clusterId' in c && 'decisionId' in c && 'assignedAt' in c));
 }
 
+// ---------------------------------------------------------------------
+// TIME-0 zone policy: a real offset is at most +/-14:00 and "-00:00" is unknown.
+{
+  const tryTs = async (ts) => {
+    const { db } = makeFakeDb({ recoveryRows: [], freshRows: [makeFreshRow({ ingested_at: ts })] });
+    try { await discoverEventShadowCandidates(db, 25); return 'ACCEPTED'; } catch { return 'REFUSED'; }
+  };
+  t('offset +14:00 reste accepté', (await tryTs('2026-09-01T10:00:00+14:00')) === 'ACCEPTED');
+  t('offset -00:00 (fuseau inconnu) refusé', (await tryTs('2026-09-01T10:00:00-00:00')) === 'REFUSED');
+  t('offset +23:59 refusé', (await tryTs('2026-09-01T10:00:00+23:59')) === 'REFUSED');
+  t('offset +14:30 refusé', (await tryTs('2026-09-01T10:00:00+14:30')) === 'REFUSED');
+}
+
 console.log(`\nRESULT: ${p} passed, ${f} failed`);
 process.exit(f > 0 ? 1 : 0);
