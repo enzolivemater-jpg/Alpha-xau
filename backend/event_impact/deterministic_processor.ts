@@ -463,8 +463,13 @@ function isStrictTimestampWithTimezone(value: unknown): value is string {
 
   const timezone = match[7];
   if (timezone !== 'Z') {
-    const offset = /^[+-](\d{2}):?(\d{2})$/.exec(timezone);
-    if (offset === null || Number(offset[1]) > 23 || Number(offset[2]) > 59) return false;
+    const offset = /^([+-])(\d{2}):?(\d{2})$/.exec(timezone);
+    if (offset === null) return false;
+    // TIME-0 zone policy: at most +/-14:00, and "-00:00" means an unknown zone.
+    const zoneHour = Number(offset[2]);
+    const zoneMinute = Number(offset[3]);
+    if (zoneHour > 14 || zoneMinute > 59 || (zoneHour === 14 && zoneMinute !== 0)) return false;
+    if (offset[1] === '-' && zoneHour === 0 && zoneMinute === 0) return false;
   }
   return true;
 }

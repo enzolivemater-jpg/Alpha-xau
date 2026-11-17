@@ -637,3 +637,17 @@ Open PRs #155-#174 unchanged (draft); none merged, no migration applied. Baselin
   using an offset beyond ±14:00 is now refused (none is known to exist).
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
+
+## Cloud session 2026-11-17 (branch `claude/keen-keller-ou4x01`)
+
+Base: `origin/claude/keen-keller-f78loj` (`fe5c9cc`), newest consolidated tip, reached by fast-forward from `main` (`ec9cde5`, unchanged).
+Open PRs #155-#174 unchanged (draft); none merged, no migration applied. Baseline: `npm ci`, typecheck clean, `npm test` **165/165**.
+
+- Closes the last two copies of the loose zone check (follow-up to 2026-11-16): `event_impact/deterministic_processor.ts`
+  (`isStrictTimestampWithTimezone`) and `gold_transmission/deterministic_processor.ts` (`isTimestampWithTimezone`) accepted
+  `knowledgeCutoff` / `effectiveTime` offsets to ±23:59 and `-00:00`. Now TIME-0 policy (≤ ±14:00, no `-00:00`). Tests: 4 refusal
+  cases per file (+23:59, +14:30, -00:00, -0000), red before the fix (4 FAIL each), green after; +14:00, -12:00, +00:00, Z still accepted.
+  Caution for review: such a cutoff now yields `INVALID_KNOWLEDGE_CUTOFF` (abstention); no known source emits these offsets.
+  Year `0000` is not yet refused by these two copies (calendar check only): possible follow-up.
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
