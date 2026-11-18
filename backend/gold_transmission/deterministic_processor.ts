@@ -194,7 +194,7 @@ function isTimestampWithTimezone(value: unknown): value is string {
   if (match === null) return false;
   const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
   const monthDays = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  if (month < 1 || month > 12 || day < 1 || day > monthDays[month - 1]
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > monthDays[month - 1]
       || hour > 23 || minute > 59 || second > 59) return false;
   if (match[7] !== 'Z') {
     const offset = /^([+-])(\d{2}):?(\d{2})$/.exec(match[7]);

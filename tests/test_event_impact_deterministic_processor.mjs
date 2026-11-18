@@ -317,6 +317,7 @@ for (const [field, value, reason] of [
   ['knowledgeCutoff', '2026-09-22T00:00:00+14:30', 'INVALID_KNOWLEDGE_CUTOFF'],
   ['knowledgeCutoff', '2026-09-22T00:00:00-00:00', 'INVALID_KNOWLEDGE_CUTOFF'],
   ['knowledgeCutoff', '2026-09-22T00:00:00-0000', 'INVALID_KNOWLEDGE_CUTOFF'],
+  ['knowledgeCutoff', '0000-09-22T00:00:00Z', 'INVALID_KNOWLEDGE_CUTOFF'],
   ['effectiveTime', 'tomorrow', 'INVALID_EFFECTIVE_TIME'],
   ['canonicalEventStateSchemaVersion', 0, 'INVALID_CANONICAL_EVENT_STATE_SCHEMA_VERSION'],
   ['canonicalEventStateSchemaVersion', 1.5, 'INVALID_CANONICAL_EVENT_STATE_SCHEMA_VERSION'],

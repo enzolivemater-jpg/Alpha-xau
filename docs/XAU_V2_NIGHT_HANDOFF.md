@@ -651,3 +651,14 @@ Open PRs #155-#174 unchanged (draft); none merged, no migration applied. Baselin
   Year `0000` is not yet refused by these two copies (calendar check only): possible follow-up.
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
+
+## Cloud session 2026-11-18 (branch `claude/keen-keller-awqva0`)
+
+Base: `origin/claude/keen-keller-ou4x01` (`656a7ae`), newest consolidated tip, reached by fast-forward from `main` (`ec9cde5`, unchanged).
+Open PRs #155-#174 unchanged (draft); none merged, no migration applied. Baseline: `npm ci`, typecheck clean, `npm test` **165/165**.
+
+- Closes the 2026-11-17 follow-up: `event_impact` and `gold_transmission` deterministic processors accepted year `0000` in
+  `knowledgeCutoff` / `effectiveTime` (calendar check only). Now refused (`year < 1`) -> `INVALID_KNOWLEDGE_CUTOFF` abstention.
+  One regression case per file, red before the fix, green after. Full `npm test` 165/165, typecheck clean.
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.

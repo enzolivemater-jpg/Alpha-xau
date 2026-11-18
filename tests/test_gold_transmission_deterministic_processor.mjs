@@ -145,6 +145,7 @@ abstains(mod.planDeterministicGoldTransmission(null), 'INVALID_INPUT_SHAPE', 'nu
 abstains(mod.planDeterministicGoldTransmission({}), 'INVALID_INPUT_SHAPE', 'missing eventVersion');
 abstains(plan({ id: 'not-a-uuid' }), 'INVALID_EVENT_VERSION_ID', 'invalid id');
 abstains(plan({ knowledgeCutoff: '2026-02-30T00:00:00Z' }), 'INVALID_KNOWLEDGE_CUTOFF', 'invalid date');
+abstains(plan({ knowledgeCutoff: '0000-09-22T00:00:00Z' }), 'INVALID_KNOWLEDGE_CUTOFF', 'year 0000 refused');
 // TIME-0 zone policy: at most +/-14:00, and -00:00 means an unknown zone.
 for (const zone of ['+23:59', '+14:30', '-00:00', '-0000']) {
   abstains(plan({ knowledgeCutoff: `2026-09-22T00:00:00${zone}` }), 'INVALID_KNOWLEDGE_CUTOFF', `zone ${zone} refused`);

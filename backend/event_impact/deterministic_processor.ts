@@ -457,6 +457,7 @@ function isStrictTimestampWithTimezone(value: unknown): value is string {
   const hour = Number(match[4]);
   const minute = Number(match[5]);
   const second = Number(match[6]);
+  if (year < 1) return false; // year 0000 is not a valid ISO calendar year here
   if (month < 1 || month > 12) return false;
   if (day < 1 || day > daysInMonth(year, month)) return false;
   if (hour > 23 || minute > 59 || second > 59) return false;
