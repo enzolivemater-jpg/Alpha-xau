@@ -662,3 +662,18 @@ Open PRs #155-#174 unchanged (draft); none merged, no migration applied. Baselin
   One regression case per file, red before the fix, green after. Full `npm test` 165/165, typecheck clean.
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
+
+## Cloud session 2026-11-21 (branch `claude/keen-keller-ocz3i9`)
+
+Base: `origin/claude/keen-keller-awqva0` (`a1de841`), newest consolidated tip, reached by fast-forward from `main` (`ec9cde5`, unchanged).
+Open PRs #155-#174 unchanged (draft; heads: #161 `c817c85`, stack tip #174 `5b8361b`); none merged, no migration applied.
+Baseline: `npm ci`, typecheck clean, `npm test` **165/165**.
+
+- Scan of the remaining loose numeric/time reads in `backend/` (`Number()`, `parseFloat`, zone checks): all timestamp validators now share the
+  TIME-0 policy; the three `checkDeclaredContentLength` copies treat Content-Length as a hint only (body bytes are enforced afterwards).
+  No demonstrable defect, no code change.
+- Observation, not changed (negligible effect): `market_engine/providers.ts` `parseRetryAfter` still uses `Number(header)` (reads `"0x16"` as 22 s),
+  unlike the strict RFC 9110 copies in `ingest.ts` and `committee_orchestrator.ts`. The value is only compared with the 20 s cap to decide
+  between abandon and retry; a strict copy would be consistent but changes retry timing in `test_provider_failure_modes.mjs`.
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
