@@ -677,3 +677,16 @@ Baseline: `npm ci`, typecheck clean, `npm test` **165/165**.
   between abandon and retry; a strict copy would be consistent but changes retry timing in `test_provider_failure_modes.mjs`.
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
+
+## Cloud session 2026-11-22 (branch `claude/keen-keller-rk3t5s`)
+
+Base: `origin/claude/keen-keller-ocz3i9` (`ef15bbb`), newest consolidated tip (the designated branch sat on `main` `ec9cde5`, unchanged, and was reset onto it).
+Open PRs #155-#174 unchanged (draft); none merged, no migration applied. Baseline: `npm ci`, typecheck clean, `npm test` **165/165**.
+
+- Closes the 2026-11-21 observation: `market_engine/providers.ts` `parseRetryAfter` now follows RFC 9110 like `ingest.ts` and
+  `committee_orchestrator.ts` (delta-seconds = 1*DIGIT, else HTTP date). `"0x16"` was read as 22 s (> 20 s cap) and caused an immediate
+  abandon instead of an ordinary retry. New `tests/test_provider_retry_after_strict.mjs` (registered in `scripts/run_ci_tests.mjs`):
+  red before the fix ("0x16"), green after; a readable `600` stays an immediate abandon. Full `npm test` **166/166**, typecheck clean.
+  Note: `tests/test_provider_failure_modes.mjs` is a reviewed exemption (retired Stooq module) and cannot cover this.
+- Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
+  Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.

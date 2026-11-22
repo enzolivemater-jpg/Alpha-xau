@@ -105,9 +105,12 @@ export function redactUrl(url: string): string {
 
 function parseRetryAfter(header: string | null): number | null {
   if (!header) return null;
-  const seconds = Number(header);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
-  const date = Date.parse(header);
+  const value = header.trim();
+  // RFC 9110 : delta-seconds = 1*DIGIT. `Number()` lisait "0x16" comme 22 s et
+  // "  " comme 0 ; un texte non numérique tombait sur Date.parse.
+  if (/^\d{1,9}$/.test(value)) return Number(value) * 1000;
+  if (!/[A-Za-z]{3}/.test(value)) return null;
+  const date = Date.parse(value);
   return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
 }
 
