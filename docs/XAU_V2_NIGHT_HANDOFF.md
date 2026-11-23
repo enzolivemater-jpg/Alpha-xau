@@ -703,3 +703,5 @@ no migration applied. Note: the mission text mentions PR #161 / `c817c85`; neith
   object is skipped alone, non-text `title`/`url`/`domain`/`seendate`/`publishedAt` are never coerced, and `description`/`content` are joined only
   when text (no `"[object Object]"`). A non-array `articles` still ends as a reported failure. New `tests/test_news_collector_mapping_mutation.mjs`
   (registered in `scripts/run_ci_tests.mjs`): 7 of 44 checks red before the fix, 44/44 after.
+  Validation: typecheck clean, `npm test` **167/167** (baseline 166 + new file). `test_gdelt_429_retry_policy.mjs` harness now also extracts
+  `isPlainRecord`. Pushed to `origin/claude/keen-keller-qb9nea`. Resume point: CI on the exact tip, human review of the stack, P1 real captures.
