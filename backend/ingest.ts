@@ -672,6 +672,11 @@ function dedupKeyOf(title: string): string {
     .trim();
 }
 
+/** Vrai pour un objet JSON ordinaire (ni null, ni scalaire, ni tableau). */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** Parse une date fournisseur. Renvoie null si absente ou aberrante. */
 function parseTimestamp(value: string | null | undefined): Date | null {
   if (!value) return null;
@@ -769,17 +774,20 @@ async function collectGdelt(env: Env, log: Logger): Promise<{
 
     const articles: NormalizedArticle[] = [];
     for (const raw of data.articles ?? []) {
+      // Un élément illisible (null, scalaire, tableau) est écarté seul : il ne
+      // doit pas faire échouer les articles valides du même lot.
+      if (!isPlainRecord(raw)) continue;
       const title = cleanText(raw.title, CONFIG.MAX_TITLE_LEN);
-      const publishedAt = parseTimestamp(raw.seendate);
+      const publishedAt = parseTimestamp(typeof raw.seendate === 'string' ? raw.seendate : null);
       // Donnée manquante : rejet silencieux, jamais de valeur inventée (§2.2).
       if (!title || !publishedAt) continue;
 
-      const urlValue = raw.url ?? null;
+      const urlValue = typeof raw.url === 'string' ? raw.url : null;
       articles.push({
         title,
         content: null, // GDELT ne fournit pas le corps de l'article.
         url: urlValue,
-        domain: (raw.domain ?? '').toLowerCase() || extractDomain(urlValue),
+        domain: (typeof raw.domain === 'string' ? raw.domain : '').toLowerCase() || extractDomain(urlValue),
         publishedAt,
         collector: 'gdelt',
         dedupKey: dedupKeyOf(title),
@@ -873,17 +881,22 @@ async function collectNewsApi(env: Env, log: Logger): Promise<{
 
     const articles: NormalizedArticle[] = [];
     for (const raw of data.articles ?? []) {
+      // Élément illisible : écarté seul (voir collectGdelt).
+      if (!isPlainRecord(raw)) continue;
       // NewsAPI publie des articles supprimés sous le titre "[Removed]".
-      if (!raw.title || raw.title.trim() === '[Removed]') continue;
+      if (typeof raw.title !== 'string' || raw.title.trim() === '' || raw.title.trim() === '[Removed]') continue;
 
       const title = cleanText(raw.title, CONFIG.MAX_TITLE_LEN);
-      const publishedAt = parseTimestamp(raw.publishedAt);
+      const publishedAt = parseTimestamp(typeof raw.publishedAt === 'string' ? raw.publishedAt : null);
       if (!title || !publishedAt) continue;
 
       // description + content : le corps NewsAPI est tronqué à 200 caractères
       // en plan gratuit, la description apporte le contexte manquant.
-      const body = [raw.description, raw.content].filter(Boolean).join(' ');
-      const urlValue = raw.url ?? null;
+      // Seuls des textes sont joints : un objet ne devient jamais "[object Object]".
+      const body = [raw.description, raw.content]
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+        .join(' ');
+      const urlValue = typeof raw.url === 'string' ? raw.url : null;
 
       articles.push({
         title,

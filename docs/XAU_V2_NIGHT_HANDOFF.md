@@ -690,3 +690,16 @@ Open PRs #155-#174 unchanged (draft); none merged, no migration applied. Baselin
   Note: `tests/test_provider_failure_modes.mjs` is a reviewed exemption (retired Stooq module) and cannot cover this.
 - Resume point unchanged: CI on the exact tip, human review/merge of the stack #155-#174, P1 needs retained real captures.
   Risk unchanged: the stack lives only on draft PRs / nightly branches, not on `main`.
+
+## Cloud session 2026-11-23 (branch `claude/keen-keller-qb9nea`)
+
+Base: `origin/claude/keen-keller-rk3t5s` (`ccc9122`), newest consolidated tip (the designated branch sat on `main` `ec9cde5`, unchanged, and was
+fast-forwarded onto it). Open PRs: #96, #100, #104, #122 only are visible as open on GitHub (#155-#174 no longer listed as open); none merged,
+no migration applied. Note: the mission text mentions PR #161 / `c817c85`; neither is the live tip.
+
+- `backend/ingest.ts` GDELT / NewsAPI mappers: **one malformed element made the whole provider batch fail.** An `null`/`undefined` element, or a
+  NewsAPI element with a non-text `title` (`raw.title.trim()` on a number/object), threw inside the mapping loop; the outer `catch` then reported the
+  collector as failed (`ok:false`, `retries: MAX_RETRIES`) and dropped every valid article of the same response. Now an element that is not a plain
+  object is skipped alone, non-text `title`/`url`/`domain`/`seendate`/`publishedAt` are never coerced, and `description`/`content` are joined only
+  when text (no `"[object Object]"`). A non-array `articles` still ends as a reported failure. New `tests/test_news_collector_mapping_mutation.mjs`
+  (registered in `scripts/run_ci_tests.mjs`): 7 of 44 checks red before the fix, 44/44 after.

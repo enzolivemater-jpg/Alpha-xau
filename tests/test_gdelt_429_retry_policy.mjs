@@ -108,6 +108,7 @@ if (!timestampShapeMatch) throw new Error('SHAPE introuvable dans strict_timesta
 const daysInMonthSrc = extractBlock(timestampSource, /function daysInMonth\(/);
 const parseStrictTimestampSrc = extractBlock(timestampSource, /function parseStrictTimestamp\(/);
 const extractDomainSrc = extractBlock(ingestSource, /function extractDomain\(/);
+const isPlainRecordSrc = extractBlock(ingestSource, /function isPlainRecord\(/);
 const errorMessageSrc = extractBlock(ingestSource, /function errorMessage\(err: unknown\)/);
 const redactStringSrc = extractBlock(ingestSource, /function redactString\(value: string\)/);
 const redactSrc = extractBlock(ingestSource, /function redact\(input: unknown, depth = 0\)/);
@@ -172,6 +173,7 @@ ${redactSrc}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 ${errorMessageSrc}
 ${extractDomainSrc}
+${isPlainRecordSrc}
 ${cleanTextSrc}
 ${stripPublisherSuffixSrc}
 ${dedupKeyOfSrc}
