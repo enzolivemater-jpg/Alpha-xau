@@ -705,3 +705,15 @@ no migration applied. Note: the mission text mentions PR #161 / `c817c85`; neith
   (registered in `scripts/run_ci_tests.mjs`): 7 of 44 checks red before the fix, 44/44 after.
   Validation: typecheck clean, `npm test` **167/167** (baseline 166 + new file). `test_gdelt_429_retry_policy.mjs` harness now also extracts
   `isPlainRecord`. Pushed to `origin/claude/keen-keller-qb9nea`. Resume point: CI on the exact tip, human review of the stack, P1 real captures.
+
+## Cloud session 2026-11-24 (branch `claude/keen-keller-sukpv7`)
+
+Base: `origin/claude/keen-keller-qb9nea` (`6694854`), newest consolidated tip (designated branch sat on `main` `ec9cde5`, unchanged; fast-forwarded).
+Open PRs visible: #96, #100, #104, #122 only. PR #161 is **closed** (draft, unmerged; head `c817c85`); not the live tip. None merged, no migration applied.
+Baseline: `npm ci`, typecheck clean, `npm test` **167/167**.
+
+- Audit of `backend/worker.ts` (P3): cron dispatch is exact-match, `committeeScopeFor` guards non-finite input, errors are logged and never propagated.
+  Observation, not changed: `fetch` routes with `startsWith('/committee')` / `startsWith('/news')`, so e.g. `POST /newsfoo` with a valid `INGEST_TOKEN`
+  runs a manual ingestion. Token-gated, same effect as `/news`; no demonstrable integrity risk. Exact matching would be stricter if desired.
+- No code change this session (no demonstrated defect found). Resume point: CI on the exact tip, human review of the stack, P1 needs retained real captures.
+  Risk unchanged: the work lives only on nightly branches, not on `main`.
