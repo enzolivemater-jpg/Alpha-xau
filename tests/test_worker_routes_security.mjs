@@ -108,6 +108,20 @@ for (const route of ['/event-shadow/', '/event-shadow/x', '/event-impact-shadow/
   await response.text();
 }
 
+// Prefix routes are segment-aware: `/newsfoo`, `/committeeX`, `/healthz` are not the engines' routes, even with a VALID token.
+for (const route of ['/newsfoo', '/news-x', '/newsX/reconcile', '/committeeX', '/committee-x', '/healthz', '/health-x']) {
+  const before = outbound;
+  const response = await handler.fetch(new Request(`https://worker.example.invalid${route}`, { method: 'POST', headers: { 'x-ingest-token': INGEST, 'x-committee-token': COMMITTEE, authorization: `Bearer ${INGEST}` }, body: '{}' }), env());
+  if (response.status !== 404) note(`segment route ${route}`, `status ${response.status} (expected 404 Route inconnue)`);
+  if (outbound !== before) note(`segment route ${route}`, 'reached an engine (outbound request)');
+  await response.text();
+}
+for (const route of ['/health/', '/health/x']) {
+  const response = await handler.fetch(new Request(`https://worker.example.invalid${route}`), env());
+  if (response.status !== 200) note(`health sub-route ${route}`, `status ${response.status}`);
+  await response.text();
+}
+
 // /health: public by design, no secret and no environment value.
 {
   const response = await handler.fetch(new Request('https://worker.example.invalid/health'), env());

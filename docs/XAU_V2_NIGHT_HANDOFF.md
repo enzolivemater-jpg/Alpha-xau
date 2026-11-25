@@ -717,3 +717,14 @@ Baseline: `npm ci`, typecheck clean, `npm test` **167/167**.
   runs a manual ingestion. Token-gated, same effect as `/news`; no demonstrable integrity risk. Exact matching would be stricter if desired.
 - No code change this session (no demonstrated defect found). Resume point: CI on the exact tip, human review of the stack, P1 needs retained real captures.
   Risk unchanged: the work lives only on nightly branches, not on `main`.
+
+## Cloud session 2026-11-25 (branch `claude/keen-keller-67o5wn`)
+
+Base: `origin/claude/keen-keller-sukpv7` (`67d3fbf`), newest consolidated tip (designated branch sat on `main` `ec9cde5`; fast-forwarded). Open PRs: #96, #100, #104, #122.
+PR #161 closed (head `c817c85`), not the live tip. None merged, no migration applied. Baseline: `npm ci`, typecheck clean, `npm test` **167/167**.
+
+- Closes the 2026-11-24 observation: `backend/worker.ts` routed with bare `startsWith('/committee' | '/news' | '/health')`, so `POST /newsfoo` or
+  `/committeeX` with a valid token ran a manual engine and `/healthz` answered the health probe. Now `isRouteOrSubroute(path, prefix)` (exact or `prefix/…`);
+  `/news/reconcile`, `/committee`, `/health` unchanged. `tests/test_worker_routes_security.mjs` extended: red before the fix, green after.
+  Validation: typecheck clean, `npm test` 167/167.
+- Resume point unchanged: CI on the exact tip, human review of the stack, P1 needs retained real captures. Work lives on nightly branches, not `main`.

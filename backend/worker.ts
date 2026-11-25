@@ -165,6 +165,12 @@ export async function runJob(job: JobName, env: WorkerEnv, scheduledTime?: numbe
   }
 }
 
+/** True when `path` is `prefix` itself or a sub-path of it (`prefix/...`).
+ *  A bare string prefix would also match `/newsfoo` or `/healthz`. */
+export function isRouteOrSubroute(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
 export default {
   /**
    * Déclenchement manuel. Les routes restent celles des moteurs, chacun
@@ -173,8 +179,8 @@ export default {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
     const path = new URL(request.url).pathname;
 
-    if (path.startsWith('/committee')) return handleCommitteeRequest(request, env);
-    if (path.startsWith('/news')) return handleNewsRequest(request, env);
+    if (isRouteOrSubroute(path, '/committee')) return handleCommitteeRequest(request, env);
+    if (isRouteOrSubroute(path, '/news')) return handleNewsRequest(request, env);
     // Exact match only — deliberately NOT startsWith('/event-shadow'), and
     // deliberately NOT wired into scheduled()/resolveJob()/JobName below.
     // OPS-023 PR9 adds a SECOND controlled MANUAL endpoint that composes
@@ -202,7 +208,7 @@ export default {
     // scheduled()/resolveJob()/JobName below: manual only.
     if (path === '/gold-transmission-shadow') return handleGoldTransmissionShadowRequest(request, env);
 
-    if (path.startsWith('/health')) {
+    if (isRouteOrSubroute(path, '/health')) {
       return new Response(
         JSON.stringify({ status: 'ok', jobs: [CRON_MARKET, CRON_NEWS, CRON_COMMITTEE] }),
         { status: 200, headers: { 'content-type': 'application/json' } },
