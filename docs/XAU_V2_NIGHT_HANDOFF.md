@@ -726,5 +726,5 @@ PR #161 closed (head `c817c85`), not the live tip. None merged, no migration app
 - Closes the 2026-11-24 observation: `backend/worker.ts` routed with bare `startsWith('/committee' | '/news' | '/health')`, so `POST /newsfoo` or
   `/committeeX` with a valid token ran a manual engine and `/healthz` answered the health probe. Now `isRouteOrSubroute(path, prefix)` (exact or `prefix/…`);
   `/news/reconcile`, `/committee`, `/health` unchanged. `tests/test_worker_routes_security.mjs` extended: red before the fix, green after.
-  Validation: typecheck clean, `npm test` 167/167.
+  Validation: typecheck clean, `npm test` 167/167 (static assertion in `test_event_shadow_runtime.mjs` updated to the new helper).
 - Resume point unchanged: CI on the exact tip, human review of the stack, P1 needs retained real captures. Work lives on nightly branches, not `main`.

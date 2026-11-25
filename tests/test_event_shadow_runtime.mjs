@@ -783,9 +783,9 @@ t('la route exacte /event-shadow existe (comparaison stricte ===, jamais startsW
   const codeOnlyWorkerSource = workerSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   t('aucune route large startsWith(\'/event-shadow\') dans le code exécutable', !codeOnlyWorkerSource.includes("startsWith('/event-shadow')"));
 }
-t('/news reste inchangée', /path\.startsWith\('\/news'\)/.test(workerSource));
-t('/committee reste inchangée', /path\.startsWith\('\/committee'\)/.test(workerSource));
-t('/health reste inchangée', /path\.startsWith\('\/health'\)/.test(workerSource));
+t('/news reste routée (segment exact ou sous-route)', /isRouteOrSubroute\(path, '\/news'\)/.test(workerSource));
+t('/committee reste routée (segment exact ou sous-route)', /isRouteOrSubroute\(path, '\/committee'\)/.test(workerSource));
+t('/health reste routée (segment exact ou sous-route)', /isRouteOrSubroute\(path, '\/health'\)/.test(workerSource));
 
 t('aucune référence à CRON_EVENT_SHADOW', !workerSource.includes('CRON_EVENT_SHADOW'));
 {
