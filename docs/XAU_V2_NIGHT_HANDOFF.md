@@ -728,3 +728,14 @@ PR #161 closed (head `c817c85`), not the live tip. None merged, no migration app
   `/news/reconcile`, `/committee`, `/health` unchanged. `tests/test_worker_routes_security.mjs` extended: red before the fix, green after.
   Validation: typecheck clean, `npm test` 167/167 (static assertion in `test_event_shadow_runtime.mjs` updated to the new helper).
 - Resume point unchanged: CI on the exact tip, human review of the stack, P1 needs retained real captures. Work lives on nightly branches, not `main`.
+
+## Cloud session 2026-11-26 (branch `claude/keen-keller-61efu5`)
+
+Base: `origin/claude/keen-keller-67o5wn` (`c3419d4`), newest consolidated tip (designated branch sat on `main` `ec9cde5`; reset onto it). Open PRs: #96, #100, #104, #122
+(drafts/REC-1/INFRA/METH, not stack). `main` unchanged; none merged, no migration. Baseline: `npm ci`, typecheck clean, `npm test` **167/167**.
+
+- Read-only audit: `backend/ingest.ts` `cleanText` (numeric entities, bounded regexes), `scoreSurprise`, and `committee_orchestrator.ts` numeric reads
+  (`asNumber`, `storedNumber`, `asUnitConfidence`). No demonstrable defect, no code change. Observation only: `scoreSurprise` reads any "A vs B" pair
+  as actual/expected (heuristic, not a fact); left as is.
+- Resume point unchanged: CI on the exact tip, human review/merge of the nightly stack, P1 needs retained real captures.
+  Risk unchanged: the work lives only on nightly branches, not on `main`.
