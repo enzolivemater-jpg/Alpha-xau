@@ -739,3 +739,15 @@ Base: `origin/claude/keen-keller-67o5wn` (`c3419d4`), newest consolidated tip (d
   as actual/expected (heuristic, not a fact); left as is.
 - Resume point unchanged: CI on the exact tip, human review/merge of the nightly stack, P1 needs retained real captures.
   Risk unchanged: the work lives only on nightly branches, not on `main`.
+
+## Cloud session 2026-11-27 (branch `claude/keen-keller-p72ktz`)
+
+Base: `origin/claude/keen-keller-61efu5` (`4a50dab`), newest consolidated tip (designated branch sat on `main` `ec9cde5`; fast-forwarded). Open PRs: #96, #100, #104, #122
+(REC-1 / INFRA / METH, not the stack). `main` unchanged; none merged, no migration. Baseline: `npm ci`, typecheck clean, `npm test` **167/167**.
+
+- P4 check: `origin/feat/dxy-ecb-daily-proxy-offline` is already integrated in this tip and the tip's copy is stricter (plain-decimal `OBS_VALUE` only,
+  series key and status checks). Merging the branch again only produces add/add conflicts where the tip is the newer side: do not merge it.
+  `DXY_PROXY_RECONSTRUCTED_ECB_DAILY` stays research-only (`officialIceDxy:false`, `lookaheadSafeForReplay:false`), never `DXY_ICE_OFFICIAL`.
+- Scan of every `Number(` / `parseInt` / `parseFloat` read in `backend/`, `shared/`, `scripts/`: all operate on regex-validated digit captures. No demonstrable defect, no code change.
+- Resume point unchanged: CI on the exact tip, human review/merge of the nightly stack, P1 needs retained real captures.
+  Risk unchanged: the work lives only on nightly branches, not on `main`.
