@@ -751,3 +751,14 @@ Base: `origin/claude/keen-keller-61efu5` (`4a50dab`), newest consolidated tip (d
 - Scan of every `Number(` / `parseInt` / `parseFloat` read in `backend/`, `shared/`, `scripts/`: all operate on regex-validated digit captures. No demonstrable defect, no code change.
 - Resume point unchanged: CI on the exact tip, human review/merge of the nightly stack, P1 needs retained real captures.
   Risk unchanged: the work lives only on nightly branches, not on `main`.
+
+## Cloud session 2026-11-28 (branch `claude/keen-keller-fdeuxj`)
+
+Base: `origin/claude/keen-keller-p72ktz` (`7326722`), newest consolidated tip (designated branch sat on `main` `ec9cde5`; reset onto it). Open PRs: #96, #100, #104, #122
+(REC-1 / INFRA / METH, not the stack). `main` unchanged; none merged, no migration. Baseline: `npm ci`, typecheck clean, `npm test` **167/167**.
+
+- Read-only scan of every `JSON.parse` site in `backend/` (ingest, ingest_market, committee_orchestrator, shadow runtimes, providers, transport contract):
+  provider bodies are try/caught into explicit failures; Supabase 2xx bodies that are malformed throw inside the retry loop (retried, then rethrown, never
+  used as data); the committee route maps an unreadable body to HTTP 400. No demonstrable defect, no code change.
+- Resume point unchanged: CI on the exact tip, human review/merge of the nightly stack, P1 needs retained real captures.
+  Risk unchanged: the work lives only on nightly branches, not on `main`.
